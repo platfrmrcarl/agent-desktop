@@ -19,6 +19,7 @@ const ALLOWED_SETTING_KEYS = new Set<string>([
   'notificationDesktopMode',
   'activeTheme',
   // Appearance
+  'windowTitle',
   'showTitlebar',
   'fontSize',
   'chatLayout',

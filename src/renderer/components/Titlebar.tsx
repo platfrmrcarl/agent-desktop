@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { UserProfile } from './auth/UserProfile'
 import { useMobileMode } from '../hooks/useMobileMode'
 import { useUiStore } from '../stores/uiStore'
+import { useSettingsStore } from '../stores/settingsStore'
 
 interface TitlebarProps {
   onOpenSettings: () => void
@@ -11,6 +12,7 @@ export function Titlebar({ onOpenSettings }: TitlebarProps) {
   const [isMaximized, setIsMaximized] = useState(false)
   const mobile = useMobileMode()
   const toggleSidebar = useUiStore((s) => s.toggleSidebar)
+  const windowTitle = useSettingsStore((s) => s.settings.windowTitle) || 'Agent Desktop'
 
   return (
     <div
@@ -36,7 +38,7 @@ export function Titlebar({ onOpenSettings }: TitlebarProps) {
       {/* App title */}
       <div className="flex items-center gap-2u px-4u min-w-0">
         <span className="text-body font-bold text-base truncate">
-          Agent Desktop
+          {windowTitle}
         </span>
       </div>
 

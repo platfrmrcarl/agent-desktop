@@ -136,7 +136,13 @@ export default function App() {
   }, [])
 
   const showTitlebar = useSettingsStore((s) => s.settings.showTitlebar) !== 'false'
+  const windowTitle = useSettingsStore((s) => s.settings.windowTitle) || 'Agent Desktop'
   const mobile = useMobileMode()
+
+  // Sync document.title so taskbar/dock shows the custom name
+  useEffect(() => {
+    document.title = windowTitle
+  }, [windowTitle])
 
 
   return (

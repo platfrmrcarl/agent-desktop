@@ -44,6 +44,7 @@ export function AppearanceSettings() {
   }, [loadThemes, loadSettings])
 
   const currentFontSize = settings.fontSize ?? '14'
+  const windowTitle = settings.windowTitle ?? ''
   const showTitlebar = (settings.showTitlebar ?? 'true') === 'true'
   const alwaysVisible = (settings.panelButtonAlwaysVisible ?? 'false') === 'true'
   const heatmapEnabled = (settings.heatmap_enabled ?? 'false') === 'true'
@@ -148,6 +149,19 @@ export function AppearanceSettings() {
               style={{ transform: showTitlebar ? 'translateX(16px)' : 'translateX(0px)' }}
             />
           </button>
+        </div>
+
+        {/* Window Title */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
+          <span className="text-sm text-body">Window Title</span>
+          <input
+            type="text"
+            value={windowTitle}
+            onChange={(e) => setSetting('windowTitle', e.target.value)}
+            placeholder="Agent Desktop"
+            className="w-48 bg-surface text-body border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+            aria-label="Custom window title"
+          />
         </div>
 
         {/* Font Size */}
