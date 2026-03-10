@@ -12,7 +12,8 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
   ipcMain.handle('conversations:list', () => {
     return db
       .prepare(
-        `SELECT * FROM conversations ORDER BY updated_at DESC`
+        `SELECT c.*, (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count
+         FROM conversations c ORDER BY updated_at DESC`
       )
       .all()
   })
@@ -222,7 +223,7 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     const pattern = `%${query}%`
     return db
       .prepare(
-        `SELECT DISTINCT c.*
+        `SELECT DISTINCT c.*, (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count
          FROM conversations c
          LEFT JOIN messages m ON m.conversation_id = c.id
          WHERE c.title LIKE ? OR m.content LIKE ?
