@@ -1,8 +1,9 @@
 import { useEffect, useCallback, useState, useRef } from 'react'
 import { useConversationsStore } from '../../stores/conversationsStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { SearchBar } from './SearchBar'
 import { SidebarTree } from './FolderTree'
-import type { Folder } from '../../../shared/types'
+import type { Folder, SortCriterion, SortDirection } from '../../../shared/types'
 
 export function Sidebar({ onOpenSettings, onOpenScheduler }: { onOpenSettings?: () => void; onOpenScheduler?: () => void }) {
   const { loadConversations, loadFolders, createConversation, createFolder, selectedIds, clearSelection, deleteSelected, moveSelectedToFolder, folders } =
@@ -45,6 +46,7 @@ export function Sidebar({ onOpenSettings, onOpenScheduler }: { onOpenSettings?: 
           Conversations
         </span>
         <div className="flex items-center gap-1 mobile:gap-2">
+          <SortDropdown />
           {onOpenSettings && (
             <button
               onClick={onOpenSettings}
@@ -255,6 +257,98 @@ function SelectionBar({ count, folders, onClear, onDelete, onMoveToFolder }: {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
+    </div>
+  )
+}
+
+const SORT_CRITERIA: { value: SortCriterion; label: string }[] = [
+  { value: 'updated_at', label: 'Last message date' },
+  { value: 'message_count', label: 'Message count' },
+  { value: 'title', label: 'Alphabetical' },
+]
+
+function SortDropdown() {
+  const { settings, setSetting } = useSettingsStore()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const criterion = (settings.sort_criterion as SortCriterion) || 'updated_at'
+  const direction = (settings.sort_direction as SortDirection) || 'desc'
+
+  useEffect(() => {
+    if (!open) return
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  const handleCriterionChange = (value: SortCriterion) => {
+    setSetting('sort_criterion', value)
+    setOpen(false)
+  }
+
+  const toggleDirection = () => {
+    setSetting('sort_direction', direction === 'asc' ? 'desc' : 'asc')
+  }
+
+  // Check if non-default sort is active
+  const isCustomSort = criterion !== 'updated_at' || direction !== 'desc'
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        title="Sort conversations"
+        className="p-1 mobile:w-11 mobile:h-11 mobile:flex mobile:items-center mobile:justify-center mobile:p-0 rounded transition-colors hover:bg-[var(--color-bg)]"
+        style={{ color: isCustomSort ? 'var(--color-primary)' : 'var(--color-text-muted)' }}
+        aria-label="Sort conversations"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-1 rounded-lg shadow-lg py-1 text-sm min-w-[180px] z-50"
+          style={{
+            backgroundColor: 'var(--color-surface)',
+            border: '1px solid var(--color-bg)',
+          }}
+        >
+          {SORT_CRITERIA.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => handleCriterionChange(opt.value)}
+              className="w-full text-left px-3 py-1.5 hover:bg-[var(--color-bg)] flex items-center justify-between"
+              style={{
+                backgroundColor: 'transparent',
+                color: criterion === opt.value ? 'var(--color-primary)' : 'var(--color-text)',
+              }}
+            >
+              <span>{opt.label}</span>
+              {criterion === opt.value && <span className="text-xs">✓</span>}
+            </button>
+          ))}
+          <div
+            className="mx-2 my-1"
+            style={{ borderTop: '1px solid var(--color-bg)' }}
+          />
+          <button
+            onClick={toggleDirection}
+            className="w-full text-left px-3 py-1.5 hover:bg-[var(--color-bg)] flex items-center gap-2"
+            style={{ backgroundColor: 'transparent', color: 'var(--color-text)' }}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              style={{ transform: direction === 'asc' ? 'rotate(180deg)' : 'none' }}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+            <span>{direction === 'asc' ? 'Ascending' : 'Descending'}</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }
