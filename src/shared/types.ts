@@ -45,6 +45,7 @@ export interface Conversation {
   compact_summary: string | null
   sdk_session_id: string | null
   color: string | null
+  message_count?: number
   created_at: string
   updated_at: string
 }
@@ -378,5 +379,15 @@ export interface LogEntry {
   message: string
   timestamp: string
   details?: string
+}
+
+// ─── Sort Types ──────────────────────────────────────────────
+
+export type SortCriterion = 'updated_at' | 'message_count' | 'title'
+export type SortDirection = 'asc' | 'desc'
+
+export interface SortConfig {
+  criterion: SortCriterion
+  direction: SortDirection
 }
 
