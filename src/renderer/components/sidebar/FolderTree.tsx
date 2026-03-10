@@ -979,6 +979,61 @@ export function SidebarTree() {
             Folder Settings
           </ContextMenuItem>
           <ContextMenuDivider />
+          <ContextMenuItem
+            onClick={() => {
+              const folder = foldersById.get(menuFolderId!)
+              if (!folder) return
+              const overrides = folder.ai_overrides ? JSON.parse(folder.ai_overrides) : {}
+              const currentCriterion = overrides.sort_criterion || null
+              // Cycle: null → updated_at → message_count → title → null
+              const criteria: (string | null)[] = [null, 'updated_at', 'message_count', 'title']
+              const currentIdx = criteria.indexOf(currentCriterion)
+              const nextCriterion = criteria[(currentIdx + 1) % criteria.length]
+              const newOverrides = { ...overrides }
+              if (nextCriterion === null) {
+                delete newOverrides.sort_criterion
+                delete newOverrides.sort_direction
+              } else {
+                newOverrides.sort_criterion = nextCriterion
+                newOverrides.sort_direction = overrides.sort_direction || 'desc'
+              }
+              const json = Object.keys(newOverrides).length > 0 ? JSON.stringify(newOverrides) : null
+              updateFolder(menuFolderId!, { ai_overrides: json })
+              setMenuFolderId(null)
+            }}
+          >
+            Sort: {(() => {
+              const folder = foldersById.get(menuFolderId!)
+              if (!folder?.ai_overrides) return 'Inherited'
+              try {
+                const o = JSON.parse(folder.ai_overrides)
+                if (!o.sort_criterion) return 'Inherited'
+                const labels: Record<string, string> = { updated_at: 'Date', message_count: 'Messages', title: 'Name' }
+                return labels[o.sort_criterion] || 'Inherited'
+              } catch { return 'Inherited' }
+            })()}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              const folder = foldersById.get(menuFolderId!)
+              if (!folder) return
+              const overrides = folder.ai_overrides ? JSON.parse(folder.ai_overrides) : {}
+              const currentDir = overrides.sort_direction || 'desc'
+              overrides.sort_direction = currentDir === 'asc' ? 'desc' : 'asc'
+              updateFolder(menuFolderId!, { ai_overrides: JSON.stringify(overrides) })
+              setMenuFolderId(null)
+            }}
+          >
+            Direction: {(() => {
+              const folder = foldersById.get(menuFolderId!)
+              if (!folder?.ai_overrides) return '↓ Desc'
+              try {
+                const o = JSON.parse(folder.ai_overrides)
+                return o.sort_direction === 'asc' ? '↑ Asc' : '↓ Desc'
+              } catch { return '↓ Desc' }
+            })()}
+          </ContextMenuItem>
+          <ContextMenuDivider />
           <ColorSwatches
             currentColor={foldersById.get(menuFolderId)?.color ?? null}
             onColorChange={(color) => {
