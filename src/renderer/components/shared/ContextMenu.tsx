@@ -128,6 +128,55 @@ export function ContextMenuItem({
   )
 }
 
+export function ContextMenuSubmenu({ label, children }: { label: ReactNode; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleEnter = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    setOpen(true)
+  }
+  const handleLeave = () => {
+    timeoutRef.current = setTimeout(() => setOpen(false), 150)
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="relative"
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+    >
+      <button
+        className="w-full text-left px-3 py-1.5 mobile:py-2.5 hover:bg-[var(--color-bg)] flex items-center justify-between"
+        style={{ backgroundColor: 'transparent' }}
+        onClick={() => setOpen(v => !v)}
+        role="menuitem"
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        <span>{label}</span>
+        <span className="text-xs ml-2" style={{ color: 'var(--color-text-muted)' }}>▸</span>
+      </button>
+      {open && (
+        <div
+          className="absolute left-full top-0 ml-1 rounded shadow-lg py-1 text-sm min-w-[150px] z-50"
+          style={{
+            backgroundColor: 'var(--color-surface)',
+            border: '1px solid var(--color-bg)',
+            color: 'var(--color-text)',
+          }}
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ContextMenuDivider() {
   return <div className="border-t my-1" style={{ borderColor: 'var(--color-bg)' }} />
 }

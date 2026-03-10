@@ -10,7 +10,7 @@ import { EmptyState } from './EmptyState'
 import { FolderSettingsPopover } from '../settings/FolderSettingsPopover'
 import type { McpServerName } from '../settings/FolderSettingsPopover'
 import { useMcpStore } from '../../stores/mcpStore'
-import { ContextMenu, ContextMenuItem, ContextMenuDivider } from '../shared/ContextMenu'
+import { ContextMenu, ContextMenuItem, ContextMenuDivider, ContextMenuSubmenu } from '../shared/ContextMenu'
 import { ColorSwatches, ColorPicker as ColorPickerPanel, hsvToHex } from '../shared/ColorPicker'
 
 // --- FolderRow: memoized extracted component (Task 2.1) ---
@@ -979,60 +979,60 @@ export function SidebarTree() {
             Folder Settings
           </ContextMenuItem>
           <ContextMenuDivider />
-          <ContextMenuItem
-            onClick={() => {
+          <ContextMenuSubmenu label="Sort by">
+            {([
+              { value: null, label: 'Inherited' },
+              { value: 'updated_at', label: 'Last message date' },
+              { value: 'message_count', label: 'Message count' },
+              { value: 'title', label: 'Alphabetical' },
+            ] as { value: string | null; label: string }[]).map((opt) => {
               const folder = foldersById.get(menuFolderId!)
-              if (!folder) return
-              const overrides = folder.ai_overrides ? JSON.parse(folder.ai_overrides) : {}
-              const currentCriterion = overrides.sort_criterion || null
-              // Cycle: null → updated_at → message_count → title → null
-              const criteria: (string | null)[] = [null, 'updated_at', 'message_count', 'title']
-              const currentIdx = criteria.indexOf(currentCriterion)
-              const nextCriterion = criteria[(currentIdx + 1) % criteria.length]
-              const newOverrides = { ...overrides }
-              if (nextCriterion === null) {
-                delete newOverrides.sort_criterion
-                delete newOverrides.sort_direction
-              } else {
-                newOverrides.sort_criterion = nextCriterion
-                newOverrides.sort_direction = overrides.sort_direction || 'desc'
-              }
-              const json = Object.keys(newOverrides).length > 0 ? JSON.stringify(newOverrides) : null
-              updateFolder(menuFolderId!, { ai_overrides: json })
-              setMenuFolderId(null)
-            }}
-          >
-            Sort: {(() => {
+              const overrides = folder?.ai_overrides ? JSON.parse(folder.ai_overrides) : {}
+              const current = overrides.sort_criterion || null
+              return (
+                <ContextMenuItem
+                  key={opt.label}
+                  onClick={() => {
+                    const newOverrides = { ...overrides }
+                    if (opt.value === null) {
+                      delete newOverrides.sort_criterion
+                      delete newOverrides.sort_direction
+                    } else {
+                      newOverrides.sort_criterion = opt.value
+                      if (!newOverrides.sort_direction) newOverrides.sort_direction = 'desc'
+                    }
+                    const json = Object.keys(newOverrides).length > 0 ? JSON.stringify(newOverrides) : null
+                    updateFolder(menuFolderId!, { ai_overrides: json })
+                    setMenuFolderId(null)
+                  }}
+                >
+                  <span style={{ color: current === opt.value ? 'var(--color-primary)' : undefined }}>
+                    {current === opt.value ? '✓ ' : '\u2003'}{opt.label}
+                  </span>
+                </ContextMenuItem>
+              )
+            })}
+            <ContextMenuDivider />
+            {(['desc', 'asc'] as const).map((dir) => {
               const folder = foldersById.get(menuFolderId!)
-              if (!folder?.ai_overrides) return 'Inherited'
-              try {
-                const o = JSON.parse(folder.ai_overrides)
-                if (!o.sort_criterion) return 'Inherited'
-                const labels: Record<string, string> = { updated_at: 'Date', message_count: 'Messages', title: 'Name' }
-                return labels[o.sort_criterion] || 'Inherited'
-              } catch { return 'Inherited' }
-            })()}
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              const folder = foldersById.get(menuFolderId!)
-              if (!folder) return
-              const overrides = folder.ai_overrides ? JSON.parse(folder.ai_overrides) : {}
-              const currentDir = overrides.sort_direction || 'desc'
-              overrides.sort_direction = currentDir === 'asc' ? 'desc' : 'asc'
-              updateFolder(menuFolderId!, { ai_overrides: JSON.stringify(overrides) })
-              setMenuFolderId(null)
-            }}
-          >
-            Direction: {(() => {
-              const folder = foldersById.get(menuFolderId!)
-              if (!folder?.ai_overrides) return '↓ Desc'
-              try {
-                const o = JSON.parse(folder.ai_overrides)
-                return o.sort_direction === 'asc' ? '↑ Asc' : '↓ Desc'
-              } catch { return '↓ Desc' }
-            })()}
-          </ContextMenuItem>
+              const overrides = folder?.ai_overrides ? JSON.parse(folder.ai_overrides) : {}
+              const current = overrides.sort_direction || 'desc'
+              return (
+                <ContextMenuItem
+                  key={dir}
+                  onClick={() => {
+                    const newOverrides = { ...overrides, sort_direction: dir }
+                    updateFolder(menuFolderId!, { ai_overrides: JSON.stringify(newOverrides) })
+                    setMenuFolderId(null)
+                  }}
+                >
+                  <span style={{ color: current === dir ? 'var(--color-primary)' : undefined }}>
+                    {current === dir ? '✓ ' : '\u2003'}{dir === 'desc' ? '↓ Descending' : '↑ Ascending'}
+                  </span>
+                </ContextMenuItem>
+              )
+            })}
+          </ContextMenuSubmenu>
           <ContextMenuDivider />
           <ColorSwatches
             currentColor={foldersById.get(menuFolderId)?.color ?? null}
