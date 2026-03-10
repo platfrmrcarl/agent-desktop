@@ -91,6 +91,9 @@ const ALLOWED_SETTING_KEYS = new Set<string>([
   'retry_enabled',
   'retry_maxAttempts',
   'retry_initialDelayMs',
+  // Sort preferences (global only, not cascadable)
+  'sort_criterion',
+  'sort_direction',
 ])
 
 export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void {
