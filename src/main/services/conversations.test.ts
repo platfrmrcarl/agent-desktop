@@ -55,6 +55,23 @@ describe('Conversations Service', () => {
     expect(list[1].title).toBe('First')
   })
 
+  it('list includes message_count for each conversation', async () => {
+    const conv = await ipc.invoke('conversations:create', 'With Count') as any
+    db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conv.id, 'user', 'hello')
+    db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conv.id, 'assistant', 'hi')
+
+    const list = await ipc.invoke('conversations:list') as any[]
+    const found = list.find((c: any) => c.id === conv.id)
+    expect(found.message_count).toBe(2)
+  })
+
+  it('list returns message_count 0 for conversation with no messages', async () => {
+    const conv = await ipc.invoke('conversations:create', 'Empty') as any
+    const list = await ipc.invoke('conversations:list') as any[]
+    const found = list.find((c: any) => c.id === conv.id)
+    expect(found.message_count).toBe(0)
+  })
+
   it('get returns conversation with messages array', async () => {
     const conv = await ipc.invoke('conversations:create', 'With Messages') as any
     db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conv.id, 'user', 'hello')
