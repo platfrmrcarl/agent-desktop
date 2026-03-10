@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react'
-import type { Folder, Conversation } from '../../../shared/types'
+import type { Folder, Conversation, SortConfig, SortCriterion, SortDirection } from '../../../shared/types'
+import { sortConversations, sortFolders } from '../../utils/sort'
+import type { FolderStats } from '../../utils/sort'
 import { useConversationsStore } from '../../stores/conversationsStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useMobileMode } from '../../hooks/useMobileMode'
@@ -403,6 +405,98 @@ export function SidebarTree() {
     return result
   }, [folders, convCountByFolder, childrenByParent])
 
+  // Global sort config from settings (globalSettings moved up from below for sort dependency)
+  const globalSettings = useSettingsStore((s) => s.settings)
+  const globalSortCriterion = (globalSettings.sort_criterion as SortCriterion) || 'updated_at'
+  const globalSortDirection = (globalSettings.sort_direction as SortDirection) || 'desc'
+  const globalSort: SortConfig = useMemo(
+    () => ({ criterion: globalSortCriterion, direction: globalSortDirection }),
+    [globalSortCriterion, globalSortDirection]
+  )
+
+  // Resolve per-folder sort config (folder override > global)
+  const getFolderSort = useCallback((folder: Folder): SortConfig => {
+    if (!folder.ai_overrides) return globalSort
+    try {
+      const overrides = JSON.parse(folder.ai_overrides)
+      return {
+        criterion: overrides.sort_criterion || globalSort.criterion,
+        direction: overrides.sort_direction || globalSort.direction,
+      }
+    } catch {
+      return globalSort
+    }
+  }, [globalSort])
+
+  // Cumulative message counts (sum of message_count across all conversations recursively)
+  const recursiveMessageCounts = useMemo(() => {
+    const result = new Map<number, number>()
+    const compute = (folderId: number): number => {
+      if (result.has(folderId)) return result.get(folderId)!
+      const folderConvs = convsByFolder.get(folderId) ?? []
+      const direct = folderConvs.reduce((sum, c) => sum + (c.message_count ?? 0), 0)
+      const children = childrenByParent.get(folderId) ?? []
+      const total = direct + children.reduce((sum, f) => sum + compute(f.id), 0)
+      result.set(folderId, total)
+      return total
+    }
+    for (const f of folders) compute(f.id)
+    return result
+  }, [folders, convsByFolder, childrenByParent])
+
+  // Most recent updated_at per folder (recursive)
+  const recursiveUpdatedAt = useMemo(() => {
+    const result = new Map<number, string>()
+    const compute = (folderId: number): string => {
+      if (result.has(folderId)) return result.get(folderId)!
+      const folderConvs = convsByFolder.get(folderId) ?? []
+      let latest = ''
+      for (const c of folderConvs) {
+        if (c.updated_at > latest) latest = c.updated_at
+      }
+      for (const child of (childrenByParent.get(folderId) ?? [])) {
+        const childLatest = compute(child.id)
+        if (childLatest > latest) latest = childLatest
+      }
+      result.set(folderId, latest)
+      return latest
+    }
+    for (const f of folders) compute(f.id)
+    return result
+  }, [folders, convsByFolder, childrenByParent])
+
+  // Combined folder stats for sort function
+  const folderStats = useMemo(() => {
+    const stats = new Map<number, FolderStats>()
+    for (const f of folders) {
+      stats.set(f.id, {
+        updated_at: recursiveUpdatedAt.get(f.id) ?? '',
+        message_count: recursiveMessageCounts.get(f.id) ?? 0,
+      })
+    }
+    return stats
+  }, [folders, recursiveUpdatedAt, recursiveMessageCounts])
+
+  // Sorted convsByFolder (applies per-folder sort)
+  const sortedConvsByFolder = useMemo(() => {
+    const map = new Map<number, Conversation[]>()
+    for (const [folderId, convs] of convsByFolder) {
+      const folder = foldersById.get(folderId)
+      const sort = folder ? getFolderSort(folder) : globalSort
+      map.set(folderId, sortConversations(convs, sort))
+    }
+    return map
+  }, [convsByFolder, foldersById, getFolderSort, globalSort])
+
+  // Sorted childrenByParent (applies global sort to folder ordering)
+  const sortedChildrenByParent = useMemo(() => {
+    const map = new Map<number | null, Folder[]>()
+    for (const [parentId, children] of childrenByParent) {
+      map.set(parentId, sortFolders(children, globalSort, folderStats, true))
+    }
+    return map
+  }, [childrenByParent, globalSort, folderStats])
+
   // Recursive child folder count using index maps
   const recursiveChildFolderCounts = useMemo(() => {
     const result = new Map<number, number>()
@@ -453,7 +547,6 @@ export function SidebarTree() {
     }
   }, [])
 
-  const globalSettings = useSettingsStore((s) => s.settings)
   const mcpServers = useMcpStore((s) => s.servers)
   const loadMcpServers = useMcpStore((s) => s.loadServers)
 
@@ -482,24 +575,24 @@ export function SidebarTree() {
     setColorPickerLive(null)
   }, [colorPickerTarget, updateFolder])
 
-  // Compute flat visible order using index maps
+  // Compute flat visible order using sorted index maps
   const visibleOrder = useMemo(() => {
     const order: number[] = []
     const isSearchMode = searchQuery.trim().length > 0
     const collectFolder = (parentId: number) => {
-      const folderConvs = convsByFolder.get(parentId) ?? []
+      const folderConvs = sortedConvsByFolder.get(parentId) ?? []
       for (const c of folderConvs) order.push(c.id)
-      const children = childrenByParent.get(parentId) ?? []
+      const children = sortedChildrenByParent.get(parentId) ?? []
       for (const child of children) collectFolder(child.id)
     }
-    const rootFolders = childrenByParent.get(null) ?? []
+    const rootFolders = sortedChildrenByParent.get(null) ?? []
     for (const folder of rootFolders) {
       if (isSearchMode || expandedIds.has(folder.id)) {
         collectFolder(folder.id)
       }
     }
     return order
-  }, [convsByFolder, childrenByParent, expandedIds, searchQuery])
+  }, [sortedConvsByFolder, sortedChildrenByParent, expandedIds, searchQuery])
 
   // Escape clears selection
   useEffect(() => {
@@ -777,15 +870,15 @@ export function SidebarTree() {
     return <EmptyState />
   }
 
-  const rootFolders = childrenByParent.get(null) ?? []
+  const rootFolders = sortedChildrenByParent.get(null) ?? []
 
   return (
     <div className="flex-1 overflow-y-auto pb-2" role="tree" aria-label="Conversations tree">
       {rootFolders.map((folder) => {
         const isExpanded = isSearching || expandedIds.has(folder.id)
-        const children = childrenByParent.get(folder.id) ?? []
+        const children = sortedChildrenByParent.get(folder.id) ?? []
         const convCount = convCountByFolder.get(folder.id) ?? 0
-        const folderConvs = convsByFolder.get(folder.id) ?? []
+        const folderConvs = sortedConvsByFolder.get(folder.id) ?? []
         const isDragOver = dragOverFolderId === folder.id
         const isBeingDragged = draggingFolderId === folder.id
         const dropIndicator = folderDropIndicator?.targetId === folder.id ? folderDropIndicator.position : null
@@ -834,8 +927,8 @@ export function SidebarTree() {
             onRenamingCancel={handleRenamingCancel}
             inputRef={inputRef}
             isMobile={isMobile}
-            childrenByParent={childrenByParent}
-            convsByFolder={convsByFolder}
+            childrenByParent={sortedChildrenByParent}
+            convsByFolder={sortedConvsByFolder}
             convCountByFolder={convCountByFolder}
             heatmapColors={heatmapColors}
             draggingFolderId={draggingFolderId}

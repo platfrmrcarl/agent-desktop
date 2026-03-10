@@ -323,8 +323,7 @@ if (typeof window !== 'undefined' && window.agent?.events?.onConversationUpdated
     const now = new Date().toISOString()
     useConversationsStore.setState((s) => ({
       conversations: s.conversations
-        .map((c) => c.id === conversationId ? { ...c, updated_at: now } : c)
-        .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+        .map((c) => c.id === conversationId ? { ...c, updated_at: now } : c),
     }))
   })
 }
