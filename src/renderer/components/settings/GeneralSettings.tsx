@@ -310,6 +310,41 @@ export function GeneralSettings() {
           </div>
         </>
       )}
+
+      {/* Default sort order */}
+      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div className="flex flex-col gap-0.5 pr-4">
+          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+            Default conversation sort
+          </span>
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+            How conversations and folders are sorted in the sidebar.
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={settings.sort_criterion ?? 'updated_at'}
+            onChange={(e) => setSetting('sort_criterion', e.target.value)}
+            className="text-xs rounded px-2 py-1 border border-[var(--color-text-muted)]/20 mobile:text-base mobile:py-2"
+            style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)' }}
+            aria-label="Sort criterion"
+          >
+            <option value="updated_at">Last message date</option>
+            <option value="message_count">Message count</option>
+            <option value="title">Alphabetical</option>
+          </select>
+          <select
+            value={settings.sort_direction ?? 'desc'}
+            onChange={(e) => setSetting('sort_direction', e.target.value)}
+            className="text-xs rounded px-2 py-1 border border-[var(--color-text-muted)]/20 mobile:text-base mobile:py-2"
+            style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)' }}
+            aria-label="Sort direction"
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </div>
+      </div>
     </div>
   )
 }
