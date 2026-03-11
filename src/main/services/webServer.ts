@@ -22,6 +22,9 @@ let serverPort: number | null = null
 let serverShortCode: string | null = null
 let serverAccessMode: 'lan' | 'all' = 'lan'
 const authenticatedClients = new Set<WebSocket>()
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+const clientAlive = new WeakMap<WebSocket, boolean>()
+const HEARTBEAT_INTERVAL = 30_000
 
 // ─── MIME types ──────────────────────────────────────
 
@@ -479,6 +482,18 @@ function serveStaticFile(
   })
 }
 
+// ─── Safe WebSocket send ─────────────────────────
+
+function safeSend(ws: WebSocket, payload: string): void {
+  try {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload)
+    }
+  } catch {
+    authenticatedClients.delete(ws)
+  }
+}
+
 // ─── WebSocket message handling ─────────────────────
 
 function handleWsMessage(ws: WebSocket, raw: string): void {
@@ -492,15 +507,15 @@ function handleWsMessage(ws: WebSocket, raw: string): void {
   if (msg.type === 'auth') {
     if (msg.token === serverToken) {
       authenticatedClients.add(ws)
-      ws.send(JSON.stringify({ type: 'auth_result', success: true }))
+      safeSend(ws, JSON.stringify({ type: 'auth_result', success: true }))
     } else {
-      ws.send(JSON.stringify({ type: 'auth_result', success: false, error: 'Invalid token' }))
+      safeSend(ws, JSON.stringify({ type: 'auth_result', success: false, error: 'Invalid token' }))
     }
     return
   }
 
   if (!authenticatedClients.has(ws)) {
-    ws.send(JSON.stringify({ type: 'auth_result', success: false, error: 'Not authenticated' }))
+    safeSend(ws, JSON.stringify({ type: 'auth_result', success: false, error: 'Not authenticated' }))
     return
   }
 
@@ -509,13 +524,13 @@ function handleWsMessage(ws: WebSocket, raw: string): void {
     // - server:* — web clients must not control the server itself
     // - openscad:exportStl — uses event.sender (null via WS → crash)
     if (msg.channel.startsWith('server:') || msg.channel === 'openscad:exportStl') {
-      ws.send(JSON.stringify({ type: 'result', id: msg.id, error: `Channel not available via WebSocket: ${msg.channel}` }))
+      safeSend(ws, JSON.stringify({ type: 'result', id: msg.id, error: `Channel not available via WebSocket: ${msg.channel}` }))
       return
     }
 
     const handler = ipcDispatch.get(msg.channel)
     if (!handler) {
-      ws.send(JSON.stringify({ type: 'result', id: msg.id, error: `Unknown channel: ${msg.channel}` }))
+      safeSend(ws, JSON.stringify({ type: 'result', id: msg.id, error: `Unknown channel: ${msg.channel}` }))
       return
     }
 
@@ -533,14 +548,10 @@ function handleWsMessage(ws: WebSocket, raw: string): void {
 
     handler(...decodedArgs)
       .then((result) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'result', id: msg.id, result }))
-        }
+        safeSend(ws, JSON.stringify({ type: 'result', id: msg.id, result }))
       })
       .catch((err) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'result', id: msg.id, error: err instanceof Error ? err.message : String(err) }))
-        }
+        safeSend(ws, JSON.stringify({ type: 'result', id: msg.id, error: err instanceof Error ? err.message : String(err) }))
       })
   }
 }
@@ -553,7 +564,9 @@ function broadcastEvent(channel: string, ...args: unknown[]): void {
   const payload = JSON.stringify({ type: 'event', channel, data })
   for (const client of authenticatedClients) {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(payload)
+      safeSend(client, payload)
+    } else {
+      authenticatedClients.delete(client)
     }
   }
 }
@@ -690,6 +703,10 @@ export async function startServer(port: number, options?: ServerStartOptions): P
     })
 
     wss.on('connection', (wsClient) => {
+      clientAlive.set(wsClient, true)
+      wsClient.on('pong', () => {
+        clientAlive.set(wsClient, true)
+      })
       wsClient.on('message', (data) => {
         handleWsMessage(wsClient, data.toString())
       })
@@ -700,6 +717,23 @@ export async function startServer(port: number, options?: ServerStartOptions): P
         authenticatedClients.delete(wsClient)
       })
     })
+
+    // Heartbeat: detect and clean up dead connections
+    heartbeatTimer = setInterval(() => {
+      if (!wss) return
+      for (const client of wss.clients) {
+        if (!clientAlive.get(client)) {
+          authenticatedClients.delete(client)
+          client.terminate()
+          continue
+        }
+        clientAlive.set(client, false)
+        try { client.ping() } catch {
+          authenticatedClients.delete(client)
+          client.terminate()
+        }
+      }
+    }, HEARTBEAT_INTERVAL)
 
     // Wire broadcast handler
     setBroadcastHandler(broadcastEvent)
@@ -747,6 +781,11 @@ export async function startServer(port: number, options?: ServerStartOptions): P
 
 export async function stopServer(): Promise<void> {
   setBroadcastHandler(() => {})
+
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
 
   // Close all WS clients
   for (const client of authenticatedClients) {

@@ -252,6 +252,68 @@ describe('webServer', () => {
     ws.close()
   })
 
+  it('cleans up client count after disconnect', async () => {
+    const { token } = await startServer(port)
+
+    const ws = new WebSocket(`wss://127.0.0.1:${port}/ws`, { rejectUnauthorized: false })
+
+    await new Promise<void>((resolve) => {
+      ws.on('open', () => {
+        ws.send(JSON.stringify({ type: 'auth', token }))
+      })
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString())
+        if (msg.type === 'auth_result' && msg.success) resolve()
+      })
+    })
+
+    expect((await getServerStatus()).clients).toBe(1)
+
+    // Disconnect and wait for server-side cleanup
+    await new Promise<void>((resolve) => {
+      ws.on('close', () => resolve())
+      ws.close()
+    })
+    // Server-side close handler fires asynchronously after client-side
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect((await getServerStatus()).clients).toBe(0)
+  })
+
+  it('accepts new connections after previous client disconnects', async () => {
+    const { token } = await startServer(port)
+
+    // First client connects and authenticates
+    const ws1 = new WebSocket(`wss://127.0.0.1:${port}/ws`, { rejectUnauthorized: false })
+    await new Promise<void>((resolve) => {
+      ws1.on('open', () => ws1.send(JSON.stringify({ type: 'auth', token })))
+      ws1.on('message', (data) => {
+        if (JSON.parse(data.toString()).type === 'auth_result') resolve()
+      })
+    })
+
+    // First client disconnects
+    await new Promise<void>((resolve) => {
+      ws1.on('close', () => resolve())
+      ws1.close()
+    })
+
+    // Second client connects — server must accept it normally
+    const ws2 = new WebSocket(`wss://127.0.0.1:${port}/ws`, { rejectUnauthorized: false })
+    const messages: any[] = []
+    await new Promise<void>((resolve) => {
+      ws2.on('open', () => ws2.send(JSON.stringify({ type: 'auth', token })))
+      ws2.on('message', (data) => {
+        messages.push(JSON.parse(data.toString()))
+        if (messages[0]?.type === 'auth_result') resolve()
+      })
+    })
+
+    expect(messages[0]).toEqual({ type: 'auth_result', success: true })
+    expect((await getServerStatus()).clients).toBe(1)
+    ws2.close()
+  })
+
   it('stops cleanly', async () => {
     await startServer(port)
     expect((await getServerStatus()).running).toBe(true)
