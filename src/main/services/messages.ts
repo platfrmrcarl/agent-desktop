@@ -649,8 +649,12 @@ async function generateConversationTitle(
   userContent: string,
   assistantContent: string
 ): Promise<void> {
+  // Strip hook system message tags — they pollute the snippet sent to Haiku
+  const cleanAssistant = assistantContent
+    .replace(/<hook-system-message>[\s\S]*?<\/hook-system-message>\n?/g, '')
+    .trimStart()
   const userSnippet = userContent.slice(0, 200)
-  const assistantSnippet = assistantContent.slice(0, 200)
+  const assistantSnippet = cleanAssistant.slice(0, 200)
 
   // Inject API key env vars for title generation (same provider as main streaming)
   const apiKeyRow = db.prepare("SELECT key, value FROM settings WHERE key IN ('ai_apiKey', 'ai_baseUrl')").all() as { key: string; value: string }[]

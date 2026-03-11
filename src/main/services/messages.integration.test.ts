@@ -24,6 +24,12 @@ vi.mock('./streaming', () => ({
   abortStream: vi.fn(),
   injectApiKeyEnv: vi.fn(() => null),
   notifyConversationUpdated: vi.fn(),
+  sendChunk: vi.fn(),
+}))
+
+const mockRunHooks = vi.fn().mockResolvedValue([])
+vi.mock('./hookRunner', () => ({
+  runUserPromptSubmitHooks: (...args: unknown[]) => mockRunHooks(...args),
 }))
 
 vi.mock('fs', async () => {
@@ -73,6 +79,8 @@ describe('messages integration', () => {
     registerHandlers(ipc as never, db as any)
     mockStreamMessage.mockReset()
     mockStreamMessage.mockResolvedValue({ content: 'AI response', toolCalls: [], aborted: false, sessionId: null })
+    mockRunHooks.mockReset()
+    mockRunHooks.mockResolvedValue([])
 
     // Create a conversation
     const result = db
@@ -468,6 +476,35 @@ describe('messages integration', () => {
 
       const conv = db.prepare('SELECT title FROM conversations WHERE id = ?').get(convId) as { title: string }
       expect(conv.title).toBe('Quoted Title')
+    })
+
+    it('strips hook system message tags from assistant content before generating title', async () => {
+      // Simulate hooks returning a system message
+      mockRunHooks.mockResolvedValue([{ content: 'Lint OK', hookEvent: 'UserPromptSubmit' }])
+
+      let capturedPrompt = ''
+      const asyncIter = (async function* () {
+        yield { type: 'result', subtype: 'success', result: 'Hook-Free Title' }
+      })()
+      mockLoadAgentSDK.mockResolvedValue({
+        query: (opts: { prompt: string }) => {
+          capturedPrompt = opts.prompt
+          return asyncIter
+        },
+      })
+
+      await ipc.invoke('messages:send', convId, 'Hello')
+      await new Promise((r) => setTimeout(r, 50))
+
+      // Title should be set
+      const conv = db.prepare('SELECT title FROM conversations WHERE id = ?').get(convId) as { title: string }
+      expect(conv.title).toBe('Hook-Free Title')
+
+      // The prompt sent to SDK should NOT contain hook-system-message tags
+      expect(capturedPrompt).not.toContain('hook-system-message')
+      expect(capturedPrompt).not.toContain('Lint OK')
+      // But it should contain the actual assistant response
+      expect(capturedPrompt).toContain('AI response')
     })
 
     it('trims whitespace and truncates title to 80 chars', async () => {
