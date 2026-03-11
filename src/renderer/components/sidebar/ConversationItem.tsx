@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useSchedulerStore } from '../../stores/schedulerStore'
 import { useMobileMode } from '../../hooks/useMobileMode'
 import { ContextMenu, ContextMenuItem, ContextMenuDivider } from '../shared/ContextMenu'
+import { MoveToFolderModal } from '../shared/MoveToFolderModal'
 import { ColorSwatches, ColorPicker } from '../shared/ColorPicker'
 
 function invertHex(hex: string): string {
@@ -73,7 +74,7 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
   const [renameValue, setRenameValue] = useState(conversation.title)
   const [showMenu, setShowMenu] = useState(false)
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
-  const [showFolderSubmenu, setShowFolderSubmenu] = useState(false)
+  const [showFolderModal, setShowFolderModal] = useState(false)
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [colorPickerPos, setColorPickerPos] = useState({ x: 0, y: 0 })
   const inputRef = useRef<HTMLInputElement>(null)
@@ -88,7 +89,6 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
 
   const closeMenu = useCallback(() => {
     setShowMenu(false)
-    setShowFolderSubmenu(false)
   }, [])
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -170,8 +170,7 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
   }, [conversation.id, conversation.title, exportConversation])
 
   const handleMoveToFolder = useCallback((folderId: number | null) => {
-    setShowMenu(false)
-    setShowFolderSubmenu(false)
+    setShowFolderModal(false)
     moveToFolder(conversation.id, folderId)
   }, [conversation.id, moveToFolder])
 
@@ -299,47 +298,11 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
 
       {showMenu && isSelected && selectedIds.size > 1 ? (
         <ContextMenu position={menuPos} onClose={closeMenu} className="min-w-[160px]" aria-label="Bulk conversation actions">
-          <div
-            className="relative"
-            {...(!isMobile ? {
-              onMouseEnter: () => setShowFolderSubmenu(true),
-              onMouseLeave: () => setShowFolderSubmenu(false),
-            } : {})}
+          <ContextMenuItem
+            onClick={() => { closeMenu(); setShowFolderModal(true) }}
           >
-            <button
-              className="w-full text-left px-3 py-1.5 mobile:py-2.5 hover:bg-[var(--color-bg)]"
-              style={{ backgroundColor: 'transparent' }}
-              {...(isMobile ? {
-                onClick: () => setShowFolderSubmenu((v) => !v),
-              } : {})}
-            >
-              Move {selectedIds.size} to folder &rarr;
-            </button>
-            {showFolderSubmenu && (
-              <div
-                className="absolute left-full top-0 mobile:static mobile:pl-3 rounded shadow-lg py-1 text-sm min-w-[140px] border border-[var(--color-bg)] mobile:border-0"
-                style={{ backgroundColor: 'var(--color-surface)' }}
-              >
-                <button
-                  onClick={() => { closeMenu(); moveSelectedToFolder(null) }}
-                  className="w-full text-left px-3 py-1.5 mobile:py-2.5 hover:bg-[var(--color-bg)]"
-                  style={{ backgroundColor: 'transparent' }}
-                >
-                  No folder
-                </button>
-                {folders.map((f: Folder) => (
-                  <button
-                    key={f.id}
-                    onClick={() => { closeMenu(); moveSelectedToFolder(f.id) }}
-                    className="w-full text-left px-3 py-1.5 mobile:py-2.5 hover:bg-[var(--color-bg)]"
-                    style={{ backgroundColor: 'transparent' }}
-                  >
-                    {f.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+            Move {selectedIds.size} to folder
+          </ContextMenuItem>
           <ColorSwatches
             currentColor={null}
             onColorChange={(c) => {
@@ -373,47 +336,11 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
           >
             Rename
           </ContextMenuItem>
-          <div
-            className="relative"
-            {...(!isMobile ? {
-              onMouseEnter: () => setShowFolderSubmenu(true),
-              onMouseLeave: () => setShowFolderSubmenu(false),
-            } : {})}
+          <ContextMenuItem
+            onClick={() => { closeMenu(); setShowFolderModal(true) }}
           >
-            <button
-              className="w-full text-left px-3 py-1.5 mobile:py-2.5 hover:bg-[var(--color-bg)]"
-              style={{ backgroundColor: 'transparent' }}
-              {...(isMobile ? {
-                onClick: () => setShowFolderSubmenu((v) => !v),
-              } : {})}
-            >
-              Move to folder &rarr;
-            </button>
-            {showFolderSubmenu && (
-              <div
-                className="absolute left-full top-0 mobile:static mobile:pl-3 rounded shadow-lg py-1 text-sm min-w-[140px] border border-[var(--color-bg)] mobile:border-0"
-                style={{ backgroundColor: 'var(--color-surface)' }}
-              >
-                <button
-                  onClick={() => handleMoveToFolder(null)}
-                  className="w-full text-left px-3 py-1.5 mobile:py-2.5 hover:bg-[var(--color-bg)]"
-                  style={{ backgroundColor: 'transparent' }}
-                >
-                  No folder
-                </button>
-                {folders.map((f: Folder) => (
-                  <button
-                    key={f.id}
-                    onClick={() => handleMoveToFolder(f.id)}
-                    className="w-full text-left px-3 py-1.5 mobile:py-2.5 hover:bg-[var(--color-bg)]"
-                    style={{ backgroundColor: 'transparent' }}
-                  >
-                    {f.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+            Move to folder
+          </ContextMenuItem>
           <ContextMenuItem onClick={() => handleExport('markdown')} aria-label="Export conversation as Markdown">
             Export as Markdown
           </ContextMenuItem>
@@ -441,6 +368,22 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
             Delete
           </ContextMenuItem>
         </ContextMenu>
+      )}
+
+      {showFolderModal && (
+        <MoveToFolderModal
+          folders={folders}
+          onSelect={(folderId) => {
+            if (isSelected && selectedIds.size > 1) {
+              moveSelectedToFolder(folderId)
+            } else {
+              handleMoveToFolder(folderId)
+            }
+            setShowFolderModal(false)
+          }}
+          onClose={() => setShowFolderModal(false)}
+          title={isSelected && selectedIds.size > 1 ? `Move ${selectedIds.size} to folder` : 'Move to folder'}
+        />
       )}
 
       {showColorPicker && (
