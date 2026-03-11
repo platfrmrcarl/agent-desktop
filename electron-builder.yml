@@ -29,6 +29,7 @@ files:
       - magic-bytes.js/**
       - tslib/**
       - undici/**
+      - "@mariozechner/**"
 extraResources:
   - from: build/trayTemplate.png
     to: trayTemplate.png
