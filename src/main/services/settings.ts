@@ -64,6 +64,7 @@ const ALLOWED_SETTING_KEYS = new Set<string>([
   'ai_apiKey',
   'ai_baseUrl',
   'ai_customModel',
+  'ai_customModels',
   // TTS settings (global, not cascadable)
   'tts_provider',
   'tts_piperUrl',

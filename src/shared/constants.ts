@@ -27,6 +27,21 @@ export function shortenModelName(model: string): string {
   return model.replace('claude-', '').replace(/-\d{8}$/, '')
 }
 
+/** Parse the persisted JSON string[] of custom model IDs */
+export function parseCustomModels(json: string | undefined): string[] {
+  if (!json) return []
+  try { const arr = JSON.parse(json); return Array.isArray(arr) ? arr : [] }
+  catch { return [] }
+}
+
+/** MODEL_OPTIONS + saved custom models (for dropdowns) */
+export function buildModelOptions(customModels: string[]): { value: string; label: string }[] {
+  return [
+    ...MODEL_OPTIONS,
+    ...customModels.map(m => ({ value: m, label: shortenModelName(m) })),
+  ]
+}
+
 // ─── Permission Mode Constants ───────────────────────────────
 
 export const PERMISSION_OPTIONS = [

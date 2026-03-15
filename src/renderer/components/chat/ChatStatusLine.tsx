@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { MODEL_OPTIONS, PERMISSION_OPTIONS, PERMISSION_LABELS, shortenModelName } from '../../../shared/constants'
+import { MODEL_OPTIONS, PERMISSION_OPTIONS, PERMISSION_LABELS, shortenModelName, buildModelOptions } from '../../../shared/constants'
 import { CheckIcon } from '../icons/CheckIcon'
 import { ChevronDownIcon } from '../icons/ChevronDownIcon'
 import { Checkbox } from '../ui/Checkbox'
@@ -27,9 +27,10 @@ interface ChatStatusLineProps {
   onKbCollectionToggle?: (name: string) => void
   onKbAccessToggle?: (name: string) => void
   extensionStatus?: Record<string, string>
+  customModels?: string[]
 }
 
-export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChange, onPermissionModeChange, onMcpServerToggle, kbCollections, onKbCollectionToggle, onKbAccessToggle, extensionStatus }: ChatStatusLineProps) {
+export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChange, onPermissionModeChange, onMcpServerToggle, kbCollections, onKbCollectionToggle, onKbAccessToggle, extensionStatus, customModels }: ChatStatusLineProps) {
   const shortModel = shortenModelName(model)
   const modeLabel = PERMISSION_LABELS[permissionMode] || permissionMode
   const [modelOpen, setModelOpen] = useState(false)
@@ -97,24 +98,28 @@ export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChang
             role="listbox"
             aria-label="Model selection"
           >
-            {MODEL_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                role="option"
-                aria-selected={opt.value === model}
-                onClick={() => {
-                  onModelChange!(opt.value)
-                  setModelOpen(false)
-                }}
-                className="w-full text-left px-3 hover:opacity-80 transition-opacity flex items-center justify-between py-1.5 mobile:py-2.5"
-                style={{
-                  color: opt.value === model ? 'var(--color-primary)' : 'var(--color-text)',
-                  backgroundColor: opt.value === model ? 'var(--color-bg)' : 'transparent',
-                }}
-              >
-                <span>{opt.label}</span>
-                {opt.value === model && <CheckIcon size={10} />}
-              </button>
+            {buildModelOptions(customModels || []).map((opt, i) => (
+              <span key={opt.value}>
+                {i === MODEL_OPTIONS.length && (customModels?.length ?? 0) > 0 && (
+                  <hr style={{ borderColor: 'var(--color-text-muted)', opacity: 0.2, margin: '2px 0' }} />
+                )}
+                <button
+                  role="option"
+                  aria-selected={opt.value === model}
+                  onClick={() => {
+                    onModelChange!(opt.value)
+                    setModelOpen(false)
+                  }}
+                  className="w-full text-left px-3 hover:opacity-80 transition-opacity flex items-center justify-between py-1.5 mobile:py-2.5"
+                  style={{
+                    color: opt.value === model ? 'var(--color-primary)' : 'var(--color-text)',
+                    backgroundColor: opt.value === model ? 'var(--color-bg)' : 'transparent',
+                  }}
+                >
+                  <span>{opt.label}</span>
+                  {opt.value === model && <CheckIcon size={10} />}
+                </button>
+              </span>
             ))}
           </div>
         )}

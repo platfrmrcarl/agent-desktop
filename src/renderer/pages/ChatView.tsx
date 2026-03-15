@@ -24,7 +24,7 @@ import { parseMcpDisabledList } from '../utils/mcpUtils'
 import { useVoiceInputStore } from '../stores/voiceInputStore'
 import type { Attachment, AIOverrides, KnowledgeSelection } from '../../shared/types'
 import type { TaskNotification, QueuedMessage } from '../stores/chatStore'
-import { DEFAULT_MODEL, DEFAULT_EXCLUDE_PATTERNS, shortenModelName } from '../../shared/constants'
+import { DEFAULT_MODEL, DEFAULT_EXCLUDE_PATTERNS, shortenModelName, parseCustomModels } from '../../shared/constants'
 import { usePiExtensionUI } from '../hooks/usePiExtensionUI'
 import { usePiExtensionUIStore } from '../stores/piExtensionUIStore'
 import { ExtensionDialog } from '../components/extensions/ExtensionDialog'
@@ -574,6 +574,7 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
             onKbCollectionToggle={handleKbCollectionToggle}
             onKbAccessToggle={handleKbAccessToggle}
             extensionStatus={statusEntries}
+            customModels={parseCustomModels(globalSettings['ai_customModels'])}
           />
         </div>
 

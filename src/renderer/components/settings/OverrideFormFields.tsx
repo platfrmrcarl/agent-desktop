@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { SETTING_DEFS, type McpServerName, type PIExtensionInfo } from '../../../shared/constants'
+import { SETTING_DEFS, type McpServerName, type PIExtensionInfo, parseCustomModels, shortenModelName } from '../../../shared/constants'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { Checkbox } from '../ui/Checkbox'
 import { SystemPromptEditorModal } from './SystemPromptEditorModal'
 import { CwdWhitelistEditor } from './CwdWhitelistEditor'
@@ -136,6 +137,7 @@ export function OverrideFormFields({
   onTogglePiExtension,
 }: OverrideFormFieldsProps) {
   const [promptEditorKey, setPromptEditorKey] = useState<string | null>(null)
+  const customModels = parseCustomModels(useSettingsStore((s) => s.settings['ai_customModels']))
 
   const effectiveBackend = draft['ai_sdkBackend'] ?? inheritedValues['ai_sdkBackend'] ?? 'claude-agent-sdk'
   const isClaudeBackend = effectiveBackend !== 'pi'
@@ -204,6 +206,9 @@ export function OverrideFormFields({
             >
               {def.options!.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+              {def.key === 'ai_model' && customModels.map((m) => (
+                <option key={m} value={m}>{shortenModelName(m)}</option>
               ))}
             </select>
           ) : (

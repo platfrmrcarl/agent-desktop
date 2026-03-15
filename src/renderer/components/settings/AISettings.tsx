@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useAuthStore } from '../../stores/authStore'
-import { MODEL_OPTIONS, DEFAULT_MODEL, SETTING_SOURCES_OPTIONS, SKILLS_TOGGLE_OPTIONS, SDK_BACKEND_OPTIONS, CONFIG_SHARING_OPTIONS, type PIExtensionInfo } from '../../../shared/constants'
+import { MODEL_OPTIONS, DEFAULT_MODEL, SETTING_SOURCES_OPTIONS, SKILLS_TOGGLE_OPTIONS, SDK_BACKEND_OPTIONS, CONFIG_SHARING_OPTIONS, parseCustomModels, shortenModelName, type PIExtensionInfo } from '../../../shared/constants'
 import { SystemPromptEditorModal } from './SystemPromptEditorModal'
 import { CwdWhitelistEditor } from './CwdWhitelistEditor'
 import type { CwdWhitelistEntry } from '../../../shared/types'
@@ -29,6 +29,8 @@ export function AISettings() {
 
   const model = settings['ai_model'] ?? DEFAULT_MODEL
   const isCustomModel = !!customModel
+  const customModels = parseCustomModels(settings['ai_customModels'])
+  const presetValues = new Set(MODEL_OPTIONS.map(o => o.value))
   const maxTurns = settings['ai_maxTurns'] ?? '1'
   const maxThinkingTokens = settings['ai_maxThinkingTokens'] ?? '0'
   const maxBudgetUsd = settings['ai_maxBudgetUsd'] ?? '0'
@@ -51,6 +53,21 @@ export function AISettings() {
   const [discoveredSkills, setDiscoveredSkills] = useState<import('../../../shared/types').SlashCommand[]>([])
   const [confirmDisable, setConfirmDisable] = useState(false)
   const [showPromptEditor, setShowPromptEditor] = useState(false)
+
+  const saveCustomModel = useCallback((value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed || presetValues.has(trimmed) || customModels.includes(trimmed)) return
+    setSetting('ai_customModels', JSON.stringify([...customModels, trimmed]))
+  }, [customModels, presetValues, setSetting])
+
+  const removeCustomModel = useCallback((value: string) => {
+    const next = customModels.filter(m => m !== value)
+    setSetting('ai_customModels', JSON.stringify(next))
+    if (model === value) {
+      setSetting('ai_model', DEFAULT_MODEL)
+      setSetting('ai_customModel', '')
+    }
+  }, [customModels, model, setSetting])
 
   // PI Extensions state
   const piExtensionsDir = settings['pi_extensionsDir'] ?? ''
@@ -336,7 +353,7 @@ export function AISettings() {
                 setSetting('ai_model', 'custom')
               } else {
                 setSetting('ai_model', e.target.value)
-                setSetting('ai_customModel', '') // clear custom model
+                setSetting('ai_customModel', '')
               }
             }}
             className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
@@ -351,6 +368,14 @@ export function AISettings() {
                 {opt.label}
               </option>
             ))}
+            {customModels.length > 0 && (
+              <option disabled>{'─'.repeat(16)}</option>
+            )}
+            {customModels.map((m) => (
+              <option key={m} value={m}>
+                {shortenModelName(m)}
+              </option>
+            ))}
             <option value="custom">Other</option>
           </select>
           {(isCustomModel || model === 'custom') && (
@@ -358,7 +383,9 @@ export function AISettings() {
               type="text"
               value={customModel}
               onChange={(e) => setSetting('ai_customModel', e.target.value)}
-              placeholder="anthropic/claude-3.5-sonnet"
+              onBlur={() => saveCustomModel(customModel)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveCustomModel(customModel) }}
+              placeholder="model-id (saved on Enter/blur)"
               className="w-48 px-3 py-1.5 rounded text-xs border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
               style={{
                 backgroundColor: 'var(--color-bg)',
@@ -366,6 +393,30 @@ export function AISettings() {
               }}
               aria-label="Custom model ID"
             />
+          )}
+          {customModels.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-0.5">
+              {customModels.map((m) => (
+                <span
+                  key={m}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--color-text-muted) 15%, transparent)',
+                    color: 'var(--color-text-muted)',
+                  }}
+                >
+                  {shortenModelName(m)}
+                  <button
+                    onClick={() => removeCustomModel(m)}
+                    className="hover:opacity-70 leading-none"
+                    aria-label={`Remove custom model ${m}`}
+                    title="Remove"
+                  >
+                    &times;
+                  </button>
+                </span>
+              ))}
+            </div>
           )}
         </div>
       </div>
