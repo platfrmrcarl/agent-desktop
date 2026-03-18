@@ -25,6 +25,15 @@ vi.mock('./piExtensions', () => ({
   registerHandlers: vi.fn(),
 }))
 
+// Mock scheduler bridge for PI backend
+vi.mock('./schedulerBridge', () => ({
+  startBridge: vi.fn(),
+  stopBridge: vi.fn(),
+  getSchedulerMcpConfig: vi.fn(() => null),
+  socketPath: null,
+  authToken: null,
+}))
+
 // Mock session object
 const mockSession = {
   subscribe: vi.fn(),

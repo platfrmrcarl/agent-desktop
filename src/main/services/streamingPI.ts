@@ -3,8 +3,160 @@ import { loadPISdk } from './piSdk'
 import { PiUIContext } from './piUIContext'
 import { registerPiUIContext, unregisterPiUIContext } from './piExtensions'
 import { getMainWindow } from '../index'
+import { getSchedulerMcpConfig, socketPath as schedSocketPath, authToken as schedAuthToken } from './schedulerBridge'
+import { Type } from '@sinclair/typebox'
+import type { Static, TSchema } from '@sinclair/typebox'
 import type { AISettings } from './streaming'
 import type { ToolCall } from '../../shared/types'
+import type { AgentToolResult } from '@mariozechner/pi-agent-core'
+
+// Tool parameters schema for scheduler tool
+const SchedulerToolParams = /* #__PURE__ */ (() =>
+  Type.Object({
+    conversation_id: Type.Number({ description: 'Conversation ID for the task', minimum: 1 }),
+    command: Type.String({ description: 'Command to execute: "create", "list", or "cancel"' }),
+    name: Type.Optional(Type.String({ description: 'Task name (for create)' })),
+    prompt: Type.Optional(Type.String({ description: 'Task prompt (for create)' })),
+    interval_value: Type.Optional(Type.Integer({ description: 'Interval value in units (for create)', minimum: 1 })),
+    interval_unit: Type.Optional(Type.String({ description: 'Interval unit: minutes/hours/days (for create)' })),
+    schedule_time: Type.Optional(Type.String({ description: 'Schedule time HH:MM (for create)' })),
+    max_runs: Type.Optional(Type.Integer({ description: 'Max runs (for create)', minimum: 1 })),
+    task_id: Type.Optional(Type.Integer({ description: 'Task ID (for cancel)', minimum: 1 })),
+  }))()
+
+interface SchedulerToolParams extends Static<typeof SchedulerToolParams> {}
+
+interface SchedulerBridgeResponse {
+  id?: number
+  name?: string
+  next_run_at?: string
+  max_runs?: number | null
+  deleted?: boolean
+  result?: unknown[]
+  error?: string
+}
+
+interface SchedulerTask {
+  id: number
+  name: string
+  prompt: string
+  enabled: boolean
+  interval_value: number
+  interval_unit: string
+  max_runs: number | null
+  next_run_at: string
+  last_status: string
+  run_count: number
+}
+
+// Execute command via scheduler bridge socket
+async function executeSchedulerCommand(
+  conversationId: number,
+  command: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  if (!schedSocketPath || !schedAuthToken) {
+    throw new Error('Scheduler bridge not started')
+  }
+
+  const net = await import('net')
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(schedSocketPath, () => {
+      const request = JSON.stringify({
+        method: `scheduler.${command}`,
+        token: schedAuthToken,
+        params: { conversation_id: conversationId, ...params },
+      })
+      socket.write(request + '\n')
+    })
+
+    let buffer = ''
+    let resolved = false
+
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString()
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        try {
+          const response = JSON.parse(trimmed) as SchedulerBridgeResponse
+          if (!resolved) {
+            resolved = true
+            if (response.error) {
+              reject(new Error(response.error))
+            } else {
+              resolve(response)
+            }
+          }
+        } catch {
+          // Continue accumulating
+        }
+      }
+    })
+
+    socket.on('error', (err) => {
+      if (!resolved) {
+        reject(err)
+      }
+    })
+
+    socket.on('close', () => {
+      if (!resolved) {
+        resolve(null)
+      }
+    })
+
+    // Timeout after 5 seconds
+    socket.setTimeout(5000, () => {
+      socket.destroy()
+      if (!resolved) {
+        resolved = true
+        reject(new Error('Scheduler bridge timeout'))
+      }
+    })
+  })
+}
+
+// Create PI tool definition for scheduler
+function createSchedulerTool(): pi.ToolDefinition {
+  return {
+    name: 'agent_scheduler',
+    label: 'Agent Scheduler',
+    description: 'Schedule tasks to run at specific times or intervals. Use this tool to create, list, or cancel scheduled tasks for the current conversation.',
+    parameters: SchedulerToolParams,
+    async execute(_toolCallId, params: SchedulerToolParams, _signal, _onUpdate, _ctx): Promise<AgentToolResult> {
+      const result = await executeSchedulerCommand(params.conversation_id, params.command, {
+        name: params.name,
+        prompt: params.prompt,
+        interval_value: params.interval_value,
+        interval_unit: params.interval_unit,
+        schedule_time: params.schedule_time,
+        max_runs: params.max_runs,
+        task_id: params.task_id,
+      })
+
+      // Format result for display
+      if (params.command === 'list' && Array.isArray(result)) {
+        const tasks = result as SchedulerTask[]
+        const formatted = tasks.map((t) => {
+          const nextRun = t.next_run_at ? new Date(t.next_run_at).toLocaleString() : 'N/A'
+          return `#${t.id} ${t.enabled ? '✅' : '⏸️'} ${t.name} (${t.interval_value}${t.interval_unit}) - ${nextRun} (run #${t.run_count})`
+        })
+        return { content: [{ type: 'text', text: formatted.length ? formatted.join('\n') : 'No scheduled tasks' }] }
+      } else if (params.command === 'create') {
+        const r = result as { id: number; name: string; next_run_at?: string; max_runs?: number | null }
+        return {
+          content: [{ type: 'text', text: `Task created: ID ${r.id} "${r.name}" (next: ${r.next_run_at ?? 'N/A'})` }],
+        }
+      } else if (params.command === 'cancel') {
+        return { content: [{ type: 'text', text: result && typeof result === 'object' && 'deleted' in result ? 'Task cancelled' : 'Cancel result unknown' }] }
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    },
+  }
+}
 
 interface MessageParam {
   role: 'user' | 'assistant'
@@ -63,11 +215,22 @@ export async function streamMessagePI(
     })
     await resourceLoader.reload()
 
+    // Build custom tools array (scheduler tool for PI backend)
+    const customTools: pi.ToolDefinition[] = []
+    const schedulerConfig = getSchedulerMcpConfig(convKey)
+    if (schedulerConfig) {
+      // Only add scheduler if socket bridge is available
+      if (schedSocketPath && schedAuthToken) {
+        customTools.push(createSchedulerTool())
+      }
+    }
+
     const { session } = await pi.createAgentSession({
       cwd: aiSettings?.cwd || process.cwd(),
       sessionManager: pi.SessionManager.inMemory(),
       thinkingLevel,
       tools: pi.codingTools,
+      customTools,
       resourceLoader,
     })
 

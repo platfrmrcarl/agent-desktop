@@ -276,3 +276,6 @@ export function getSchedulerMcpConfig(conversationId: number): { command: string
     },
   }
 }
+
+// Export for PI SDK (not used for MCP)
+export { socketPath, authToken }

@@ -20,6 +20,15 @@ vi.mock('./streamingPI', () => ({
   streamMessagePI: (...args: unknown[]) => mockStreamMessagePI(...args),
 }))
 
+// Mock scheduler bridge for PI backend
+vi.mock('./schedulerBridge', () => ({
+  startBridge: vi.fn(),
+  stopBridge: vi.fn(),
+  getSchedulerMcpConfig: vi.fn(() => null),
+  socketPath: null,
+  authToken: null,
+}))
+
 // Mock sessionManager — tests in this file exercise the one-shot path (persistSession: false)
 const mockSendTurn = vi.fn()
 vi.mock('./sessionManager', () => ({

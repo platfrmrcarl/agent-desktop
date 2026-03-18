@@ -12,6 +12,18 @@ vi.mock('./anthropic', () => ({
   loadAgentSDK: vi.fn(),
 }))
 
+vi.mock('./streamingPI', () => ({
+  streamMessagePI: vi.fn(),
+}))
+
+vi.mock('./schedulerBridge', () => ({
+  startBridge: vi.fn(),
+  stopBridge: vi.fn(),
+  getSchedulerMcpConfig: vi.fn(() => null),
+  socketPath: null,
+  authToken: null,
+}))
+
 import { respondToApproval, abortStream, streamMessage } from './streaming'
 import { loadAgentSDK } from './anthropic'
 import type { ToolApprovalResponse } from '../../shared/types'

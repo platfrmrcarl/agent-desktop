@@ -418,10 +418,14 @@ export function getAISettings(db: Database.Database, conversationId: number): AI
   const rawModel = modelWasOverridden ? cascadedModel : (globalCustomModel || globalModel || undefined)
   const finalModel = rawModel === 'custom' ? undefined : rawModel
 
-  // Inject scheduler MCP server (internal, per-conversation)
-  const schedulerMcp = getSchedulerMcpConfig(conversationId)
-  if (schedulerMcp) {
-    mcpServers['agent_scheduler'] = schedulerMcp
+  // Inject scheduler MCP server only for Claude Agent SDK
+  // PI SDK uses custom tools instead of MCP for scheduler
+  const sdkBackend = map['ai_sdkBackend'] || 'claude-agent-sdk'
+  if (sdkBackend === 'claude-agent-sdk') {
+    const schedulerMcp = getSchedulerMcpConfig(conversationId)
+    if (schedulerMcp) {
+      mcpServers['agent_scheduler'] = schedulerMcp
+    }
   }
 
   return {
