@@ -206,6 +206,37 @@ src/
 
 ## Changelog
 
+### v0.10.0
+
+**Conversation & Folder Sorting**
+- Configurable sort criteria: title, date, message count — ascending or descending
+- Default sort preferences in General Settings
+- Per-folder sort override via folder context menu
+- Sort dropdown in sidebar header for quick access
+
+**Custom Model Persistence**
+- Custom model names are now saved for easy reselection across sessions
+
+**Move-to-Folder Modal**
+- Folder move action replaced with a centered modal instead of a nested submenu
+
+**Window Title**
+- Customizable window title from Appearance settings
+
+**Colored Console Output**
+- Terminal logs now use colored output for better readability
+
+**Scheduler as PI Tool**
+- Scheduler injected as a PI tool instead of MCP for PI SDK backend
+
+**Bug Fixes**
+- WebSocket disconnect handling hardened with heartbeat mechanism
+- Hook system message tags stripped before auto-title generation
+- Sort settings added to allowed keys whitelist
+- Added `ajv` dependency and `mariozechner` to bundled files
+
+---
+
 ### v0.9.3
 
 **Diff View**
