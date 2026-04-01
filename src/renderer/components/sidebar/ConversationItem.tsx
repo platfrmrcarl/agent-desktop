@@ -190,10 +190,13 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
 
   const timeAgo = formatTimeAgo(conversation.updated_at)
   const effectiveColor = conversation.color || folderColor || null
-  // When the card has a colored background, always use a contrasted text color
-  // (dark on light cards, light on dark cards) — regardless of the current theme.
-  const cardTextColor = effectiveColor ? getContrastColor(effectiveColor) : undefined
-  const cardTextMutedColor = effectiveColor ? getContrastColor(effectiveColor) + 'aa' : undefined
+  // Only apply contrast-based text color when the conversation has its own color
+  // (stronger tint). Inherited folder/heatmap colors use a very light 8% mix,
+  // so the theme text color remains readable — forcing contrast on the pure color
+  // wrongly picks dark text on a still-dark background.
+  const hasOwnColor = !!conversation.color
+  const cardTextColor = hasOwnColor && effectiveColor ? getContrastColor(effectiveColor) : undefined
+  const cardTextMutedColor = cardTextColor ? cardTextColor + 'aa' : undefined
 
   return (
     <>
