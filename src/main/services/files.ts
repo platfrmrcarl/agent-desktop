@@ -85,6 +85,7 @@ async function listTree(basePath: string, depth = 0, fileCount = { value: 0 }, e
 
 // Flat single-level listing (used by file explorer lazy loading)
 // No recursion, no budget, no skip list — only hides hidden files (. prefix)
+// Resolves symlinks to determine actual type (directory vs file)
 async function listDir(basePath: string): Promise<FileNode[]> {
   let entries: import('fs').Dirent[]
   try {
@@ -98,7 +99,20 @@ async function listDir(basePath: string): Promise<FileNode[]> {
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue
     const fullPath = join(basePath, entry.name)
-    nodes.push({ name: entry.name, path: fullPath, isDirectory: entry.isDirectory() })
+    
+    // Check if symlink: if so, stat() follows the link to get actual type
+    let isDir = entry.isDirectory()
+    if (entry.isSymbolicLink()) {
+      try {
+        const stat = await fsp.stat(fullPath)
+        isDir = stat.isDirectory()
+      } catch {
+        // Broken symlink or access denied — treat as file
+        isDir = false
+      }
+    }
+    
+    nodes.push({ name: entry.name, path: fullPath, isDirectory: isDir })
   }
 
   nodes.sort((a, b) => {
