@@ -29,6 +29,7 @@ export interface AIOverrides {
   agent_name?: string             // display name, fallback 'Claude'
   agent_personality?: string      // free text personality directive
   agent_language?: string         // free text language directive
+  webhook_completionUrl?: string  // URL to POST on message completion
 }
 
 export interface Conversation {

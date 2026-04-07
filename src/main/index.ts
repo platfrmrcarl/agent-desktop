@@ -27,7 +27,7 @@ import { enrichEnvironment } from './utils/env'
 import { killExistingInstances } from './utils/singleInstance'
 enrichEnvironment()
 
-// GPU flags — Linux only (Ozone/EGL/VAAPI are not available on macOS)
+// GPU / Ozone flags — Linux only
 if (process.platform === 'linux') {
   // Force Wayland backend when a Wayland compositor is running.
   // 'auto' hint tries X11 first when DISPLAY is set (XWayland), which is wrong on Hyprland/Sway.
@@ -36,8 +36,10 @@ if (process.platform === 'linux') {
   } else {
     app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
   }
-  app.commandLine.appendSwitch('use-gl', 'egl')
-  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecodeLinuxGL')
+  // Disable GPU compositing only: ANGLE+OpenGL fails on eglCreateImage with Ozone/Wayland
+  // buffer import, ANGLE+Vulkan crashes Hyprland's EGL compositor (cross-API fence sync).
+  // GPU remains available for WebGL, 3D previews, and CSS transforms.
+  app.commandLine.appendSwitch('disable-gpu-compositing')
 }
 
 // Kill existing instances — new instance wins, old ones are terminated

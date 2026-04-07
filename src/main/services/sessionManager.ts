@@ -15,6 +15,7 @@ export interface TurnResult {
   aborted: boolean
   sessionId: string | null
   error?: string
+  stopReason?: string
 }
 
 interface SDKUserMessage {
@@ -424,6 +425,7 @@ async function consumeStream(session: ActiveSession): Promise<void> {
                   toolCalls: Array.from(turn.toolCallsMap.values()),
                   aborted: false,
                   sessionId: session.sessionId,
+                  stopReason: turn.lastStopReason,
                 })
                 session.currentTurn = null
                 session.lastActivity = Date.now()
@@ -444,6 +446,7 @@ async function consumeStream(session: ActiveSession): Promise<void> {
               toolCalls: Array.from(turn.toolCallsMap.values()),
               aborted: false,
               sessionId: session.sessionId,
+              stopReason: turn.lastStopReason,
             })
             session.currentTurn = null
             session.lastActivity = Date.now()
@@ -552,7 +555,7 @@ async function consumeStream(session: ActiveSession): Promise<void> {
         (err.name === 'AbortError' || err.message.includes('abort'))
       ) {
         sendChunk('done', undefined, { conversationId: session.conversationId, stopReason: 'aborted' })
-        turn.resolve({ content: turn.content, toolCalls: Array.from(turn.toolCallsMap.values()), aborted: true, sessionId: session.sessionId })
+        turn.resolve({ content: turn.content, toolCalls: Array.from(turn.toolCallsMap.values()), aborted: true, sessionId: session.sessionId, stopReason: 'aborted' })
       } else {
         const errorMsg = err instanceof Error ? err.message : 'Unknown streaming error'
         console.error('[sessionManager] Stream error:', err)
@@ -565,6 +568,7 @@ async function consumeStream(session: ActiveSession): Promise<void> {
           aborted: false,
           sessionId: session.sessionId,
           error: errorMsg,
+          stopReason: turn.lastStopReason,
         })
       }
       session.currentTurn = null

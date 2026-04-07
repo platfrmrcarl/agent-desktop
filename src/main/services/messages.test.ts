@@ -181,7 +181,7 @@ describe('Messages Service', () => {
 
   it('getAISettings returns defaults from seeded settings', () => {
     const settings = getAISettings(db, convId)
-    expect(settings.model).toBe('claude-sonnet-4-6-20250514')
+    expect(settings.model).toBe('claude-sonnet-4-6')
     expect(settings.maxTurns).toBe(50)
     expect(settings.permissionMode).toBe('bypassPermissions')
   })
@@ -321,7 +321,7 @@ describe('Messages Service', () => {
   })
 
   it('getAISettings applies conversation ai_overrides', () => {
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_model', 'claude-sonnet-4-6-20250514')").run()
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_model', 'claude-sonnet-4-6')").run()
     db.prepare('UPDATE conversations SET ai_overrides = ? WHERE id = ?').run(
       JSON.stringify({ ai_model: 'claude-opus-4-6' }),
       convId
@@ -344,7 +344,7 @@ describe('Messages Service', () => {
   })
 
   it('getAISettings cascade: conversation > folder > global', () => {
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_model', 'claude-sonnet-4-6-20250514')").run()
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_model', 'claude-sonnet-4-6')").run()
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_maxTurns', '5')").run()
 
     const folder = db.prepare("INSERT INTO folders (name) VALUES ('Cascade Folder')").run()
@@ -418,7 +418,7 @@ describe('Messages Service', () => {
     )
     // Should not throw, falls back to global defaults
     const settings = getAISettings(db, convId)
-    expect(settings.model).toBe('claude-sonnet-4-6-20250514')
+    expect(settings.model).toBe('claude-sonnet-4-6')
   })
 
   it('getAISettings returns skills off by default', () => {
@@ -480,9 +480,9 @@ describe('Messages Service', () => {
   })
 
   it('getAISettings returns ttsSummaryModel from settings', () => {
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('tts_summaryModel', 'claude-sonnet-4-6-20250514')").run()
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('tts_summaryModel', 'claude-sonnet-4-6')").run()
     const settings = getAISettings(db, convId)
-    expect(settings.ttsSummaryModel).toBe('claude-sonnet-4-6-20250514')
+    expect(settings.ttsSummaryModel).toBe('claude-sonnet-4-6')
   })
 
   it('getAISettings returns undefined ttsSummaryModel when not set', () => {

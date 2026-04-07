@@ -119,6 +119,7 @@ export interface AISettings {
   ttsSummaryModel?: string
   piDisabledExtensions?: string[]
   piExtensionsDir?: string
+  webhookCompletionUrl?: string
 }
 
 /**
@@ -611,7 +612,7 @@ async function streamMessageOneShot(
     restoreEnv?.()
   }
 
-  return { content: fullContent, toolCalls: Array.from(toolCallsMap.values()), aborted, sessionId: capturedSessionId, error: streamError }
+  return { content: fullContent, toolCalls: Array.from(toolCallsMap.values()), aborted, sessionId: capturedSessionId, error: streamError, stopReason: lastStopReason }
 }
 
 export function notifyConversationUpdated(conversationId: number): void {

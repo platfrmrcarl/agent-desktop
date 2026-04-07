@@ -15,7 +15,7 @@ const mixedMcp: McpServerEntry[] = [
 
 describe('ChatStatusLine', () => {
   it('renders simplified model name', () => {
-    render(<ChatStatusLine model="claude-sonnet-4-6-20250514" permissionMode="bypassPermissions" mcpServers={noMcp} />)
+    render(<ChatStatusLine model="claude-sonnet-4-6" permissionMode="bypassPermissions" mcpServers={noMcp} />)
     expect(screen.getByText('sonnet-4-6')).toBeDefined()
   })
 

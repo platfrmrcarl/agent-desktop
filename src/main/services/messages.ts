@@ -15,6 +15,7 @@ import type { Message, Attachment, ToolCall, ToolApprovalResponse, AskUserRespon
 import { validateString, validatePositiveInt, validatePathSafe } from '../utils/validate'
 import { getSchedulerMcpConfig } from './schedulerBridge'
 import { speakResponse, stop as stopTts } from './tts'
+import { fireCompletionWebhook } from './webhook'
 import { safeJsonParse } from '../utils/json'
 import { getKnowledgesDir, getSupportedExtensions } from './knowledge'
 import { DEFAULT_MODEL, HAIKU_MODEL } from '../../shared/constants'
@@ -320,7 +321,7 @@ function filterMcpServers(
 }
 
 export function getAISettings(db: Database.Database, conversationId: number): AISettings {
-  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel']
+  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'webhook_completionUrl']
   const rows = db
     .prepare(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`)
     .all(...keys) as { key: string; value: string }[]
@@ -452,6 +453,7 @@ export function getAISettings(db: Database.Database, conversationId: number): AI
     ttsSummaryModel: map['tts_summaryModel'] || undefined,
     piDisabledExtensions: safeJsonParse<string[]>(map['pi_disabledExtensions'] || '[]', []),
     piExtensionsDir: globalPiExtensionsDir,
+    webhookCompletionUrl: map['webhook_completionUrl'] || undefined,
   }
 }
 
@@ -572,7 +574,7 @@ async function streamAndSave(
       : buildMessageHistory(db, conversationId)
 
     try {
-      const { content: responseContent, toolCalls, aborted, sessionId: newSessionId, error } = await streamMessage(
+      const { content: responseContent, toolCalls, aborted, sessionId: newSessionId, error, stopReason } = await streamMessage(
         attemptMessages, systemPrompt, aiSettings, conversationId, attemptSessionId
       )
 
@@ -594,6 +596,21 @@ async function streamAndSave(
         const assistantMsg = saveMessage(db, conversationId, 'assistant', finalContent, [], toolCalls)
         updateConversationTimestamp(db, conversationId)
         notifyConversationUpdated(conversationId)
+        // Fire-and-forget: webhook notification
+        if (aiSettings.webhookCompletionUrl) {
+          const convTitle = (db.prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined)?.title ?? ''
+          fireCompletionWebhook(aiSettings.webhookCompletionUrl, {
+            event: error ? 'completion_with_error' : 'completion',
+            conversationId,
+            conversationTitle: convTitle,
+            messageId: assistantMsg.id,
+            content: responseContent,
+            model: aiSettings.model || '',
+            stopReason,
+            createdAt: assistantMsg.created_at,
+            ...(error ? { error } : {}),
+          }).catch(err => console.error('[messages] Webhook error:', err))
+        }
         // Fire-and-forget: TTS for AI response (skip on error — incomplete response)
         if (!error) {
           speakResponse(responseContent, db, conversationId, aiSettings)

@@ -121,19 +121,16 @@ describe('waylandShortcuts', () => {
         2 // O_RDWR
       )
 
-      // hyprctl calls: version check + (unbind + bind) per shortcut
+      // hyprctl calls: version check + one --batch call with all unbind+bind commands
       const hyprctlCalls = mockExecFile.mock.calls.filter(c => c[0] === '/usr/bin/hyprctl')
-      expect(hyprctlCalls.length).toBeGreaterThanOrEqual(3) // version + at least 2 binds
+      expect(hyprctlCalls.length).toBeGreaterThanOrEqual(2) // version + batch
 
-      // Verify exec dispatcher is used (not global)
-      const bindCalls = hyprctlCalls.filter(c =>
-        c[1][0] === 'keyword' && c[1][1] === 'bind'
-      )
-      for (const call of bindCalls) {
-        const bindArgs = call[1][2] as string
-        expect(bindArgs).toContain(',exec,echo ')
-        expect(bindArgs).toContain('agent-desktop-shortcuts.pipe')
-      }
+      // Verify batch call contains exec dispatcher commands
+      const batchCall = hyprctlCalls.find(c => c[1][0] === '--batch')
+      expect(batchCall).toBeDefined()
+      const batchStr = batchCall![1][1] as string
+      expect(batchStr).toContain(',exec,echo ')
+      expect(batchStr).toContain('agent-desktop-shortcuts.pipe')
     })
 
     it('cleans up stale FIFO before creating new one', async () => {
@@ -255,12 +252,13 @@ describe('waylandShortcuts', () => {
 
       expect(ok).toBe(true)
 
-      // Should use exec dispatcher with FIFO path
-      const bindCalls = mockExecFile.mock.calls.filter(c =>
-        c[0] === '/usr/bin/hyprctl' && c[1][0] === 'keyword' && c[1][1] === 'bind'
+      // Should use batch call with exec dispatcher + FIFO path
+      const batchCall = mockExecFile.mock.calls.find(c =>
+        c[0] === '/usr/bin/hyprctl' && c[1][0] === '--batch'
       )
-      expect(bindCalls.length).toBe(1)
-      expect(bindCalls[0][1][2]).toContain('CTRL,space,exec,echo quick-chat')
+      expect(batchCall).toBeDefined()
+      const batchStr = batchCall![1][1] as string
+      expect(batchStr).toContain('CTRL,space,exec,echo quick-chat')
     })
 
     it('is exported alongside registerWaylandShortcuts', async () => {
@@ -294,9 +292,12 @@ describe('waylandShortcuts', () => {
       expect(mockCloseSync).toHaveBeenCalledWith(42)
       expect(mockUnlinkSync).toHaveBeenCalledWith('/run/user/1000/agent-desktop-shortcuts.pipe')
 
-      // hyprctl unbind should be called
+      // hyprctl unbind should be called (single command for 1 bind, or batch for multiple)
       const unbindCalls = mockExecFile.mock.calls.filter(c =>
-        c[0] === '/usr/bin/hyprctl' && c[1][0] === 'keyword' && c[1][1] === 'unbind'
+        c[0] === '/usr/bin/hyprctl' && (
+          (c[1][0] === 'keyword' && c[1][1] === 'unbind') ||
+          (c[1][0] === '--batch' && (c[1][1] as string).includes('keyword unbind'))
+        )
       )
       expect(unbindCalls.length).toBeGreaterThanOrEqual(1)
     })
@@ -315,14 +316,15 @@ describe('waylandShortcuts', () => {
         vi.fn()
       )
 
-      const bindCalls = mockExecFile.mock.calls.filter(c =>
-        c[0] === '/usr/bin/hyprctl' && c[1][0] === 'keyword' && c[1][1] === 'bind'
+      // All binds sent in a single --batch call
+      const batchCall = mockExecFile.mock.calls.find(c =>
+        c[0] === '/usr/bin/hyprctl' && c[1][0] === '--batch'
       )
-
-      const bindArgs = bindCalls.map(c => c[1][2] as string)
-      expect(bindArgs).toContainEqual(expect.stringContaining('ALT SHIFT,space,exec,echo test1'))
-      expect(bindArgs).toContainEqual(expect.stringContaining('CTRL,a,exec,echo test2'))
-      expect(bindArgs).toContainEqual(expect.stringContaining('SUPER,z,exec,echo test3'))
+      expect(batchCall).toBeDefined()
+      const batchStr = batchCall![1][1] as string
+      expect(batchStr).toContain('ALT SHIFT,space,exec,echo test1')
+      expect(batchStr).toContain('CTRL,a,exec,echo test2')
+      expect(batchStr).toContain('SUPER,z,exec,echo test3')
     })
   })
 })

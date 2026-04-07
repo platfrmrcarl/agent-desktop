@@ -678,14 +678,14 @@ describe('tts service', () => {
 
       await speakResponse('content here', db, 1, {
         ttsResponseMode: 'summary',
-        ttsSummaryModel: 'claude-sonnet-4-6-20250514',
+        ttsSummaryModel: 'claude-sonnet-4-6',
       })
 
       // Verify the SDK was called with the custom model
       expect(mockQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           options: expect.objectContaining({
-            model: 'claude-sonnet-4-6-20250514',
+            model: 'claude-sonnet-4-6',
           }),
         })
       )

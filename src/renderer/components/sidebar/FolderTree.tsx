@@ -160,10 +160,12 @@ const FolderRow = memo(function FolderRow(props: FolderRowProps) {
         {isRenaming ? (
           <input
             ref={inputRef}
+            autoFocus
             value={renameValue}
             onChange={(e) => onRenameChange(e.target.value)}
             onBlur={() => onRenameSubmit(folder.id)}
             onKeyDown={(e) => {
+              e.stopPropagation()
               if (e.key === 'Enter') onRenameSubmit(folder.id)
               if (e.key === 'Escape') onRenamingCancel()
             }}

@@ -87,6 +87,17 @@ function hyprctl(args: string[]): Promise<string> {
   })
 }
 
+/**
+ * Execute multiple hyprctl commands atomically via --batch.
+ * Prevents intermediate inconsistent keybind state that can crash Hyprland.
+ * Commands are joined with ' ; ' separator as required by hyprctl batch syntax.
+ */
+function hyprctlBatch(commands: string[]): Promise<string> {
+  if (commands.length === 0) return Promise.resolve('')
+  if (commands.length === 1) return hyprctl(commands[0].split(/\s+/))
+  return hyprctl(['--batch', commands.join(' ; ')])
+}
+
 /** Check if Hyprland compositor is running (hyprctl is available and responsive). */
 async function isHyprland(): Promise<boolean> {
   try {
@@ -324,36 +335,29 @@ async function tryRegisterHyprland(
     return false
   }
 
-  // 2. Bind shortcuts via hyprctl with exec dispatcher
-  //    When key is pressed, Hyprland runs: echo <shortcut-id> > <fifo-path>
-  let successCount = 0
+  // 2. Bind shortcuts via hyprctl batch — all unbind+bind commands sent atomically
+  //    to avoid intermediate inconsistent keybind state that can crash Hyprland.
+  const batchCmds: string[] = []
+  const pendingBinds: string[] = []
   for (const s of shortcuts) {
     const { mods, key } = toHyprlandBind(s.accelerator)
-    // Remove any stale binding for this key combo (survives app restarts)
-    try { await hyprctl(['keyword', 'unbind', `${mods},${key}`]) } catch { /* may not exist */ }
-    // Use exec dispatcher with echo to write shortcut ID to FIFO
-    const bindArgs = `${mods},${key},exec,echo ${s.id} > ${pipePath}`
-    try {
-      const out = await hyprctl(['keyword', 'bind', bindArgs])
-      hyprlandBinds.push(`${mods},${key}`)
-      console.log('[waylandShortcuts] hyprctl bind (exec):', bindArgs)
-      logToFile(`hyprctl bind OK (exec): ${bindArgs} → ${out}`)
-      successCount++
-    } catch (err) {
-      console.warn('[waylandShortcuts] hyprctl bind failed:', bindArgs, err)
-      logToFile(`hyprctl bind FAILED: ${bindArgs} → ${err}`)
-    }
+    batchCmds.push(`keyword unbind ${mods},${key}`)
+    batchCmds.push(`keyword bind ${mods},${key},exec,echo ${s.id} > ${pipePath}`)
+    pendingBinds.push(`${mods},${key}`)
   }
 
-  if (successCount === 0) {
-    console.error('[waylandShortcuts] All hyprctl binds failed — shortcuts will not work')
-    logToFile('All hyprctl binds failed')
+  try {
+    const out = await hyprctlBatch(batchCmds)
+    hyprlandBinds.push(...pendingBinds)
+    for (const cmd of batchCmds) {
+      if (cmd.startsWith('keyword bind ')) console.log('[waylandShortcuts] hyprctl bind (exec):', cmd.slice('keyword bind '.length))
+    }
+    logToFile(`hyprctl batch OK (${batchCmds.length} cmds): ${out}`)
+  } catch (err) {
+    console.error('[waylandShortcuts] hyprctl batch failed:', err)
+    logToFile(`hyprctl batch FAILED: ${err}`)
     destroyShortcutPipe()
     return false
-  }
-  if (successCount < shortcuts.length) {
-    console.warn(`[waylandShortcuts] ${successCount}/${shortcuts.length} hyprctl binds succeeded (partial)`)
-    logToFile(`Partial: ${successCount}/${shortcuts.length} binds succeeded`)
   }
 
   console.log('[waylandShortcuts] Registered via Hyprland exec+FIFO:', shortcuts.map((s) => s.id).join(', '))
@@ -530,15 +534,15 @@ async function cleanupBus(): Promise<void> {
   busName = ''
 }
 
-/** Remove Hyprland keybindings created by us. */
+/** Remove Hyprland keybindings created by us (atomic batch). */
 async function removeHyprlandBinds(): Promise<void> {
-  for (const bind of hyprlandBinds) {
-    try {
-      await hyprctl(['keyword', 'unbind', bind])
-      logToFile(`hyprctl unbind OK: ${bind}`)
-    } catch {
-      logToFile(`hyprctl unbind FAILED (best effort): ${bind}`)
-    }
+  if (hyprlandBinds.length === 0) return
+  const cmds = hyprlandBinds.map(bind => `keyword unbind ${bind}`)
+  try {
+    await hyprctlBatch(cmds)
+    logToFile(`hyprctl unbind batch OK: ${hyprlandBinds.join(', ')}`)
+  } catch {
+    logToFile(`hyprctl unbind batch FAILED (best effort): ${hyprlandBinds.join(', ')}`)
   }
   hyprlandBinds = []
 }
@@ -566,37 +570,28 @@ export async function rebindWaylandShortcuts(
   const pipePath = fifoActive ? getFifoPath() : null
 
   logToFile(`rebindWaylandShortcuts: updating ${shortcuts.length} hyprctl binds (fifo=${!!pipePath})`)
-  let successCount = 0
+  const batchCmds: string[] = []
+  const pendingBinds: string[] = []
   for (const s of shortcuts) {
     const { mods, key } = toHyprlandBind(s.accelerator)
-    // Remove any stale binding for this key combo (survives app restarts)
-    try { await hyprctl(['keyword', 'unbind', `${mods},${key}`]) } catch { /* may not exist */ }
-    // Use exec+FIFO if active, otherwise global+portal
+    batchCmds.push(`keyword unbind ${mods},${key}`)
     const bindArgs = pipePath
       ? `${mods},${key},exec,echo ${s.id} > ${pipePath}`
       : `${mods},${key},global,:${s.id}`
-    try {
-      const out = await hyprctl(['keyword', 'bind', bindArgs])
-      hyprlandBinds.push(`${mods},${key}`)
-      console.log('[waylandShortcuts] hyprctl rebind:', bindArgs)
-      logToFile(`hyprctl rebind OK: ${bindArgs} → ${out}`)
-      successCount++
-    } catch (err) {
-      console.warn('[waylandShortcuts] hyprctl rebind failed:', bindArgs, err)
-      logToFile(`hyprctl rebind FAILED: ${bindArgs} → ${err}`)
-    }
+    batchCmds.push(`keyword bind ${bindArgs}`)
+    pendingBinds.push(`${mods},${key}`)
   }
 
-  if (successCount === 0) {
-    console.error('[waylandShortcuts] All hyprctl rebinds failed')
-    logToFile('All hyprctl rebinds failed')
+  try {
+    await hyprctlBatch(batchCmds)
+    hyprlandBinds.push(...pendingBinds)
+    logToFile(`hyprctl rebind batch OK (${batchCmds.length} cmds)`)
+    return true
+  } catch (err) {
+    console.error('[waylandShortcuts] hyprctl rebind batch failed:', err)
+    logToFile(`hyprctl rebind batch FAILED: ${err}`)
     return false
   }
-  if (successCount < shortcuts.length) {
-    console.warn(`[waylandShortcuts] ${successCount}/${shortcuts.length} hyprctl rebinds succeeded (partial)`)
-    logToFile(`Partial rebind: ${successCount}/${shortcuts.length} succeeded`)
-  }
-  return true
 }
 
 /** Unregister all Wayland shortcuts and clean up resources. */

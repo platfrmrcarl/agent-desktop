@@ -14,11 +14,11 @@ export const BACKEND_DISPLAY_NAMES: Record<string, string> = {
 
 // ─── Model Constants ─────────────────────────────────────────
 
-export const DEFAULT_MODEL = 'claude-sonnet-4-6-20250514'
+export const DEFAULT_MODEL = 'claude-sonnet-4-6'
 export const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 
 export const MODEL_OPTIONS = [
-  { value: 'claude-sonnet-4-6-20250514', label: 'Sonnet 4.6' },
+  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
   { value: 'claude-opus-4-6', label: 'Opus 4.6' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ] as const
@@ -89,7 +89,7 @@ export const TTS_RESPONSE_OPTIONS = [
 
 export const TTS_SUMMARY_MODEL_OPTIONS = [
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-  { value: 'claude-sonnet-4-6-20250514', label: 'Sonnet 4.6' },
+  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
   { value: 'claude-opus-4-6', label: 'Opus 4.6' },
 ] as const
 
@@ -129,6 +129,7 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'files_excludePatterns', label: 'File Exclude Patterns', type: 'textarea' },
   { key: 'tts_responseMode', label: 'Response TTS', type: 'select', options: TTS_RESPONSE_OPTIONS },
   { key: 'tts_summaryPrompt', label: 'TTS Summary Prompt', type: 'textarea' },
+  { key: 'webhook_completionUrl', label: 'Completion Webhook', type: 'textarea' },
 ]
 
 // ─── AI Override Keys ────────────────────────────────────────
@@ -156,6 +157,7 @@ export const AI_OVERRIDE_KEYS: (keyof AIOverrides)[] = [
   'agent_name',
   'agent_personality',
   'agent_language',
+  'webhook_completionUrl',
 ]
 
 // ─── File Exclude Patterns ──────────────────────────────────

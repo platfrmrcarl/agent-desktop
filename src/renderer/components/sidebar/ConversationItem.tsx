@@ -142,6 +142,7 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
   }, [renameValue, conversation.title, conversation.id, updateConversation])
 
   const handleRenameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    e.stopPropagation()
     if (e.key === 'Enter') handleRenameSubmit()
     if (e.key === 'Escape') {
       setRenameValue(conversation.title)
@@ -243,10 +244,12 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
         {isRenaming ? (
           <input
             ref={inputRef}
+            autoFocus
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
             onBlur={handleRenameSubmit}
             onKeyDown={handleRenameKeyDown}
+            onClick={(e) => e.stopPropagation()}
             className="w-full text-sm mobile:text-base px-1 py-0.5 rounded outline-none"
             style={{
               backgroundColor: 'var(--color-bg)',

@@ -361,5 +361,5 @@ export async function streamMessagePI(
     }
   }
 
-  return { content: fullContent, toolCalls: Array.from(toolCallsMap.values()), aborted, sessionId: null }
+  return { content: fullContent, toolCalls: Array.from(toolCallsMap.values()), aborted, sessionId: null, stopReason: aborted ? 'aborted' : 'end_turn' }
 }

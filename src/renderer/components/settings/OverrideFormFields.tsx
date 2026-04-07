@@ -39,6 +39,7 @@ const FIELD_GROUPS = [
   { label: 'Behavior', keys: ['ai_permissionMode', 'ai_skills', 'ai_skillsEnabled', 'hooks_sharedAcrossBackends'] },
   { label: 'Prompts & Files', keys: ['ai_defaultSystemPrompt', 'files_excludePatterns'] },
   { label: 'Voice', keys: ['tts_responseMode', 'tts_summaryPrompt'] },
+  { label: 'Integrations', keys: ['webhook_completionUrl'] },
 ]
 
 const DEF_MAP = new Map(SETTING_DEFS.map(d => [d.key, d]))

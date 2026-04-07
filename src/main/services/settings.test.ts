@@ -21,7 +21,7 @@ describe('Settings Service', () => {
   it('get returns seeded defaults', async () => {
     const settings = await ipc.invoke('settings:get') as Record<string, string>
     expect(settings.theme).toBe('dark')
-    expect(settings.ai_model).toBe('claude-sonnet-4-6-20250514')
+    expect(settings.ai_model).toBe('claude-sonnet-4-6')
     expect(settings.ai_permissionMode).toBe('bypassPermissions')
     expect(settings.ai_tools).toBe('preset:claude_code')
   })
@@ -79,9 +79,9 @@ describe('Settings Service', () => {
   })
 
   it('accepts tts_summaryModel setting key', async () => {
-    await ipc.invoke('settings:set', 'tts_summaryModel', 'claude-sonnet-4-6-20250514')
+    await ipc.invoke('settings:set', 'tts_summaryModel', 'claude-sonnet-4-6')
     const settings = await ipc.invoke('settings:get') as Record<string, string>
-    expect(settings.tts_summaryModel).toBe('claude-sonnet-4-6-20250514')
+    expect(settings.tts_summaryModel).toBe('claude-sonnet-4-6')
   })
 
   it('get after set reflects new value', async () => {
