@@ -92,7 +92,8 @@ class CrontabScheduler implements PlatformScheduler {
     await this.uninstall()
 
     const existing = await this.readCrontab()
-    const entry = `* * * * * ${nodePath} ${scriptPath} --tick >> ${LOG_PATH} 2>&1 ${CRON_MARKER}`
+    const lockPath = join(homedir(), '.config', 'agent-desktop', 'scheduler.lock')
+    const entry = `* * * * * flock -n ${lockPath} ${nodePath} ${scriptPath} --tick >> ${LOG_PATH} 2>&1 ${CRON_MARKER}`
     const newCrontab = existing ? `${existing}\n${entry}\n` : `${entry}\n`
 
     await execAsync(`echo ${JSON.stringify(newCrontab)} | crontab -`)

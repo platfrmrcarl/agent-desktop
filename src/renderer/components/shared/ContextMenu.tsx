@@ -5,6 +5,7 @@ interface ContextMenuProps {
   position: { x: number; y: number }
   onClose: () => void
   draggable?: boolean
+  autoFocus?: boolean
   className?: string
   style?: CSSProperties
   role?: string
@@ -25,6 +26,7 @@ export function ContextMenu({
   position,
   onClose,
   draggable = true,
+  autoFocus = true,
   className,
   style,
   role = 'menu',
@@ -38,9 +40,10 @@ export function ContextMenu({
   useClickOutside(ref, onClose)
 
   useEffect(() => {
+    if (!autoFocus) return
     const firstItem = ref.current?.querySelector<HTMLElement>('[role="menuitem"]')
     firstItem?.focus()
-  }, [])
+  }, [autoFocus])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return

@@ -15,7 +15,6 @@ import {
 import { executeTask as coreExecuteTask } from '../../core/services/taskExecutor'
 import type { TaskRunContext } from '../../core/services/taskExecutor'
 import type { ScheduledTask } from '../../core/types'
-import { createSchedulerLock, refreshLockHeartbeat } from '../../core/services/schedulerLock'
 import { createPlatformScheduler } from './platformScheduler'
 import { findBinaryInPath } from '../utils/env'
 
@@ -26,9 +25,7 @@ let tickInterval: ReturnType<typeof setInterval> | null = null
 let schedulerService: SchedulerService | null = null
 let schedulerDb: Database.Database | null = null
 
-const LOCK_PATH = join(homedir(), '.config', 'agent-desktop', 'scheduler.lock')
 const HEADLESS_DIR = join(homedir(), '.config', 'agent-desktop', 'headless')
-const lock = createSchedulerLock(LOCK_PATH)
 
 // ─── Electron TaskRunContext ───────────────────────────────
 
@@ -117,9 +114,6 @@ export function reassignOrphanedTasks(db: Database.Database, conversationId: num
 function tick(): void {
   if (!schedulerService || !schedulerDb) return
 
-  // Refresh lock heartbeat so headless runner knows we're alive
-  refreshLockHeartbeat(LOCK_PATH).catch(() => {})
-
   // Auto-theme check
   const themeChange = schedulerService.checkAutoTheme()
   if (themeChange) {
@@ -158,9 +152,7 @@ export async function startScheduler(db: Database.Database): Promise<void> {
       console.error('[scheduler] Platform scheduler verification failed:', err)
     )
   } else {
-    // Standard mode: in-memory tick loop, lock held to block headless runner.
-    await lock.acquire()
-
+    // Standard mode: in-memory tick loop. OS timer is not installed, so no lock needed.
     schedulerService.recoverStuckTasks()
     schedulerService.recomputeMissedRuns()
 
@@ -185,9 +177,6 @@ export async function stopScheduler(): Promise<void> {
   }
   schedulerService = null
   schedulerDb = null
-
-  // Release lock (only held in standard mode, but release is safe either way)
-  await lock.release()
   console.log('[scheduler] Stopped')
 }
 

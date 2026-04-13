@@ -1,7 +1,9 @@
-import { useRef } from 'react'
+import { useRef, useState, useCallback, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './MermaidBlock'
+import { ContextMenu, ContextMenuItem } from '../shared/ContextMenu'
 
 interface MarkdownArtifactProps {
   content: string
@@ -28,6 +30,33 @@ function extractText(children: React.ReactNode): string {
 
 export function MarkdownArtifact({ content }: MarkdownArtifactProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; text: string } | null>(null)
+  const savedRangeRef = useRef<Range | null>(null)
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    const sel = window.getSelection()
+    const text = sel?.toString().trim() ?? ''
+    if (!text) return // no selection → let default behavior through
+    e.preventDefault()
+    // Save selection range before setState triggers re-render
+    if (sel && sel.rangeCount > 0) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange()
+    }
+    setCtxMenu({ x: e.clientX, y: e.clientY, text })
+  }, [])
+
+  // Restore selection after React re-render (runs before browser paint)
+  useLayoutEffect(() => {
+    if (ctxMenu && savedRangeRef.current) {
+      const sel = window.getSelection()
+      if (sel) {
+        try {
+          sel.removeAllRanges()
+          sel.addRange(savedRangeRef.current)
+        } catch { /* range references detached nodes */ }
+      }
+    }
+  }, [ctxMenu])
 
   const scrollToAnchor = (id: string) => {
     let decoded: string
@@ -40,9 +69,28 @@ export function MarkdownArtifact({ content }: MarkdownArtifactProps) {
   return (
     <div
       ref={containerRef}
-      className="h-full overflow-auto p-4 leading-relaxed"
+      className="h-full overflow-auto p-4 leading-relaxed select-text cursor-text"
       style={{ color: 'var(--color-text)' }}
+      onContextMenu={handleContextMenu}
     >
+      {ctxMenu && createPortal(
+        <ContextMenu
+          position={{ x: ctxMenu.x, y: ctxMenu.y }}
+          onClose={() => setCtxMenu(null)}
+          draggable={false}
+          autoFocus={false}
+          className="min-w-[140px]"
+          aria-label="Text actions"
+        >
+          <ContextMenuItem onClick={async () => {
+            await navigator.clipboard.writeText(ctxMenu.text)
+            setCtxMenu(null)
+          }}>
+            Copy Selection
+          </ContextMenuItem>
+        </ContextMenu>,
+        document.body,
+      )}
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

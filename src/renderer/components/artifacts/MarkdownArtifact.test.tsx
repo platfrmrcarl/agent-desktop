@@ -4,7 +4,16 @@ vi.mock('./MermaidBlock', () => ({
   ),
 }))
 
-import { render, screen, fireEvent } from '@testing-library/react'
+vi.mock('../shared/ContextMenu', () => ({
+  ContextMenu: ({ children, 'aria-label': ariaLabel }: any) => (
+    <div data-testid="context-menu" aria-label={ariaLabel}>{children}</div>
+  ),
+  ContextMenuItem: ({ children, onClick }: any) => (
+    <button data-testid="context-menu-item" onClick={onClick}>{children}</button>
+  ),
+}))
+
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { MarkdownArtifact } from './MarkdownArtifact'
 
 // jsdom doesn't implement scrollIntoView
@@ -43,6 +52,44 @@ describe('MarkdownArtifact', () => {
     expect(screen.getByText('Title').id).toBe('title')
     expect(screen.getByText('Section').id).toBe('section')
     expect(screen.getByText('Sub').id).toBe('sub')
+  })
+
+  describe('context menu copy', () => {
+    it('shows copy menu on right-click when text is selected', () => {
+      render(<MarkdownArtifact content="Hello world" />)
+      const container = screen.getByText('Hello world').closest('[class*="select-text"]')!
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        toString: () => 'Hello',
+      } as Selection)
+      fireEvent.contextMenu(container)
+      expect(screen.getByTestId('context-menu')).toBeInTheDocument()
+      expect(screen.getByText('Copy Selection')).toBeInTheDocument()
+    })
+
+    it('does not show menu when no text is selected', () => {
+      render(<MarkdownArtifact content="Hello world" />)
+      const container = screen.getByText('Hello world').closest('[class*="select-text"]')!
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        toString: () => '',
+      } as Selection)
+      fireEvent.contextMenu(container)
+      expect(screen.queryByTestId('context-menu')).not.toBeInTheDocument()
+    })
+
+    it('copies selected text to clipboard on Copy Selection click', async () => {
+      render(<MarkdownArtifact content="Hello world" />)
+      const container = screen.getByText('Hello world').closest('[class*="select-text"]')!
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        toString: () => 'Hello',
+      } as Selection)
+      fireEvent.contextMenu(container)
+      const mockWriteText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, { clipboard: { writeText: mockWriteText } })
+      await act(async () => {
+        fireEvent.click(screen.getByText('Copy Selection'))
+      })
+      expect(mockWriteText).toHaveBeenCalledWith('Hello')
+    })
   })
 
   describe('anchor links', () => {

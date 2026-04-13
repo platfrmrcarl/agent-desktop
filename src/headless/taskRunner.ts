@@ -11,12 +11,10 @@ import { mkdirSync, appendFileSync, readFileSync, existsSync } from 'fs'
 import { AgentEngine } from '../core'
 import type { Broadcaster } from '../core'
 import { executeTask } from '../core/services/taskExecutor'
-import { createSchedulerLock, refreshLockHeartbeat } from '../core/services/schedulerLock'
 import { createHeadlessContext } from './headlessTaskContext'
 import { enrichHeadlessEnv } from './headlessEnv'
 
 const DEFAULT_DB_PATH = join(homedir(), '.config', 'agent-desktop', 'agent.db')
-const LOCK_PATH = join(homedir(), '.config', 'agent-desktop', 'scheduler.lock')
 const LOG_PATH = join(homedir(), '.config', 'agent-desktop', 'scheduler-headless.log')
 const HEADLESS_DIR = join(homedir(), '.config', 'agent-desktop', 'headless')
 const WASM_PATH = join(HEADLESS_DIR, 'sql-wasm.wasm')
@@ -39,64 +37,49 @@ const silentBroadcaster: Broadcaster = {
 async function runTick(): Promise<void> {
   log('[tick] Starting scheduler tick')
 
-  // Acquire exclusive lock — prevents concurrent DB access with another headless runner
-  // In background mode, Electron does NOT hold the lock, so this always succeeds
-  const lock = createSchedulerLock(LOCK_PATH)
-  const acquired = await lock.acquire()
-  if (!acquired) {
-    log('[tick] Another process holds the lock, skipping')
+  const dbPath = resolve(process.env.AGENT_DB_PATH || DEFAULT_DB_PATH)
+
+  const engine = new AgentEngine({
+    dbPath,
+    wasmPath: WASM_PATH,
+    themesDir: join(homedir(), '.agent-desktop', 'themes'),
+    broadcaster: silentBroadcaster,
+  })
+
+  await engine.init()
+  log(`[tick] Engine initialized, DB: ${dbPath}`)
+
+  const scheduler = engine.scheduler
+
+  // Reset stuck tasks (safe on every tick)
+  scheduler.recoverStuckTasks()
+
+  // Check auto-theme (updates DB if needed)
+  scheduler.checkAutoTheme()
+
+  // Get due tasks
+  const dueTasks = scheduler.getDueTasks()
+  if (dueTasks.length === 0) {
+    log('[tick] No due tasks, exiting')
+    await engine.shutdown()
     process.exit(0)
   }
 
-  try {
-    const dbPath = resolve(process.env.AGENT_DB_PATH || DEFAULT_DB_PATH)
+  log(`[tick] ${dueTasks.length} due task(s)`)
+  const ctx = createHeadlessContext(engine.db as any)
 
-    const engine = new AgentEngine({
-      dbPath,
-      wasmPath: WASM_PATH,
-      themesDir: join(homedir(), '.agent-desktop', 'themes'),
-      broadcaster: silentBroadcaster,
-    })
-
-    await engine.init()
-    log(`[tick] Engine initialized, DB: ${dbPath}`)
-
-    const scheduler = engine.scheduler
-
-    // Reset stuck tasks (safe on every tick)
-    scheduler.recoverStuckTasks()
-
-    // Check auto-theme (updates DB if needed)
-    scheduler.checkAutoTheme()
-
-    // Get due tasks
-    const dueTasks = scheduler.getDueTasks()
-    if (dueTasks.length === 0) {
-      log('[tick] No due tasks, exiting')
-      await engine.shutdown()
-      await lock.release()
-      process.exit(0)
+  // Execute tasks sequentially (sql.js is single-process, no concurrency)
+  for (const task of dueTasks) {
+    log(`[tick] Executing task "${task.name}" (id=${task.id})`)
+    try {
+      await executeTask(scheduler, ctx, task)
+    } catch (err) {
+      log(`[tick] Task ${task.id} error: ${err instanceof Error ? err.message : err}`)
     }
-
-    log(`[tick] ${dueTasks.length} due task(s)`)
-    const ctx = createHeadlessContext(engine.db as any)
-
-    // Execute tasks sequentially (sql.js is single-process, no concurrency)
-    for (const task of dueTasks) {
-      log(`[tick] Executing task "${task.name}" (id=${task.id})`)
-      try {
-        await executeTask(scheduler, ctx, task)
-        await refreshLockHeartbeat(LOCK_PATH)
-      } catch (err) {
-        log(`[tick] Task ${task.id} error: ${err instanceof Error ? err.message : err}`)
-      }
-    }
-
-    log('[tick] All tasks processed, shutting down')
-    await engine.shutdown()
-  } finally {
-    await lock.release()
   }
+
+  log('[tick] All tasks processed, shutting down')
+  await engine.shutdown()
 }
 
 // ─── Run-task mode ─────────────────────────────────────────
@@ -104,48 +87,35 @@ async function runTick(): Promise<void> {
 async function runTask(taskId: number): Promise<void> {
   log(`[run-task] Running task ${taskId}`)
 
-  const lock = createSchedulerLock(LOCK_PATH)
-  const acquired = await lock.acquire()
-  if (!acquired) {
-    log('[run-task] Lock held by Electron app, skipping')
-    process.exit(0)
-  }
+  const dbPath = resolve(process.env.AGENT_DB_PATH || DEFAULT_DB_PATH)
 
-  try {
-    const dbPath = resolve(process.env.AGENT_DB_PATH || DEFAULT_DB_PATH)
+  const engine = new AgentEngine({
+    dbPath,
+    wasmPath: WASM_PATH,
+    themesDir: join(homedir(), '.agent-desktop', 'themes'),
+    broadcaster: silentBroadcaster,
+  })
 
-    const engine = new AgentEngine({
-      dbPath,
-      wasmPath: WASM_PATH,
-      themesDir: join(homedir(), '.agent-desktop', 'themes'),
-      broadcaster: silentBroadcaster,
-    })
+  await engine.init()
+  const scheduler = engine.scheduler
 
-    await engine.init()
-    const scheduler = engine.scheduler
-
-    const task = scheduler.get(taskId)
-    if (!task) {
-      log(`[run-task] Task ${taskId} not found`)
-      await engine.shutdown()
-      await lock.release()
-      process.exit(1)
-    }
-    if (!task.enabled) {
-      log(`[run-task] Task ${taskId} is disabled`)
-      await engine.shutdown()
-      await lock.release()
-      process.exit(1)
-    }
-
-    const ctx = createHeadlessContext(engine.db as any)
-    await executeTask(scheduler, ctx, task)
-
-    log(`[run-task] Task ${taskId} completed`)
+  const task = scheduler.get(taskId)
+  if (!task) {
+    log(`[run-task] Task ${taskId} not found`)
     await engine.shutdown()
-  } finally {
-    await lock.release()
+    process.exit(1)
   }
+  if (!task.enabled) {
+    log(`[run-task] Task ${taskId} is disabled`)
+    await engine.shutdown()
+    process.exit(1)
+  }
+
+  const ctx = createHeadlessContext(engine.db as any)
+  await executeTask(scheduler, ctx, task)
+
+  log(`[run-task] Task ${taskId} completed`)
+  await engine.shutdown()
 }
 
 // ─── CLI dispatch ──────────────────────────────────────────
