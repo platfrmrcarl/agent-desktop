@@ -1,7 +1,7 @@
 import './utils/coloredConsole'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { initDatabase, getDatabase, closeDatabase } from './db/database'
+import { initDatabase, getDatabase, closeDatabase } from '../core/db/database'
 import { registerAllHandlers } from './ipc'
 import { createTray, setTrayUpdateCallbacks, rebuildTrayMenu, toggleAppWindow } from './services/tray'
 import { initAutoUpdater, stopAutoUpdater, checkForUpdates, installUpdate } from './services/updater'
@@ -125,7 +125,9 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     registerPreviewProtocol()
-    await initDatabase()
+    const dbPath = join(app.getPath('userData'), 'agent.db')
+    const wasmPath = app.isPackaged ? join(process.resourcesPath, 'sql-wasm.wasm') : undefined
+    await initDatabase(dbPath, wasmPath)
     const db = getDatabase()
     registerAllHandlers(ipcMain, db)
     cleanupPastedFiles().catch(() => {}) // fire-and-forget: remove stale paste temp files

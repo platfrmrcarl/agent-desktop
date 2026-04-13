@@ -1,6 +1,6 @@
-import { initMemoryAdapter, SqlJsAdapter } from '../db/sqljs-adapter'
-import { createTables } from '../db/schema'
-import { seedDefaults } from '../db/seed'
+import { initMemoryAdapter, SqlJsAdapter } from '../../core/db/sqljs-adapter'
+import { createTables } from '../../core/db/schema'
+import { seedDefaults } from '../../core/db/seed'
 
 vi.mock('electron', () => ({
   app: {

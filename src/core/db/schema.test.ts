@@ -1,9 +1,6 @@
 import { initMemoryAdapter, SqlJsAdapter } from './sqljs-adapter'
 import { createTables } from './schema'
 
-vi.mock('electron', () => ({
-  app: { isPackaged: false, getPath: vi.fn(() => '/tmp') },
-}))
 
 async function createTestDb() {
   const db = await initMemoryAdapter()

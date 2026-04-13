@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import { DEFAULT_MODEL, DEFAULT_EXCLUDE_PATTERNS, DEFAULT_NOTIFICATION_CONFIG } from '../../shared/constants'
+import { DEFAULT_MODEL, DEFAULT_EXCLUDE_PATTERNS, DEFAULT_NOTIFICATION_CONFIG } from '../types/constants'
 
 export function seedDefaults(db: Database.Database): void {
   seedShortcuts(db)

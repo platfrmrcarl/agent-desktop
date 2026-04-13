@@ -1,7 +1,6 @@
 import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js'
 import fs from 'fs'
 import path from 'path'
-import { app } from 'electron'
 
 // ---------------------------------------------------------------------------
 // Statement — wraps sql.js to mimic better-sqlite3's Statement API
@@ -157,25 +156,16 @@ function normParams(params: unknown[]): unknown[] {
   return params.map((p) => (p === undefined ? null : p))
 }
 
-function resolveWasmPath(): string | undefined {
-  // In packaged app: WASM is in extraResources
-  try {
-    if (app.isPackaged) {
-      return path.join(process.resourcesPath, 'sql-wasm.wasm')
-    }
-  } catch {
-    // app not available (test environment) — fall through
-  }
-  // Dev / test: sql.js resolves WASM from node_modules automatically
-  return undefined
-}
-
 // ---------------------------------------------------------------------------
 // Factory functions
 // ---------------------------------------------------------------------------
 
-export async function initAdapter(dbPath: string): Promise<SqlJsAdapter> {
-  const wasmPath = resolveWasmPath()
+/**
+ * Initialize a persistent SQLite adapter backed by a file.
+ * @param dbPath Path to the .db file on disk
+ * @param wasmPath Optional path to sql-wasm.wasm (for packaged apps where WASM is in extraResources)
+ */
+export async function initAdapter(dbPath: string, wasmPath?: string): Promise<SqlJsAdapter> {
   const SQL = await initSqlJs(wasmPath ? { locateFile: () => wasmPath } : undefined)
 
   let db: SqlJsDatabase
@@ -189,8 +179,11 @@ export async function initAdapter(dbPath: string): Promise<SqlJsAdapter> {
   return new SqlJsAdapter(db, dbPath)
 }
 
-export async function initMemoryAdapter(): Promise<SqlJsAdapter> {
-  const wasmPath = resolveWasmPath()
+/**
+ * Initialize an in-memory SQLite adapter (for tests).
+ * @param wasmPath Optional path to sql-wasm.wasm
+ */
+export async function initMemoryAdapter(wasmPath?: string): Promise<SqlJsAdapter> {
   const SQL = await initSqlJs(wasmPath ? { locateFile: () => wasmPath } : undefined)
   const db = new SQL.Database()
   return new SqlJsAdapter(db, null)

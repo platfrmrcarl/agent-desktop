@@ -1,0 +1,394 @@
+// ─── Database Row Types ───────────────────────────────────────
+
+export interface CwdWhitelistEntry {
+  path: string
+  access: 'read' | 'readwrite'
+}
+
+export interface AIOverrides {
+  ai_model?: string
+  ai_maxTurns?: string
+  ai_maxThinkingTokens?: string
+  ai_maxBudgetUsd?: string
+  ai_permissionMode?: string
+  ai_tools?: string
+  ai_defaultSystemPrompt?: string
+  ai_mcpDisabled?: string
+  ai_knowledgeFolders?: string
+  ai_skills?: string
+  ai_skillsEnabled?: string    // 'true' | 'false'
+  ai_disabledSkills?: string   // JSON string[] of disabled skill names
+  pi_disabledExtensions?: string  // JSON string[] of disabled extension resolved paths
+  hooks_cwdRestriction?: string
+  hooks_cwdWhitelist?: string  // JSON CwdWhitelistEntry[]
+  files_excludePatterns?: string
+  tts_responseMode?: string    // 'off' | 'full' | 'summary' | 'auto'
+  tts_summaryPrompt?: string   // prompt template with {response} placeholder
+  ai_sdkBackend?: string       // 'claude-agent-sdk' | 'pi'
+  settings_sharedAcrossBackends?: string  // 'true' | 'false'
+  agent_name?: string             // display name, fallback 'Claude'
+  agent_personality?: string      // free text personality directive
+  agent_language?: string         // free text language directive
+  webhook_completionUrl?: string  // URL to POST on message completion
+}
+
+export interface Conversation {
+  id: number
+  title: string
+  folder_id: number | null
+  position: number
+  model: string
+  system_prompt: string | null
+  cwd: string | null
+  kb_enabled: number // 0 or 1 (SQLite boolean)
+  ai_overrides: string | null // JSON AIOverrides
+  cleared_at: string | null
+  compact_summary: string | null
+  sdk_session_id: string | null
+  color: string | null
+  message_count?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationWithMessages extends Conversation {
+  messages: Message[]
+}
+
+export interface Message {
+  id: number
+  conversation_id: number
+  role: 'user' | 'assistant'
+  content: string
+  attachments: string // JSON array
+  tool_calls: string | null // JSON ToolCall[] or null
+  created_at: string
+  updated_at: string
+}
+
+export interface Folder {
+  id: number
+  name: string
+  parent_id: number | null
+  position: number
+  is_default: number // 0 or 1 (SQLite boolean)
+  ai_overrides: string | null // JSON AIOverrides
+  default_cwd: string | null
+  color: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FileNode {
+  name: string
+  path: string
+  isDirectory: boolean
+  children?: FileNode[]
+}
+
+export type McpTransportType = 'stdio' | 'http' | 'sse'
+
+export interface McpServer {
+  id: number
+  name: string
+  type: McpTransportType
+  command: string
+  args: string // JSON array
+  env: string // JSON object
+  url: string | null
+  headers: string // JSON object
+  enabled: number
+  status: 'configured' | 'disabled' | 'error'
+  created_at: string
+  updated_at: string
+}
+
+export interface McpServerConfig {
+  name: string
+  type?: McpTransportType
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+}
+
+export type McpServerSDKConfig =
+  | { command: string; args: string[]; env?: Record<string, string> }
+  | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }
+
+export interface McpTestResult {
+  success: boolean
+  output: string
+}
+
+export interface AllowedTool {
+  name: string
+  description: string
+  enabled: boolean
+}
+
+export interface KnowledgeFile {
+  id: number
+  path: string
+  name: string
+  content_hash: string
+  size: number
+  created_at: string
+  updated_at: string
+}
+
+export interface KnowledgeCollection {
+  name: string          // folder name (relative to knowledges root)
+  path: string          // absolute path
+  fileCount: number     // supported files found recursively
+  totalSize: number     // cumulative bytes
+}
+
+export interface KnowledgeSelection {
+  folder: string              // collection name
+  access: 'read' | 'readwrite'
+}
+
+export interface ThemeFile {
+  filename: string
+  name: string
+  isBuiltin: boolean
+  css: string
+}
+
+export interface KeyboardShortcut {
+  id: number
+  action: string
+  keybinding: string
+  enabled: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SlashCommand {
+  name: string          // e.g. "compact", "refactor", "weather-wttr"
+  description: string   // from frontmatter or built-in
+  source: 'builtin' | 'user' | 'project' | 'skill' | 'macro' | 'extension'
+}
+
+// ─── Scheduled Tasks ─────────────────────────────────────────
+
+export type IntervalUnit = 'minutes' | 'hours' | 'days'
+export type TaskStatus = 'success' | 'error' | 'running'
+
+export interface ScheduledTask {
+  id: number
+  name: string
+  prompt: string
+  conversation_id: number
+  conversation_title?: string
+  enabled: boolean
+  interval_value: number
+  interval_unit: IntervalUnit
+  schedule_time: string | null
+  catch_up: boolean
+  max_runs: number | null
+  last_run_at: string | null
+  next_run_at: string | null
+  last_status: TaskStatus | null
+  last_error: string | null
+  run_count: number
+  notify_desktop: boolean
+  notify_voice: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateScheduledTask {
+  name: string
+  prompt: string
+  conversation_id?: number          // omit to auto-create a new conversation
+  interval_value: number
+  interval_unit: IntervalUnit
+  schedule_time?: string
+  catch_up?: boolean
+  max_runs?: number | null
+  notify_desktop?: boolean
+  notify_voice?: boolean
+}
+
+// ─── Jupyter Kernel Types ────────────────────────────────────
+
+export interface JupyterOutputChunk {
+  filePath: string
+  id: string | null
+  type: 'stream' | 'execute_result' | 'display_data' | 'error' | 'status' | 'ready'
+  name?: string
+  text?: string
+  data?: Record<string, string>
+  execution_count?: number
+  ename?: string
+  evalue?: string
+  traceback?: string[]
+  state?: string
+  language?: string
+}
+
+// ─── Tool Approval / AskUserQuestion Types ───────────────────
+
+export interface AskUserOption {
+  label: string
+  description: string
+}
+
+export interface AskUserQuestion {
+  question: string
+  header: string
+  options: AskUserOption[]
+  multiSelect: boolean
+}
+
+export interface ToolApprovalResponse {
+  behavior: 'allow' | 'deny'
+  message?: string
+}
+
+export interface AskUserResponse {
+  answers: Record<string, string>
+}
+
+// ─── Tool Call Persistence ────────────────────────────────────
+
+export interface ToolCall {
+  id: string        // tool_use_id from SDK
+  name: string      // e.g. "Bash", "Read", "Edit"
+  input: string     // JSON string of input params
+  output: string    // full tool result content
+  status: 'done' | 'error'
+}
+
+// ─── MCP Connection Status ───────────────────────────────────
+
+export interface McpConnectionStatus {
+  name: string
+  status: 'connected' | 'error' | 'connecting'
+  error?: string
+}
+
+// ─── Notification Types ─────────────────────────────────────
+
+export type NotificationEvent =
+  | 'success'
+  | 'max_tokens'
+  | 'refusal'
+  | 'error_max_turns'
+  | 'error_max_budget'
+  | 'error_execution'
+  | 'error_js'
+
+export interface NotificationEventConfig {
+  sound: boolean
+  desktop: boolean
+}
+
+export type NotificationConfig = Record<NotificationEvent, NotificationEventConfig>
+
+// ─── Auto-Update Types ──────────────────────────────────────
+
+export interface UpdateInfo {
+  available: boolean
+  version?: string
+  releaseDate?: string
+}
+
+export type UpdateStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'available'; version: string; releaseDate?: string }
+  | { state: 'not-available' }
+  | { state: 'downloading'; percent: number }
+  | { state: 'downloaded'; version: string }
+  | { state: 'error'; message: string }
+
+// ─── IPC / Runtime Types ──────────────────────────────────────
+
+export interface StreamChunk {
+  type: 'text' | 'tool_start' | 'tool_input' | 'tool_result' | 'tool_approval' | 'ask_user' | 'mcp_status' | 'system_message' | 'task_notification' | 'retry' | 'error' | 'done'
+  content?: string
+  toolName?: string
+  toolId?: string
+  toolOutput?: string
+  requestId?: string
+  toolInput?: string
+  questions?: string
+  mcpServers?: string  // JSON McpConnectionStatus[]
+  conversationId?: number
+  stopReason?: string
+  resultSubtype?: string
+  hookName?: string
+  hookEvent?: string
+  taskId?: string
+  taskStatus?: string
+  outputFile?: string
+  retryAttempt?: number
+  retryMaxAttempts?: number
+}
+
+export type StreamPart =
+  | { type: 'text'; content: string }
+  | { type: 'tool'; name: string; id: string; status: 'running' | 'done'; summary?: string; input?: Record<string, unknown>; output?: string }
+  | { type: 'tool_approval'; requestId: string; toolName: string; toolInput: Record<string, unknown> }
+  | { type: 'ask_user'; requestId: string; questions: AskUserQuestion[] }
+  | { type: 'mcp_status'; servers: McpConnectionStatus[] }
+  | { type: 'system_message'; content: string; hookName?: string; hookEvent?: string }
+  | { type: 'task_notification'; summary: string; taskId?: string; taskStatus?: string; outputFile?: string }
+  | { type: 'retry'; message: string; attempt: number; maxAttempts: number }
+
+export interface Attachment {
+  name: string
+  path: string
+  type: string
+  size: number
+}
+
+export interface AuthDiagnostics {
+  claudeBinaryFound: boolean
+  claudeBinaryPath: string | null
+  credentialsFileExists: boolean
+  configDir: string
+  isAppImage: boolean
+  home: string
+  ldLibraryPath?: string
+  sdkError?: string
+}
+
+export interface AuthStatus {
+  authenticated: boolean
+  user: { email: string; name: string } | null
+  error?: string
+  diagnostics?: AuthDiagnostics
+}
+
+export interface SystemInfo {
+  version: string
+  electron: string
+  node: string
+  platform: string
+  dbPath: string
+  configPath: string
+  sessionType: 'wayland' | 'x11' | 'unknown'
+}
+
+export interface LogEntry {
+  level: 'info' | 'warn' | 'error'
+  message: string
+  timestamp: string
+  details?: string
+}
+
+// ─── Sort Types ──────────────────────────────────────────────
+
+export type SortCriterion = 'updated_at' | 'message_count' | 'title'
+export type SortDirection = 'asc' | 'desc'
+
+export interface SortConfig {
+  criterion: SortCriterion
+  direction: SortDirection
+}
+

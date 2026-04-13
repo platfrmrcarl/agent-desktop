@@ -1,8 +1,5 @@
 import { initMemoryAdapter, SqlJsAdapter } from './sqljs-adapter'
 
-vi.mock('electron', () => ({
-  app: { isPackaged: false, getPath: vi.fn(() => '/tmp') },
-}))
 
 describe('SqlJsAdapter', () => {
   let db: SqlJsAdapter
