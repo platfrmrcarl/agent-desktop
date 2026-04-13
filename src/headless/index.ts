@@ -14,7 +14,24 @@ import { homedir } from 'os'
 import { AgentEngine, noopPlatformIO, noopSystemUI } from '../core'
 import type { Broadcaster } from '../core'
 
-// ─── Console Broadcaster ────────────────────────────────────
+// ─── CLI dispatch ───────────────────────────────────────────
+// --tick or --run-task → delegate to task runner (no interactive mode)
+
+const args = process.argv.slice(2)
+if (args.includes('--tick') || args.includes('--run-task')) {
+  import('./taskRunner').then(({ main }) => main(args)).catch((err) => {
+    console.error('[headless] Fatal:', err)
+    process.exit(1)
+  })
+} else {
+  // Interactive mode — engine ready, Ctrl+C to exit
+  runInteractive().catch((err) => {
+    console.error('[headless] Fatal:', err)
+    process.exit(1)
+  })
+}
+
+// ─── Interactive mode ───────────────────────────────────────
 
 const consoleBroadcaster: Broadcaster = {
   broadcast(channel: string, data: unknown): void {
@@ -22,12 +39,10 @@ const consoleBroadcaster: Broadcaster = {
   },
 }
 
-// ─── Bootstrap ──────────────────────────────────────────────
-
 const DEFAULT_DB_PATH = join(homedir(), '.config', 'agent-desktop', 'agent.db')
 const DEFAULT_THEMES_DIR = join(homedir(), '.agent-desktop', 'themes')
 
-async function main(): Promise<void> {
+async function runInteractive(): Promise<void> {
   const dbPath = process.env.AGENT_DB_PATH || DEFAULT_DB_PATH
   const themesDir = process.env.AGENT_THEMES_DIR || DEFAULT_THEMES_DIR
 
@@ -56,12 +71,6 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
 
-  // Keep alive — the engine is ready for programmatic use
   console.log(`[headless] Engine ready. Press Ctrl+C to exit.`)
-  console.log(`[headless] Available services: settings, folders, conversations, messages, tools, shortcuts, themes, mcp`)
+  console.log(`[headless] Available services: settings, folders, conversations, messages, tools, shortcuts, themes, mcp, scheduler`)
 }
-
-main().catch((err) => {
-  console.error('[headless] Fatal:', err)
-  process.exit(1)
-})

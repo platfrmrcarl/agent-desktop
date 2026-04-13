@@ -93,6 +93,8 @@ const ALLOWED_SETTING_KEYS = new Set<string>([
   // Sort preferences (global only, not cascadable)
   'sort_criterion',
   'sort_direction',
+  // Background scheduler (global only)
+  'scheduler_background_enabled',
 ])
 
 export class SettingsService {

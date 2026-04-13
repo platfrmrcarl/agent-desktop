@@ -4,6 +4,56 @@ import { TaskCard } from './TaskCard'
 import { TaskFormModal } from './TaskFormModal'
 import type { ScheduledTask, CreateScheduledTask } from '../../../shared/types'
 
+function BackgroundToggle() {
+  const [bgEnabled, setBgEnabled] = useState(false)
+  const [bgInstalled, setBgInstalled] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    window.agent.scheduler.backgroundStatus().then((status: { enabled: boolean; installed: boolean }) => {
+      setBgEnabled(status.enabled)
+      setBgInstalled(status.installed)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [])
+
+  const handleToggle = async () => {
+    const newValue = !bgEnabled
+    setLoading(true)
+    try {
+      await window.agent.scheduler.toggleBackground(newValue)
+      setBgEnabled(newValue)
+      const status = await window.agent.scheduler.backgroundStatus()
+      setBgInstalled(status.installed)
+    } catch (err) {
+      console.error('Failed to toggle background scheduling:', err)
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+      <button
+        onClick={handleToggle}
+        disabled={loading}
+        className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50"
+        style={{ backgroundColor: bgEnabled ? 'var(--color-primary)' : 'var(--color-bg)' }}
+        aria-label="Toggle background scheduling"
+      >
+        <span
+          className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform"
+          style={{ transform: bgEnabled ? 'translateX(1rem)' : 'translateX(0.2rem)' }}
+        />
+      </button>
+      <span>
+        Run when app is closed
+        {bgEnabled && !bgInstalled && ' (pending install)'}
+        {bgEnabled && bgInstalled && ' (active)'}
+      </span>
+    </div>
+  )
+}
+
 interface Props {
   onClose: () => void
 }
@@ -126,6 +176,11 @@ export function SchedulerPage({ onClose }: Props) {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Footer: background scheduling toggle */}
+        <div className="px-6 compact:px-4 py-3 border-t border-[var(--color-text-muted)]/10 flex-shrink-0">
+          <BackgroundToggle />
         </div>
       </div>
 

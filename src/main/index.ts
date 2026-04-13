@@ -142,7 +142,7 @@ if (!gotLock) {
     })
 
     startBridge(db)
-    startScheduler(db)
+    startScheduler(db).catch(err => console.error('[scheduler] Start failed:', err))
     createTray(getMainWindow, createWindow)
 
     // Auto-start web server if configured

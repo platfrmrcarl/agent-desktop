@@ -10,6 +10,13 @@ export type { PlatformIO } from './ports/platformIO'
 export { noopPlatformIO } from './ports/platformIO'
 export type { SystemUI } from './ports/systemUI'
 export { noopSystemUI } from './ports/systemUI'
+export type { PlatformScheduler } from './ports/platformScheduler'
+export { noopPlatformScheduler } from './ports/platformScheduler'
+
+// Services
+export { SchedulerService, computeNextRun, getExpectedThemeFilename } from './services/scheduler'
+export { executeTask } from './services/taskExecutor'
+export type { TaskRunContext, StreamResult } from './services/taskExecutor'
 
 // Types (re-exported for convenience)
 export * from './types'

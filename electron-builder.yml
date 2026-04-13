@@ -49,6 +49,8 @@ extraResources:
     to: jupyter/bridge.py
   - from: node_modules/sql.js/dist/sql-wasm.wasm
     to: sql-wasm.wasm
+  - from: out/headless/taskRunner.js
+    to: headless/taskRunner.js
 extraMetadata:
   main: ./out/main/index.js
 mac:

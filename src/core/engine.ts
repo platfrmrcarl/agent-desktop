@@ -9,6 +9,7 @@ import { ToolsService } from './services/tools'
 import { ShortcutsService } from './services/shortcuts'
 import { ThemesService } from './services/themes'
 import { McpService } from './services/mcp'
+import { SchedulerService } from './services/scheduler'
 import type { Broadcaster } from './ports/broadcaster'
 import type { PlatformIO } from './ports/platformIO'
 import { noopPlatformIO } from './ports/platformIO'
@@ -67,6 +68,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   private _shortcuts!: ShortcutsService
   private _themes!: ThemesService
   private _mcp!: McpService
+  private _scheduler!: SchedulerService
 
   private readonly dbPath: string
   private readonly wasmPath?: string
@@ -95,6 +97,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   get shortcuts(): ShortcutsService { return this._shortcuts }
   get themes(): ThemesService { return this._themes }
   get mcp(): McpService { return this._mcp }
+  get scheduler(): SchedulerService { return this._scheduler }
 
   async init(): Promise<void> {
     await initDatabase(this.dbPath, this.wasmPath)
@@ -107,6 +110,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
     this._shortcuts = new ShortcutsService(db)
     this._themes = new ThemesService(this.themesDir)
     this._mcp = new McpService(db)
+    this._scheduler = new SchedulerService(db)
   }
 
   async shutdown(): Promise<void> {
