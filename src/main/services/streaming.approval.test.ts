@@ -8,7 +8,7 @@ vi.mock('../index', () => ({
   })),
 }))
 
-vi.mock('./anthropic', () => ({
+vi.mock('../../core/services/anthropic', () => ({
   loadAgentSDK: vi.fn(),
 }))
 

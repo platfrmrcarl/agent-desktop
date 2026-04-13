@@ -9,7 +9,7 @@ vi.mock('../index', () => ({
 }))
 
 const mockQueryFn = vi.fn()
-vi.mock('./anthropic', () => ({
+vi.mock('../../core/services/anthropic', () => ({
   loadAgentSDK: vi.fn().mockResolvedValue({
     query: (...args: unknown[]) => mockQueryFn(...args),
   }),

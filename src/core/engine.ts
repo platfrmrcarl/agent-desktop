@@ -7,6 +7,8 @@ import { ConversationService } from './services/conversations'
 import { MessageService } from './services/messages'
 import { ToolsService } from './services/tools'
 import { ShortcutsService } from './services/shortcuts'
+import { ThemesService } from './services/themes'
+import { McpService } from './services/mcp'
 import type { Broadcaster } from './ports/broadcaster'
 import type { PlatformIO } from './ports/platformIO'
 import { noopPlatformIO } from './ports/platformIO'
@@ -43,6 +45,7 @@ export interface EngineEvents {
 export interface EngineOptions {
   dbPath: string
   wasmPath?: string
+  themesDir: string
   broadcaster: Broadcaster
   platformIO?: PlatformIO
   systemUI?: SystemUI
@@ -62,14 +65,18 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   private _messages!: MessageService
   private _tools!: ToolsService
   private _shortcuts!: ShortcutsService
+  private _themes!: ThemesService
+  private _mcp!: McpService
 
   private readonly dbPath: string
   private readonly wasmPath?: string
+  private readonly themesDir: string
 
   constructor(options: EngineOptions) {
     super()
     this.dbPath = options.dbPath
     this.wasmPath = options.wasmPath
+    this.themesDir = options.themesDir
     this.broadcaster = options.broadcaster
     this.platformIO = options.platformIO ?? noopPlatformIO
     this.systemUI = options.systemUI ?? noopSystemUI
@@ -86,6 +93,8 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   get messages(): MessageService { return this._messages }
   get tools(): ToolsService { return this._tools }
   get shortcuts(): ShortcutsService { return this._shortcuts }
+  get themes(): ThemesService { return this._themes }
+  get mcp(): McpService { return this._mcp }
 
   async init(): Promise<void> {
     await initDatabase(this.dbPath, this.wasmPath)
@@ -96,6 +105,8 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
     this._messages = new MessageService(db)
     this._tools = new ToolsService(db)
     this._shortcuts = new ShortcutsService(db)
+    this._themes = new ThemesService(this.themesDir)
+    this._mcp = new McpService(db)
   }
 
   async shutdown(): Promise<void> {
