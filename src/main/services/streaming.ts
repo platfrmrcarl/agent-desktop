@@ -1,6 +1,10 @@
 import { BrowserWindow } from 'electron'
 import { getMainWindow } from '../index'
-import { setChunkSender } from '../../core/services/streaming'
+import { setChunkSender, setSessionManager, setPIBackend, setPiMcpSync, setEnsureFreshToken } from '../../core/services/streaming'
+import { sendTurn, respondToSessionApproval, abortSession, hasActiveSession } from './sessionManager'
+import { streamMessagePI } from './streamingPI'
+import { syncPiMcpForProject } from './piMcpSync'
+import { ensureFreshMacOSToken } from '../utils/env'
 
 // Registry of windows that receive stream events (main window + overlay)
 const streamWindows = new Set<BrowserWindow>()
@@ -24,6 +28,23 @@ setChunkSender((channel: string, payload: Record<string, unknown>) => {
     }
   }
 })
+
+// Wire session manager into core streaming
+setSessionManager({
+  sendTurn,
+  respondToApproval: respondToSessionApproval,
+  abortSession,
+  hasActiveSession,
+})
+
+// Wire PI backend into core streaming
+setPIBackend(streamMessagePI)
+
+// Wire PI MCP sync into core streaming
+setPiMcpSync(syncPiMcpForProject)
+
+// Wire macOS OAuth token refresh into core streaming
+setEnsureFreshToken(ensureFreshMacOSToken)
 
 // Re-export everything from core so existing imports work
 export {

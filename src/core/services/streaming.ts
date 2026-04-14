@@ -1,13 +1,67 @@
 import { randomUUID } from 'crypto'
 import { loadAgentSDK } from './anthropic'
-// These imports point back to main — will be resolved via re-exports
-import { streamMessagePI } from '../../main/services/streamingPI'
-import { sendTurn, respondToSessionApproval, abortSession, hasActiveSession } from '../../main/services/sessionManager'
-import { buildCwdRestrictionHooks } from '../../main/services/cwdHooks'
-import { syncPiMcpForProject } from '../../main/services/piMcpSync'
-import { findBinaryInPath, ensureFreshMacOSToken } from '../../main/utils/env'
+import { buildCwdRestrictionHooks } from './cwdHooks'
+import { findBinaryInPath } from '../utils/env'
 import { broadcast } from '../utils/broadcast'
 import type { ToolApprovalResponse, AskUserResponse, AskUserQuestion, ToolCall, CwdWhitelistEntry } from '../types'
+
+// ─── Injectable dependencies (set by the adapter layer) ─────
+
+type MessageParam = { role: 'user' | 'assistant'; content: string }
+
+type SendTurnFn = (
+  conversationId: number,
+  messages: MessageParam[],
+  systemPrompt?: string,
+  aiSettings?: AISettings,
+  sdkSessionId?: string | null,
+) => Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string; stopReason?: string }>
+
+type RespondToSessionApprovalFn = (requestId: string, response: ToolApprovalResponse | AskUserResponse) => void
+type AbortSessionFn = (conversationId?: number) => void
+type HasActiveSessionFn = (conversationId: number) => boolean
+
+let _sendTurn: SendTurnFn | null = null
+let _respondToSessionApproval: RespondToSessionApprovalFn | null = null
+let _abortSession: AbortSessionFn | null = null
+let _hasActiveSession: HasActiveSessionFn | null = null
+
+/** Inject session manager functions. Called by the adapter layer (Electron or headless). */
+export function setSessionManager(fns: {
+  sendTurn: SendTurnFn
+  respondToApproval: RespondToSessionApprovalFn
+  abortSession: AbortSessionFn
+  hasActiveSession: HasActiveSessionFn
+}): void {
+  _sendTurn = fns.sendTurn
+  _respondToSessionApproval = fns.respondToApproval
+  _abortSession = fns.abortSession
+  _hasActiveSession = fns.hasActiveSession
+}
+
+type StreamMessagePIFn = (
+  messages: MessageParam[],
+  systemPrompt?: string,
+  aiSettings?: AISettings,
+  conversationId?: number,
+) => Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string }>
+
+let _streamMessagePI: StreamMessagePIFn | null = null
+
+/** Inject PI backend streaming implementation. */
+export function setPIBackend(fn: StreamMessagePIFn): void { _streamMessagePI = fn }
+
+type SyncPiMcpFn = (servers: AISettings['mcpServers'], cwd?: string) => Promise<void>
+let _syncPiMcpForProject: SyncPiMcpFn | null = null
+
+/** Inject PI MCP sync function. */
+export function setPiMcpSync(fn: SyncPiMcpFn): void { _syncPiMcpForProject = fn }
+
+type EnsureFreshTokenFn = () => Promise<void>
+let _ensureFreshMacOSToken: EnsureFreshTokenFn | null = null
+
+/** Inject macOS OAuth token refresh function. */
+export function setEnsureFreshToken(fn: EnsureFreshTokenFn): void { _ensureFreshMacOSToken = fn }
 
 // Per-conversation abort controllers: Map<conversationId, AbortController>
 // Allows aborting a specific stream without affecting others
@@ -25,7 +79,7 @@ export function respondToApproval(requestId: string, response: ToolApprovalRespo
     return
   }
   // Fall through to persistent session approval
-  respondToSessionApproval(requestId, response)
+  _respondToSessionApproval?.(requestId, response)
 }
 
 function denyAllPending(): void {
@@ -55,11 +109,6 @@ export function sendChunk(type: string, content?: string, extra?: Record<string,
   const payload = { type, content, ...extra }
   _chunkSender?.('messages:stream', payload)
   broadcast('messages:stream', payload)
-}
-
-interface MessageParam {
-  role: 'user' | 'assistant'
-  content: string
 }
 
 export function buildPromptWithHistory(messages: MessageParam[]): string {
@@ -181,10 +230,13 @@ export async function streamMessage(
 ): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string }> {
   // PI backend: sync MCP config then delegate
   if (aiSettings?.sdkBackend === 'pi') {
+    if (!_streamMessagePI) {
+      return { content: '', toolCalls: [], aborted: false, sessionId: null, error: 'PI backend not configured' }
+    }
     const convCwd = aiSettings.cwd
     const isProjectCwd = convCwd && !convCwd.includes('/sessions-folder/')
-    await syncPiMcpForProject(aiSettings.mcpServers, isProjectCwd ? convCwd : undefined)
-    return streamMessagePI(messages, systemPrompt, aiSettings, conversationId)
+    await _syncPiMcpForProject?.(aiSettings.mcpServers, isProjectCwd ? convCwd : undefined)
+    return _streamMessagePI(messages, systemPrompt, aiSettings, conversationId)
   }
 
   // One-shot: scheduler, no conversationId, or persistSession === false
@@ -192,8 +244,11 @@ export async function streamMessage(
     return streamMessageOneShot(messages, systemPrompt, aiSettings, conversationId, sdkSessionId, persistSession)
   }
 
-  // Persistent: delegate to SessionManager
-  return sendTurn(conversationId, messages, systemPrompt, aiSettings, sdkSessionId ?? null)
+  // Persistent: delegate to SessionManager (falls back to one-shot if not injected)
+  if (_sendTurn) {
+    return _sendTurn(conversationId, messages, systemPrompt, aiSettings, sdkSessionId ?? null)
+  }
+  return streamMessageOneShot(messages, systemPrompt, aiSettings, conversationId, sdkSessionId, persistSession)
 }
 
 async function streamMessageOneShot(
@@ -205,8 +260,8 @@ async function streamMessageOneShot(
   persistSession?: boolean
 ): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string }> {
   // Ensure the macOS OAuth token is fresh — skip when using API key auth
-  if (!aiSettings?.apiKey) {
-    await ensureFreshMacOSToken()
+  if (!aiSettings?.apiKey && _ensureFreshMacOSToken) {
+    await _ensureFreshMacOSToken()
   }
 
   // Inject API key / base URL into process.env for the SDK subprocess
@@ -607,8 +662,8 @@ export function abortStream(conversationId?: number): void {
   denyPendingForConversation(conversationId)
   if (conversationId != null) {
     // Abort persistent session if active (handles cleanup internally)
-    if (hasActiveSession(conversationId)) {
-      abortSession(conversationId)
+    if (_hasActiveSession?.(conversationId)) {
+      _abortSession?.(conversationId)
       return
     }
     const controller = abortControllers.get(conversationId)
