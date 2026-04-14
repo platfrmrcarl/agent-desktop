@@ -50,6 +50,12 @@ if (isLongRunning && isOneShot) {
   process.exit(1)
 }
 
+// ─── Paths ───────────────────────────────────────────
+
+const DEFAULT_DB_PATH = join(homedir(), '.config', 'agent-desktop', 'agent.db')
+const DEFAULT_THEMES_DIR = join(homedir(), '.agent-desktop', 'themes')
+const DEFAULT_SSL_DIR = join(homedir(), '.config', 'agent-desktop', 'ssl')
+
 // ─── CLI dispatch ─────────────────────────────────────
 
 if (isLongRunning) {
@@ -59,12 +65,6 @@ if (isLongRunning) {
 } else {
   runInteractive().catch(fatal)
 }
-
-// ─── Paths ───────────────────────────────────────────
-
-const DEFAULT_DB_PATH = join(homedir(), '.config', 'agent-desktop', 'agent.db')
-const DEFAULT_THEMES_DIR = join(homedir(), '.agent-desktop', 'themes')
-const DEFAULT_SSL_DIR = join(homedir(), '.config', 'agent-desktop', 'ssl')
 
 // ─── Service mode ─────────────────────────────────────
 
