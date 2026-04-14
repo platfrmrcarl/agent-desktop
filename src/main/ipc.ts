@@ -1,10 +1,15 @@
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import type Database from 'better-sqlite3'
 import { sanitizeError } from './utils/errors'
+import { DispatchRegistry } from '../core/dispatch'
 
 // Exported dispatch map: allows non-IPC callers (e.g. WebSocket bridge) to invoke
 // the same handlers registered via ipcMain.handle(). Keyed by channel name.
 export const ipcDispatch = new Map<string, (...args: unknown[]) => Promise<unknown>>()
+
+// DispatchRegistry view of ipcDispatch — populated in parallel with ipcDispatch
+// by withSanitizedErrors(). Used by services that accept DispatchRegistry.
+export const ipcDispatchRegistry = new DispatchRegistry()
 
 import { registerHandlers as authHandlers } from './services/auth'
 import { registerHandlers as conversationsHandlers } from './services/conversations'
@@ -79,6 +84,14 @@ function withSanitizedErrors(ipcMain: IpcMain): IpcMain {
         throw new Error(sanitizeError(err))
       }
     })
+    // Mirror into DispatchRegistry so services requiring DispatchRegistry (e.g. discord) can read handlers.
+    ipcDispatchRegistry.handle(channel, async (_event, ...args) => {
+      try {
+        return await listener(null as unknown as IpcMainInvokeEvent, ...args)
+      } catch (err) {
+        throw new Error(sanitizeError(err))
+      }
+    })
   }
   return wrapped
 }
@@ -93,7 +106,7 @@ export function registerAllHandlers(ipcMain: IpcMain, db: Database.Database): vo
   updaterHandlers(safeIpc)
   jupyterHandlers(safeIpc)
   webServerHandlers(safeIpc)
-  discordHandlers(safeIpc)
+  discordHandlers(safeIpc, ipcDispatchRegistry)
   ensureThemeDir().catch((err) => console.error('[themes] Failed to ensure theme dir:', err))
   ensureKnowledgesDir().catch((err) => console.error('[knowledge] Failed to ensure knowledges dir:', err))
 }

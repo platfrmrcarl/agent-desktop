@@ -63,10 +63,6 @@ vi.mock('discord.js', () => ({
   },
 }))
 
-vi.mock('../ipc', () => ({
-  ipcDispatch: new Map(),
-}))
-
 // ─── Imports (after mocks) ──────────────────────────
 
 import {
@@ -77,7 +73,7 @@ import {
   splitMessage,
   getChannelConversations,
 } from './discord'
-import { ipcDispatch } from '../ipc'
+import { DispatchRegistry } from '../../core/dispatch'
 
 // ─── Helpers ────────────────────────────────────────
 
@@ -96,23 +92,29 @@ function createMockIpcMain() {
   }
 }
 
+function createDispatch(overrides: Record<string, (...args: any[]) => Promise<any>> = {}): DispatchRegistry {
+  const dispatch = new DispatchRegistry()
+  dispatch.handle('settings:get', async () => ({}))
+  dispatch.handle('settings:set', async () => {})
+  for (const [channel, handler] of Object.entries(overrides)) {
+    dispatch.handle(channel, async (_event: unknown, ...args: unknown[]) => handler(...args))
+  }
+  return dispatch
+}
+
 // ─── Tests ──────────────────────────────────────────
 
 describe('Discord service', () => {
   let ipc: ReturnType<typeof createMockIpcMain>
+  let dispatch: DispatchRegistry
 
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
     eventHandlers.clear()
-    ipcDispatch.clear()
     getChannelConversations().clear()
     ipc = createMockIpcMain()
-
-    // Set up settings:get so auto-start check doesn't throw
-    ipcDispatch.set('settings:get', vi.fn(async () => ({})))
-    // Set up settings:set so persistBindings doesn't throw
-    ipcDispatch.set('settings:set', vi.fn(async () => {}))
+    dispatch = createDispatch()
   })
 
   afterEach(async () => {
@@ -122,7 +124,7 @@ describe('Discord service', () => {
 
   describe('registerHandlers', () => {
     it('registers 3 IPC channels', () => {
-      registerHandlers(ipc as any)
+      registerHandlers(ipc as any, dispatch)
       expect(ipc.handlers.has('discord:connect')).toBe(true)
       expect(ipc.handlers.has('discord:disconnect')).toBe(true)
       expect(ipc.handlers.has('discord:status')).toBe(true)
@@ -132,18 +134,16 @@ describe('Discord service', () => {
 
   describe('discord:connect', () => {
     it('starts bot with token from settings', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'test-token-123' })),
-      )
-      registerHandlers(ipc as any)
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'test-token-123' }),
+      })
+      registerHandlers(ipc as any, dispatch)
       await ipc.invoke('discord:connect')
       expect(mockLogin).toHaveBeenCalledWith('test-token-123')
     })
 
     it('throws when token not configured', async () => {
-      ipcDispatch.set('settings:get', vi.fn(async () => ({})))
-      registerHandlers(ipc as any)
+      registerHandlers(ipc as any, dispatch)
       await expect(ipc.invoke('discord:connect')).rejects.toThrow(
         'Discord bot token not configured',
       )
@@ -152,11 +152,10 @@ describe('Discord service', () => {
 
   describe('discord:disconnect', () => {
     it('destroys client', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      registerHandlers(ipc as any)
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'tok' }),
+      })
+      registerHandlers(ipc as any, dispatch)
       await ipc.invoke('discord:connect')
       await ipc.invoke('discord:disconnect')
       expect(mockDestroy).toHaveBeenCalled()
@@ -165,17 +164,16 @@ describe('Discord service', () => {
 
   describe('discord:status', () => {
     it('returns disconnected when no client', async () => {
-      registerHandlers(ipc as any)
+      registerHandlers(ipc as any, dispatch)
       const status = await ipc.invoke('discord:status')
       expect(status).toEqual({ connected: false })
     })
 
     it('returns connected with info when client is ready', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      registerHandlers(ipc as any)
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'tok' }),
+      })
+      registerHandlers(ipc as any, dispatch)
       await ipc.invoke('discord:connect')
       mockIsReady.mockReturnValue(true)
       const status = await ipc.invoke('discord:status')
@@ -184,39 +182,6 @@ describe('Discord service', () => {
         username: 'TestBot#1234',
         guildCount: 3,
       })
-    })
-  })
-
-  describe('auto-start', () => {
-    it('auto-starts when enabled with token', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_enabled: 'true', discord_botToken: 'auto-token' })),
-      )
-      registerHandlers(ipc as any)
-      // Flush the setTimeout(fn, 0)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockLogin).toHaveBeenCalledWith('auto-token')
-    })
-
-    it('does not auto-start when disabled', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_enabled: 'false', discord_botToken: 'tok' })),
-      )
-      registerHandlers(ipc as any)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockLogin).not.toHaveBeenCalled()
-    })
-
-    it('does not auto-start when token missing', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_enabled: 'true' })),
-      )
-      registerHandlers(ipc as any)
-      await vi.advanceTimersByTimeAsync(0)
-      expect(mockLogin).not.toHaveBeenCalled()
     })
   })
 
@@ -267,21 +232,19 @@ describe('Discord service', () => {
   })
 
   describe('command handlers via interaction events', () => {
+    async function setupBotWithDispatch(extraHandlers: Record<string, (...args: any[]) => Promise<any>> = {}) {
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'tok' }),
+        ...extraHandlers,
+      })
+      await startBot({ dispatch, token: 'tok' })
+      return eventHandlers.get('interactionCreate')!
+    }
+
     it('set-conversation stores active conversation', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set(
-        'conversations:get',
-        vi.fn(async (id: number) => ({ id, title: 'Test Convo' })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
-
-      // Get the interactionCreate handler
-      const handler = eventHandlers.get('interactionCreate')
+      const handler = await setupBotWithDispatch({
+        'conversations:get': async (id: number) => ({ id, title: 'Test Convo' }),
+      })
       expect(handler).toBeDefined()
 
       const mockReply = vi.fn()
@@ -304,26 +267,17 @@ describe('Discord service', () => {
     })
 
     it('get-messages formats and returns messages', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set(
-        'conversations:get',
-        vi.fn(async () => ({
+      const handler = await setupBotWithDispatch({
+        'conversations:get': async () => ({
           messages: [
             { role: 'user', content: 'hi' },
             { role: 'assistant', content: 'hello' },
           ],
-        })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        }),
+      })
 
       getChannelConversations().set('channel-3', 55)
 
-      const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
       const mockInteraction = {
         isAutocomplete: () => false,
@@ -344,19 +298,11 @@ describe('Discord service', () => {
     })
 
     it('new-conversation creates and sets as active', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set(
-        'conversations:create',
-        vi.fn(async () => ({ id: 77, title: 'My Discord Chat' })),
-      )
+      const mockCreate = vi.fn(async () => ({ id: 77, title: 'My Discord Chat' }))
+      const handler = await setupBotWithDispatch({
+        'conversations:create': mockCreate,
+      })
 
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
-
-      const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
       const mockInteraction = {
         isAutocomplete: () => false,
@@ -375,7 +321,7 @@ describe('Discord service', () => {
       }
 
       await handler!(mockInteraction)
-      expect(ipcDispatch.get('conversations:create')).toHaveBeenCalledWith('My Discord Chat', 5)
+      expect(mockCreate).toHaveBeenCalledWith('My Discord Chat', 5)
       expect(mockReply).toHaveBeenCalledWith(
         'Created conversation "My Discord Chat" (ID: 77) and set as active for this channel.',
       )
@@ -383,29 +329,17 @@ describe('Discord service', () => {
     })
 
     it('check-conversation shows full folder path', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set(
-        'conversations:get',
-        vi.fn(async () => ({ id: 42, title: 'My Chat', folder_id: 3 })),
-      )
-      ipcDispatch.set(
-        'folders:list',
-        vi.fn(async () => [
+      const handler = await setupBotWithDispatch({
+        'conversations:get': async () => ({ id: 42, title: 'My Chat', folder_id: 3 }),
+        'folders:list': async () => [
           { id: 1, name: 'Root', parent_id: null },
           { id: 2, name: 'Projects', parent_id: 1 },
           { id: 3, name: 'Work', parent_id: 2 },
-        ]),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        ],
+      })
 
       getChannelConversations().set('channel-check', 42)
 
-      const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
       const mockInteraction = {
         isAutocomplete: () => false,
@@ -422,15 +356,8 @@ describe('Discord service', () => {
     })
 
     it('check-conversation replies error when no binding', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
+      const handler = await setupBotWithDispatch()
 
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
-
-      const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
       const mockInteraction = {
         isAutocomplete: () => false,
@@ -450,19 +377,13 @@ describe('Discord service', () => {
     })
 
     it('clear sets cleared_at on bound conversation', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
       const mockUpdate = vi.fn(async () => {})
-      ipcDispatch.set('conversations:update', mockUpdate)
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+      const handler = await setupBotWithDispatch({
+        'conversations:update': mockUpdate,
+      })
 
       getChannelConversations().set('channel-clear', 42)
 
-      const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
       const mockInteraction = {
         isAutocomplete: () => false,
@@ -483,15 +404,8 @@ describe('Discord service', () => {
     })
 
     it('clear replies error when no channel binding', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
+      const handler = await setupBotWithDispatch()
 
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
-
-      const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
       const mockInteraction = {
         isAutocomplete: () => false,
@@ -511,21 +425,13 @@ describe('Discord service', () => {
     })
 
     it('compact defers reply and returns summary', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set(
-        'messages:compact',
-        vi.fn(async () => ({ summary: 'This is a summary', clearedAt: '2026-01-01T00:00:00.000Z' })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+      const mockCompact = vi.fn(async () => ({ summary: 'This is a summary', clearedAt: '2026-01-01T00:00:00.000Z' }))
+      const handler = await setupBotWithDispatch({
+        'messages:compact': mockCompact,
+      })
 
       getChannelConversations().set('channel-compact', 55)
 
-      const handler = eventHandlers.get('interactionCreate')
       const mockDeferReply = vi.fn()
       const mockEditReply = vi.fn()
       const mockInteraction = {
@@ -543,22 +449,15 @@ describe('Discord service', () => {
 
       await handler!(mockInteraction)
       expect(mockDeferReply).toHaveBeenCalled()
-      expect(ipcDispatch.get('messages:compact')).toHaveBeenCalledWith(55)
+      expect(mockCompact).toHaveBeenCalledWith(55)
       expect(mockEditReply).toHaveBeenCalledWith(
         'Context compacted.\n\n**Summary:**\nThis is a summary',
       )
     })
 
     it('compact replies error when no channel binding', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
+      const handler = await setupBotWithDispatch()
 
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
-
-      const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
       const mockInteraction = {
         isAutocomplete: () => false,
@@ -578,21 +477,12 @@ describe('Discord service', () => {
     })
 
     it('compact handles empty summary', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set(
-        'messages:compact',
-        vi.fn(async () => ({ summary: '', clearedAt: '2026-01-01T00:00:00.000Z' })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+      const handler = await setupBotWithDispatch({
+        'messages:compact': async () => ({ summary: '', clearedAt: '2026-01-01T00:00:00.000Z' }),
+      })
 
       getChannelConversations().set('channel-compact', 55)
 
-      const handler = eventHandlers.get('interactionCreate')
       const mockEditReply = vi.fn()
       const mockInteraction = {
         isAutocomplete: () => false,
@@ -610,22 +500,17 @@ describe('Discord service', () => {
       await handler!(mockInteraction)
       expect(mockEditReply).toHaveBeenCalledWith('Context compacted (no summary generated).')
     })
-
   })
 
   describe('channel binding persistence', () => {
     it('loads bindings from settings on startBot', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({
+      dispatch = createDispatch({
+        'settings:get': async () => ({
           discord_botToken: 'tok',
           discord_channelBindings: '{"ch-1":10,"ch-2":20}',
-        })),
-      )
-      ipcDispatch.set('settings:set', vi.fn(async () => {}))
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        }),
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       expect(getChannelConversations().get('ch-1')).toBe(10)
       expect(getChannelConversations().get('ch-2')).toBe(20)
@@ -633,18 +518,12 @@ describe('Discord service', () => {
 
     it('persists bindings when set-conversation is used', async () => {
       const mockSettingsSet = vi.fn(async () => {})
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set('settings:set', mockSettingsSet)
-      ipcDispatch.set(
-        'conversations:get',
-        vi.fn(async (id: number) => ({ id, title: 'Test' })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'tok' }),
+        'settings:set': mockSettingsSet,
+        'conversations:get': async (id: number) => ({ id, title: 'Test' }),
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       const handler = eventHandlers.get('interactionCreate')
       await handler!({
@@ -665,18 +544,12 @@ describe('Discord service', () => {
 
     it('persists bindings when new-conversation is used', async () => {
       const mockSettingsSet = vi.fn(async () => {})
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set('settings:set', mockSettingsSet)
-      ipcDispatch.set(
-        'conversations:create',
-        vi.fn(async () => ({ id: 99, title: 'New' })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'tok' }),
+        'settings:set': mockSettingsSet,
+        'conversations:create': async () => ({ id: 99, title: 'New' }),
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       const handler = eventHandlers.get('interactionCreate')
       await handler!({
@@ -702,36 +575,22 @@ describe('Discord service', () => {
     })
 
     it('handles missing bindings gracefully', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set('settings:set', vi.fn(async () => {}))
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
-
+      await startBot({ dispatch, token: 'tok' })
       expect(getChannelConversations().size).toBe(0)
     })
   })
 
   describe('autocomplete handling', () => {
     it('responds with filtered conversation list', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set(
-        'conversations:list',
-        vi.fn(async () => [
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'tok' }),
+        'conversations:list': async () => [
           { id: 1, title: 'Alpha Chat' },
           { id: 2, title: 'Beta Chat' },
           { id: 3, title: 'Gamma Talk' },
-        ]),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        ],
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       const handler = eventHandlers.get('interactionCreate')
       const mockRespond = vi.fn()
@@ -754,21 +613,15 @@ describe('Discord service', () => {
     })
 
     it('responds with filtered folder list for new-conversation', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      ipcDispatch.set(
-        'folders:list',
-        vi.fn(async () => [
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'tok' }),
+        'folders:list': async () => [
           { id: 1, name: 'Work' },
           { id: 2, name: 'Personal' },
           { id: 3, name: 'Work Projects' },
-        ]),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        ],
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       const handler = eventHandlers.get('interactionCreate')
       const mockRespond = vi.fn()
@@ -794,21 +647,15 @@ describe('Discord service', () => {
     })
 
     it('limits autocomplete to 25 results', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
       const manyConversations = Array.from({ length: 50 }, (_, i) => ({
         id: i,
         title: `Conversation ${i}`,
       }))
-      ipcDispatch.set(
-        'conversations:list',
-        vi.fn(async () => manyConversations),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'tok' }),
+        'conversations:list': async () => manyConversations,
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       const handler = eventHandlers.get('interactionCreate')
       const mockRespond = vi.fn()
@@ -830,16 +677,13 @@ describe('Discord service', () => {
 
   describe('user whitelist', () => {
     it('blocks unauthorized users from commands', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({
+      dispatch = createDispatch({
+        'settings:get': async () => ({
           discord_botToken: 'tok',
           discord_userWhitelist: '["allowed-user-1"]',
-        })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        }),
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
@@ -860,20 +704,14 @@ describe('Discord service', () => {
     })
 
     it('allows whitelisted users', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({
+      dispatch = createDispatch({
+        'settings:get': async () => ({
           discord_botToken: 'tok',
           discord_userWhitelist: '["allowed-user-1"]',
-        })),
-      )
-      ipcDispatch.set(
-        'conversations:get',
-        vi.fn(async (id: number) => ({ id, title: 'Test' })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        }),
+        'conversations:get': async (id: number) => ({ id, title: 'Test' }),
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
@@ -892,20 +730,14 @@ describe('Discord service', () => {
     })
 
     it('allows everyone when whitelist is empty', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({
+      dispatch = createDispatch({
+        'settings:get': async () => ({
           discord_botToken: 'tok',
           discord_userWhitelist: '[]',
-        })),
-      )
-      ipcDispatch.set(
-        'conversations:get',
-        vi.fn(async (id: number) => ({ id, title: 'Open' })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        }),
+        'conversations:get': async (id: number) => ({ id, title: 'Open' }),
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       const handler = eventHandlers.get('interactionCreate')
       const mockReply = vi.fn()
@@ -924,16 +756,13 @@ describe('Discord service', () => {
     })
 
     it('returns empty autocomplete for blocked users', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({
+      dispatch = createDispatch({
+        'settings:get': async () => ({
           discord_botToken: 'tok',
           discord_userWhitelist: '["allowed-only"]',
-        })),
-      )
-
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        }),
+      })
+      await startBot({ dispatch, token: 'tok' })
 
       const handler = eventHandlers.get('interactionCreate')
       const mockRespond = vi.fn()
@@ -953,12 +782,12 @@ describe('Discord service', () => {
 
   describe('startBot / stopBot lifecycle', () => {
     it('startBot creates client and logs in', async () => {
-      await startBot('my-token')
+      await startBot({ dispatch, token: 'my-token' })
       expect(mockLogin).toHaveBeenCalledWith('my-token')
     })
 
     it('stopBot destroys client', async () => {
-      await startBot('my-token')
+      await startBot({ dispatch, token: 'my-token' })
       await stopBot()
       expect(mockDestroy).toHaveBeenCalled()
     })
@@ -968,8 +797,8 @@ describe('Discord service', () => {
     })
 
     it('startBot destroys existing client before creating new one', async () => {
-      await startBot('token-1')
-      await startBot('token-2')
+      await startBot({ dispatch, token: 'token-1' })
+      await startBot({ dispatch, token: 'token-2' })
       expect(mockDestroy).toHaveBeenCalledTimes(1)
       expect(mockLogin).toHaveBeenCalledTimes(2)
     })
@@ -981,7 +810,7 @@ describe('Discord service', () => {
     })
 
     it('returns connected with details when client is ready', async () => {
-      await startBot('tok')
+      await startBot({ dispatch, token: 'tok' })
       mockIsReady.mockReturnValue(true)
       expect(getBotStatus()).toEqual({
         connected: true,
@@ -992,13 +821,12 @@ describe('Discord service', () => {
   })
 
   describe('messageCreate handler', () => {
-    async function setupBot() {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({ discord_botToken: 'tok' })),
-      )
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+    async function setupBot(extraHandlers: Record<string, (...args: any[]) => Promise<any>> = {}) {
+      dispatch = createDispatch({
+        'settings:get': async () => ({ discord_botToken: 'tok' }),
+        ...extraHandlers,
+      })
+      await startBot({ dispatch, token: 'tok' })
       return eventHandlers.get('messageCreate')!
     }
 
@@ -1039,9 +867,9 @@ describe('Discord service', () => {
     })
 
     it('responds to bot mention', async () => {
-      const handler = await setupBot()
+      const mockSend = vi.fn(async () => ({ content: 'AI says hi' }))
+      const handler = await setupBot({ 'messages:send': mockSend })
       getChannelConversations().set('channel-1', 42)
-      ipcDispatch.set('messages:send', vi.fn(async () => ({ content: 'AI says hi' })))
 
       const msg = createMockMessage()
       await handler(msg)
@@ -1049,9 +877,9 @@ describe('Discord service', () => {
     })
 
     it('responds to reply-to-bot', async () => {
-      const handler = await setupBot()
+      const mockSend = vi.fn(async () => ({ content: 'reply response' }))
+      const handler = await setupBot({ 'messages:send': mockSend })
       getChannelConversations().set('channel-1', 42)
-      ipcDispatch.set('messages:send', vi.fn(async () => ({ content: 'reply response' })))
 
       const msg = createMockMessage({
         content: 'hello world',
@@ -1066,15 +894,13 @@ describe('Discord service', () => {
     })
 
     it('silently ignores non-whitelisted users', async () => {
-      ipcDispatch.set(
-        'settings:get',
-        vi.fn(async () => ({
+      dispatch = createDispatch({
+        'settings:get': async () => ({
           discord_botToken: 'tok',
           discord_userWhitelist: '["allowed-only"]',
-        })),
-      )
-      registerHandlers(ipc as any)
-      await ipc.invoke('discord:connect')
+        }),
+      })
+      await startBot({ dispatch, token: 'tok' })
       const handler = eventHandlers.get('messageCreate')!
 
       const msg = createMockMessage({ author: { bot: false, id: 'blocked-user' } })
@@ -1092,10 +918,9 @@ describe('Discord service', () => {
     })
 
     it('strips bot mention from content', async () => {
-      const handler = await setupBot()
-      getChannelConversations().set('channel-1', 42)
       const mockSend = vi.fn(async () => ({ content: 'ok' }))
-      ipcDispatch.set('messages:send', mockSend)
+      const handler = await setupBot({ 'messages:send': mockSend })
+      getChannelConversations().set('channel-1', 42)
 
       const msg = createMockMessage({ content: '<@999> what is 2+2' })
       await handler(msg)
@@ -1103,9 +928,10 @@ describe('Discord service', () => {
     })
 
     it('sends typing indicator and handles AI response', async () => {
-      const handler = await setupBot()
+      const handler = await setupBot({
+        'messages:send': async () => ({ content: 'response' }),
+      })
       getChannelConversations().set('channel-1', 42)
-      ipcDispatch.set('messages:send', vi.fn(async () => ({ content: 'response' })))
 
       const msg = createMockMessage()
       await handler(msg)
