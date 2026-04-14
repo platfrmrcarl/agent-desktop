@@ -18,5 +18,9 @@ export { SchedulerService, computeNextRun, getExpectedThemeFilename } from './se
 export { executeTask } from './services/taskExecutor'
 export type { TaskRunContext, StreamResult } from './services/taskExecutor'
 
+// Dispatch
+export { DispatchRegistry } from './dispatch'
+export type { HandleRegistrar } from './dispatch'
+
 // Types (re-exported for convenience)
 export * from './types'
