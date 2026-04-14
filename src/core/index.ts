@@ -24,5 +24,9 @@ export type { TaskRunContext, StreamResult } from './services/taskExecutor'
 export { DispatchRegistry } from './dispatch'
 export type { HandleRegistrar } from './dispatch'
 
+// Handlers
+export { registerCoreHandlers } from './handlers'
+export type { CoreHandlerOptions } from './handlers'
+
 // Types (re-exported for convenience)
 export * from './types'
