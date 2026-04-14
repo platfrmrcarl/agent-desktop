@@ -12,6 +12,8 @@ export type { SystemUI } from './ports/systemUI'
 export { noopSystemUI } from './ports/systemUI'
 export type { PlatformScheduler } from './ports/platformScheduler'
 export { noopPlatformScheduler } from './ports/platformScheduler'
+export type { HookRunner, HookSystemMessage } from './ports/hookRunner'
+export { noopHookRunner } from './ports/hookRunner'
 
 // Services
 export { SchedulerService, computeNextRun, getExpectedThemeFilename } from './services/scheduler'
