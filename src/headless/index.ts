@@ -75,7 +75,6 @@ async function runServices(): Promise<void> {
   const themesDir = process.env.AGENT_THEMES_DIR || DEFAULT_THEMES_DIR
   const sslDir = DEFAULT_SSL_DIR
   const rendererDir = resolve(__dirname, '../renderer')
-  const port = flags.port ? parseInt(flags.port, 10) : 3484
 
   console.log(`[headless] Starting Agent Engine...`)
   console.log(`[headless] DB: ${dbPath}`)
@@ -105,11 +104,22 @@ async function runServices(): Promise<void> {
 
   if (flags.server) {
     const { startServer, getWsBroadcaster } = await import('../core/services/webServer')
-    const result = await startServer(port, {
+
+    // Read server settings from DB, CLI flags override
+    const settings = engine.settings.getAll()
+    const serverPort = flags.port
+      ? parseInt(flags.port, 10)
+      : (parseInt(settings.server_port, 10) || 3484)
+    const serverAccessMode = flags.accessMode
+      || (settings.server_accessMode === 'all' ? 'all' : 'lan')
+    const serverShortCode = settings.server_shortCode || undefined
+
+    const result = await startServer(serverPort, {
       sslDir,
       rendererDir,
       dispatch,
-      accessMode: flags.accessMode,
+      shortCode: serverShortCode,
+      accessMode: serverAccessMode,
     })
     wsBroadcast = getWsBroadcaster() ?? null
     console.log(`[headless] Web server running at ${result.url}`)
