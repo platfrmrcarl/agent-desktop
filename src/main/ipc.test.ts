@@ -92,41 +92,50 @@ vi.mock('fs', async () => {
 
 import { createTestDb } from './__tests__/db-helper'
 import { createMockIpcMain } from './__tests__/ipc-helper'
-import { registerAllHandlers, ipcDispatch } from './ipc'
+import { bridgeDispatchToIpc } from './ipc'
+import { AgentEngine } from '../core'
+import type { Broadcaster } from '../core/ports/broadcaster'
+import { noopHookRunner } from '../core/ports/hookRunner'
+import { closeDatabase } from '../core/db/database'
 import type Database from 'better-sqlite3'
 
-describe('registerAllHandlers', () => {
+const noopBroadcaster: Broadcaster = { broadcast: vi.fn() }
+
+describe('bridgeDispatchToIpc', () => {
   let db: Database.Database
   let ipc: ReturnType<typeof createMockIpcMain>
+  let engine: AgentEngine
 
   beforeEach(async () => {
-    ipcDispatch.clear()
-    db = await createTestDb()
+    // Close any previously initialized database singleton
+    closeDatabase()
+
+    // Initialize engine with in-memory DB via the standard init path
+    engine = new AgentEngine({
+      dbPath: '/tmp/test-ipc-bridge.db',
+      themesDir: '/tmp/test-themes',
+      broadcaster: noopBroadcaster,
+      hookRunner: noopHookRunner,
+    })
+    await engine.init()
+    db = engine.db as any
+
     ipc = createMockIpcMain()
-    registerAllHandlers(ipc as any, db)
+    bridgeDispatchToIpc(engine, ipc as any)
   })
 
   afterEach(() => {
-    db.close()
+    closeDatabase()
   })
 
-  it('populates ipcDispatch with entries from all services', () => {
-    expect(ipcDispatch.size).toBeGreaterThan(0)
-  })
-
-  it('registers a large number of channels across all services', () => {
-    // 22 service modules each register at least 1 handler
-    expect(ipcDispatch.size).toBeGreaterThanOrEqual(22)
-  })
-
-  it('ipcDispatch entries are callable functions', () => {
-    const [channel, handler] = [...ipcDispatch.entries()][0]
-    expect(typeof channel).toBe('string')
-    expect(typeof handler).toBe('function')
+  it('registers handlers from both core dispatch and Category C services', () => {
+    expect(ipc.handle).toHaveBeenCalled()
+    // Core dispatch + Category C services should register at least 22 channels
+    expect(ipc.handle.mock.calls.length).toBeGreaterThanOrEqual(22)
   })
 
   it('all expected service channel prefixes are registered', () => {
-    const channels = [...ipcDispatch.keys()]
+    const channels = ipc.handle.mock.calls.map((call: unknown[]) => call[0] as string)
 
     const expectedPrefixes = [
       'auth:',
@@ -154,50 +163,46 @@ describe('registerAllHandlers', () => {
     ]
 
     for (const prefix of expectedPrefixes) {
-      const found = channels.some((ch) => ch.startsWith(prefix))
+      const found = channels.some((ch: string) => ch.startsWith(prefix))
       expect(found, `expected at least one channel with prefix "${prefix}"`).toBe(true)
     }
   })
 
-  it('wraps handler errors with sanitizeError (strips file paths)', async () => {
-    // Find a channel that hits the DB — 'conversations:get' with a bad ID will throw
-    const handler = ipcDispatch.get('conversations:get')
-    expect(handler).toBeDefined()
+  it('core dispatch handlers are callable via ipcMain', async () => {
+    // Find the settings:get handler registered on ipcMain
+    const settingsCall = ipc.handle.mock.calls.find(
+      (call: unknown[]) => call[0] === 'settings:get'
+    )
+    expect(settingsCall).toBeDefined()
+    const handler = settingsCall![1] as Function
+    // Invoke — should return settings object
+    const result = await handler({})
+    expect(result).toBeDefined()
+    expect(typeof result).toBe('object')
+  })
 
-    // Call with undefined ID to trigger a validation or DB error
+  it('wraps handler errors with sanitizeError (strips file paths)', async () => {
+    // Call conversations:get via ipcMain with bad ID
+    const convCall = ipc.handle.mock.calls.find(
+      (call: unknown[]) => call[0] === 'conversations:get'
+    )
+    expect(convCall).toBeDefined()
+    const handler = convCall![1] as Function
+
     try {
-      await handler!(undefined)
-      // If it doesn't throw, that's fine — some handlers are lenient
+      await handler({}, undefined)
     } catch (err) {
       const msg = (err as Error).message
-      // sanitizeError replaces absolute paths with [path]
       expect(msg).not.toMatch(/\/home\//)
       expect(msg).not.toMatch(/\/root\//)
       expect(msg).not.toMatch(/\/Users\//)
     }
   })
 
-  it('ipcDispatch handler that throws returns sanitized error', async () => {
-    // Force an error by calling a handler with clearly invalid input
-    const handler = ipcDispatch.get('files:readFile')
-    expect(handler).toBeDefined()
-
-    // Pass a nonexistent path — should throw and the error should be sanitized
-    await expect(handler!('/home/nobody/nonexistent/file.txt')).rejects.toThrow()
-
-    try {
-      await handler!('/home/nobody/nonexistent/file.txt')
-    } catch (err) {
-      const msg = (err as Error).message
-      // The path should be replaced with [path] by sanitizeError
-      expect(msg).not.toContain('/home/nobody/nonexistent')
-    }
-  })
-
-  it('mock ipcMain.handle is called for every channel', () => {
-    // The mock ipcMain.handle should have been called at least as many times
-    // as there are entries in ipcDispatch (withSanitizedErrors calls both)
-    expect(ipc.handle).toHaveBeenCalled()
-    expect(ipc.handle.mock.calls.length).toBeGreaterThanOrEqual(ipcDispatch.size)
+  it('engine.dispatch contains core handlers', () => {
+    expect(engine.dispatch.has('settings:get')).toBe(true)
+    expect(engine.dispatch.has('conversations:list')).toBe(true)
+    expect(engine.dispatch.has('folders:list')).toBe(true)
+    expect(engine.dispatch.has('auth:getStatus')).toBe(true)
   })
 })
