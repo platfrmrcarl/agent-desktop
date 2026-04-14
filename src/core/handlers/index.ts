@@ -11,11 +11,21 @@ import { registerMcpHandlers } from './mcp'
 import { registerAuthHandlers } from './auth'
 import { registerAttachmentsHandlers } from './attachments'
 import { registerMessagesHandlers } from './messages'
+import { registerFilesHandlers } from './files'
+import { registerThemesHandlers } from './themes'
+import { registerCommandsHandlers } from './commands'
+import { registerKnowledgeHandlers } from './knowledge'
+import { registerSchedulerHandlers } from './scheduler'
+import { registerTtsHandlers } from './tts'
+import { registerWhisperHandlers } from './whisper'
+import { registerSystemHandlers } from './system'
 
 export interface CoreHandlerOptions {
   broadcaster: Broadcaster
   hookRunner: HookRunner
   sessionsBase: string
+  themesDir: string
+  knowledgesDir: string
 }
 
 export function registerCoreHandlers(
@@ -36,4 +46,12 @@ export function registerCoreHandlers(
     hookRunner: options.hookRunner,
     sessionsBase: options.sessionsBase,
   })
+  registerFilesHandlers(registrar, db, { sessionsBase: options.sessionsBase })
+  registerThemesHandlers(registrar, options.themesDir)
+  registerCommandsHandlers(registrar, db)
+  registerKnowledgeHandlers(registrar, options.knowledgesDir)
+  registerSchedulerHandlers(registrar, db)
+  registerTtsHandlers(registrar, db)
+  registerWhisperHandlers(registrar, db)
+  registerSystemHandlers(registrar, db)
 }

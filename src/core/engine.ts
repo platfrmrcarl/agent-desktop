@@ -126,6 +126,8 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
       broadcaster: this.broadcaster,
       hookRunner: this.hookRunner,
       sessionsBase: join(homedir(), '.agent-desktop', 'sessions-folder'),
+      themesDir: this.themesDir,
+      knowledgesDir: join(homedir(), '.agent-desktop', 'knowledges'),
     })
   }
 
