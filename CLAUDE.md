@@ -8,6 +8,10 @@
 - `npm run publish:linux` — build + publish Linux to GitHub Releases with `--publish always` (requires `GH_TOKEN`)
 - `npm run publish:win` — build + publish Windows to GitHub Releases with `--publish always` (requires `GH_TOKEN` + Wine on Linux)
 - `npm test` — Vitest (main: node, renderer: jsdom); `@testing-library/react` pinned to v15 (v16 requires React 19)
+- `npm run build:headless` — bundle headless entry point (output: `out/headless/index.js`)
+- `npm run start:server` — headless web server on default port
+- `npm run start:discord` — headless Discord bot
+- `npm run start:headless` — headless web server + Discord bot
 
 ## Architecture Decisions
 - Electron + React + Zustand + Tailwind + sql.js (WASM SQLite)
@@ -24,8 +28,11 @@
 - **Session detection** — `XDG_SESSION_TYPE` > `WAYLAND_DISPLAY` > `DISPLAY` (both can be set under XWayland)
 - **SDK session resume** — `sdk_session_id` on conversations; normal messages use `resume`, regenerate/edit/compact/clear reset to full history fallback; one-shot queries use `persistSession: false`
 - **CWD whitelist** — `hooks_cwdWhitelist` (JSON `CwdWhitelistEntry[]`) replaces `writableKnowledgePaths`; CWD auto-included as readwrite, knowledge paths auto-merged
+- **Engine-owned dispatch** — `AgentEngine.dispatch` (DispatchRegistry) is the canonical handler registry; Electron's `ipcMain` is a consumer via `bridgeDispatchToIpc()`; headless CLI uses dispatch directly
+- **Headless CLI** — `node out/headless/index.js --server [--port N] [--access-mode lan|all] [--discord]` runs web server and/or Discord bot without Electron
 
 ## Conventions & Cascade
+- **New IPC handlers**: register in `src/core/handlers/`, not `src/main/services/` — unless Electron-only (Category C: updater, quickChat, globalShortcuts, system, openscad, jupyter, tray, deeplink, protocol, waylandShortcuts, schedulerBridge, webhook)
 - **CSS**: `@import` before `@tailwind` directives
 - **Auth**: OAuth from `claude login`, NOT api_key
 - **Themes**: CSS custom properties only — no hardcoded hex in renderer
