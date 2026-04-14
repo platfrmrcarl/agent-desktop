@@ -1,3 +1,5 @@
+import { join } from 'path'
+import { homedir } from 'os'
 import { TypedEventEmitter } from './events'
 import { initDatabase, getDatabase, closeDatabase } from './db/database'
 import type { SqlJsAdapter } from './db/sqljs-adapter'
@@ -10,7 +12,11 @@ import { ShortcutsService } from './services/shortcuts'
 import { ThemesService } from './services/themes'
 import { McpService } from './services/mcp'
 import { SchedulerService } from './services/scheduler'
+import { DispatchRegistry } from './dispatch'
+import { registerCoreHandlers } from './handlers'
 import type { Broadcaster } from './ports/broadcaster'
+import type { HookRunner } from './ports/hookRunner'
+import { noopHookRunner } from './ports/hookRunner'
 import type { PlatformIO } from './ports/platformIO'
 import { noopPlatformIO } from './ports/platformIO'
 import type { SystemUI } from './ports/systemUI'
@@ -50,6 +56,7 @@ export interface EngineOptions {
   broadcaster: Broadcaster
   platformIO?: PlatformIO
   systemUI?: SystemUI
+  hookRunner?: HookRunner
 }
 
 // ─── Agent Engine ──────────────────────────────────────────
@@ -58,6 +65,8 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   readonly broadcaster: Broadcaster
   readonly platformIO: PlatformIO
   readonly systemUI: SystemUI
+  readonly hookRunner: HookRunner
+  readonly dispatch: DispatchRegistry
 
   // Services (initialized after DB is ready)
   private _settings!: SettingsService
@@ -82,6 +91,8 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
     this.broadcaster = options.broadcaster
     this.platformIO = options.platformIO ?? noopPlatformIO
     this.systemUI = options.systemUI ?? noopSystemUI
+    this.hookRunner = options.hookRunner ?? noopHookRunner
+    this.dispatch = new DispatchRegistry()
   }
 
   /** Get the database instance (throws if not initialized) */
@@ -111,6 +122,13 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
     this._themes = new ThemesService(this.themesDir)
     this._mcp = new McpService(db)
     this._scheduler = new SchedulerService(db)
+    registerCoreHandlers(this.dispatch, db, {
+      broadcaster: this.broadcaster,
+      hookRunner: this.hookRunner,
+      sessionsBase: join(homedir(), '.agent-desktop', 'sessions-folder'),
+      themesDir: this.themesDir,
+      knowledgesDir: join(homedir(), '.agent-desktop', 'knowledges'),
+    })
   }
 
   async shutdown(): Promise<void> {

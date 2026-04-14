@@ -65,6 +65,8 @@ function execHookCommand(
   })
 }
 
+import type { HookRunner } from '../../core/ports/hookRunner'
+
 export interface HookSystemMessage {
   content: string
   hookName?: string
@@ -111,4 +113,11 @@ export async function runUserPromptSubmitHooks(
   }
 
   return results
+}
+
+/** Adapter satisfying the core HookRunner port for the Electron host. */
+export const electronHookRunner: HookRunner = {
+  runUserPromptSubmitHooks(userContent, cwd, permissionMode) {
+    return runUserPromptSubmitHooks(userContent, cwd, permissionMode)
+  },
 }

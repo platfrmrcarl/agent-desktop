@@ -12,11 +12,21 @@ export type { SystemUI } from './ports/systemUI'
 export { noopSystemUI } from './ports/systemUI'
 export type { PlatformScheduler } from './ports/platformScheduler'
 export { noopPlatformScheduler } from './ports/platformScheduler'
+export type { HookRunner, HookSystemMessage } from './ports/hookRunner'
+export { noopHookRunner } from './ports/hookRunner'
 
 // Services
 export { SchedulerService, computeNextRun, getExpectedThemeFilename } from './services/scheduler'
 export { executeTask } from './services/taskExecutor'
 export type { TaskRunContext, StreamResult } from './services/taskExecutor'
+
+// Dispatch
+export { DispatchRegistry } from './dispatch'
+export type { HandleRegistrar } from './dispatch'
+
+// Handlers
+export { registerCoreHandlers } from './handlers'
+export type { CoreHandlerOptions } from './handlers'
 
 // Types (re-exported for convenience)
 export * from './types'

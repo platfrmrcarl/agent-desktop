@@ -5,32 +5,15 @@ import * as fsSync from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 
-// Mock ipc module — avoid loading Electron-dependent import chain.
-// Factory must not reference top-level variables (vi.mock is hoisted).
-vi.mock('../ipc', () => ({
-  ipcDispatch: new Map(),
-}))
-
-// Mock broadcast module — we don't want actual broadcast wiring in tests
-vi.mock('../utils/broadcast', () => ({
-  setBroadcastHandler: vi.fn(),
-  broadcast: vi.fn(),
-}))
-
-// Mock electron (app.getPath not available in test)
-vi.mock('electron', () => ({
-  app: { getPath: vi.fn(() => '/tmp/agent-test-data') },
-}))
-
 // Mock cert module — returns pre-generated test cert
-vi.mock('../utils/cert', () => ({
+vi.mock('../../core/utils/cert', () => ({
   ensureSelfSignedCert: vi.fn(),
 }))
 
 // Import AFTER mocks are declared (ES module hoisting handles ordering)
 import { startServer, stopServer, getServerStatus } from './webServer'
-import { ipcDispatch } from '../ipc'
-import { ensureSelfSignedCert } from '../utils/cert'
+import { DispatchRegistry } from '../../core/dispatch'
+import { ensureSelfSignedCert } from '../../core/utils/cert'
 
 // We need a free port for tests
 function getRandomPort(): number {
@@ -71,10 +54,11 @@ describe('webServer', () => {
     fsSync.rmSync(testSslDir, { recursive: true, force: true })
   })
 
+  let testDispatch: DispatchRegistry
+
   beforeEach(() => {
     port = getRandomPort()
-    // Ensure clean state
-    ipcDispatch.clear()
+    testDispatch = new DispatchRegistry()
     vi.mocked(ensureSelfSignedCert).mockResolvedValue({ key: testKey, cert: testCert })
   })
 
@@ -161,13 +145,12 @@ describe('webServer', () => {
     ws.close()
   })
 
-  it('dispatches invoke to ipcDispatch handlers', async () => {
-    const { token } = await startServer(port)
-
-    // Register a test handler
-    ipcDispatch.set('test:echo', async (...args: unknown[]) => {
+  it('dispatches invoke to registered handlers', async () => {
+    // Register a test handler before starting so it's available via dispatch
+    testDispatch.handle('test:echo', async (_event, ...args: unknown[]) => {
       return { echoed: args }
     })
+    const { token } = await startServer(port, { dispatch: testDispatch })
 
     const ws = new WebSocket(`wss://127.0.0.1:${port}/ws`, { rejectUnauthorized: false })
     const messages: any[] = []
@@ -193,11 +176,10 @@ describe('webServer', () => {
   })
 
   it('preserves undefined args through JSON roundtrip', async () => {
-    const { token } = await startServer(port)
-
-    ipcDispatch.set('test:optionalArgs', async (...args: unknown[]) => {
+    testDispatch.handle('test:optionalArgs', async (_event, ...args: unknown[]) => {
       return { args, types: args.map(a => typeof a) }
     })
+    const { token } = await startServer(port, { dispatch: testDispatch })
 
     const ws = new WebSocket(`wss://127.0.0.1:${port}/ws`, { rejectUnauthorized: false })
     const messages: any[] = []
@@ -487,9 +469,8 @@ describe('webServer', () => {
     })
 
     it('does not block a normal registered channel', async () => {
-      const { token } = await startServer(port)
-
-      ipcDispatch.set('test:ping', async () => 'pong')
+      testDispatch.handle('test:ping', async () => 'pong')
+      const { token } = await startServer(port, { dispatch: testDispatch })
 
       const ws = new WebSocket(`wss://127.0.0.1:${port}/ws`, { rejectUnauthorized: false })
       const result = await invokeChannel(ws, token, 'test:ping', '13')

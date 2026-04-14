@@ -1,8 +1,10 @@
 import './utils/coloredConsole'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { initDatabase, getDatabase, closeDatabase } from '../core/db/database'
-import { registerAllHandlers } from './ipc'
+import { AgentEngine } from '../core'
+import type { Broadcaster } from '../core/ports/broadcaster'
+import { getDatabase, closeDatabase } from '../core/db/database'
+import { bridgeDispatchToIpc } from './ipc'
 import { createTray, setTrayUpdateCallbacks, rebuildTrayMenu, toggleAppWindow } from './services/tray'
 import { initAutoUpdater, stopAutoUpdater, checkForUpdates, installUpdate } from './services/updater'
 import { setupDeepLinks } from './services/deeplink'
@@ -127,9 +129,31 @@ if (!gotLock) {
     registerPreviewProtocol()
     const dbPath = join(app.getPath('userData'), 'agent.db')
     const wasmPath = app.isPackaged ? join(process.resourcesPath, 'sql-wasm.wasm') : undefined
-    await initDatabase(dbPath, wasmPath)
-    const db = getDatabase()
-    registerAllHandlers(ipcMain, db)
+
+    // Broadcaster adapter — forwards engine events to Electron renderer
+    const electronBroadcaster: Broadcaster = {
+      broadcast(channel: string, data: unknown): void {
+        const win = getMainWindow()
+        if (win && !win.isDestroyed()) {
+          win.webContents.send(channel, data)
+        }
+      },
+    }
+
+    // HookRunner adapter — delegates to Electron-side hook execution
+    const { electronHookRunner } = await import('./services/hookRunner')
+
+    const engine = new AgentEngine({
+      dbPath,
+      wasmPath,
+      themesDir: join(app.getPath('home'), '.agent-desktop', 'themes'),
+      broadcaster: electronBroadcaster,
+      hookRunner: electronHookRunner,
+    })
+    await engine.init()
+    const db = engine.db as any
+    bridgeDispatchToIpc(engine, ipcMain)
+
     cleanupPastedFiles().catch(() => {}) // fire-and-forget: remove stale paste temp files
     setupDeepLinks(app)
     createWindow()
@@ -155,6 +179,9 @@ if (!gotLock) {
       startServer(port, {
         shortCode: shortCodeRow?.value || undefined,
         accessMode: accessModeRow?.value === 'all' ? 'all' : 'lan',
+        sslDir: join(app.getPath('userData'), 'ssl'),
+        rendererDir: join(__dirname, '../renderer'),
+        dispatch: engine.dispatch,
       }).then(() => {
         db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('server_enabled', 'true')").run()
       }).catch(err => console.error('[webServer] Auto-start failed:', err.message))

@@ -1,64 +1,33 @@
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
-import type Database from 'better-sqlite3'
+import type { AgentEngine } from '../core'
 import { sanitizeError } from './utils/errors'
 
-// Exported dispatch map: allows non-IPC callers (e.g. WebSocket bridge) to invoke
-// the same handlers registered via ipcMain.handle(). Keyed by channel name.
-export const ipcDispatch = new Map<string, (...args: unknown[]) => Promise<unknown>>()
-
-import { registerHandlers as authHandlers } from './services/auth'
-import { registerHandlers as conversationsHandlers } from './services/conversations'
-import { registerHandlers as messagesHandlers } from './services/messages'
-
-import { registerHandlers as foldersHandlers } from './services/folders'
-import { registerHandlers as mcpHandlers } from './services/mcp'
-import { registerHandlers as toolsHandlers } from './services/tools'
-import { registerHandlers as knowledgeHandlers, ensureKnowledgesDir } from './services/knowledge'
-import { registerHandlers as filesHandlers } from './services/files'
-import { registerHandlers as attachmentsHandlers } from './services/attachments'
-import { registerHandlers as settingsHandlers } from './services/settings'
-import { registerHandlers as themesHandlers, ensureThemeDir } from './services/themes'
-import { registerHandlers as shortcutsHandlers } from './services/shortcuts'
+// Category C imports — Electron-only services that stay on ipcMain
 import { registerHandlers as systemHandlers } from './services/system'
 import { registerHandlers as whisperHandlers } from './services/whisper'
 import { registerHandlers as openscadHandlers } from './services/openscad'
-import { registerHandlers as commandsHandlers } from './services/commands'
 import { registerHandlers as quickChatHandlers } from './services/quickChat'
 import { registerHandlers as schedulerHandlers } from './services/scheduler'
 import { registerHandlers as ttsHandlers } from './services/tts'
+import { registerHandlers as piExtensionsHandlers } from './services/piExtensions'
+import { registerHandlers as commandsHandlers } from './services/commands'
 import { registerHandlers as updaterHandlers } from './services/updater'
 import { registerHandlers as jupyterHandlers } from './services/jupyter'
-import { registerHandlers as webServerHandlers } from './services/webServer'
-import { registerHandlers as piExtensionsHandlers } from './services/piExtensions'
-import { registerHandlers as discordHandlers } from './services/discord'
+import { registerHandlers as themesHandlers, ensureThemeDir } from './services/themes'
+import { registerHandlers as filesHandlers } from './services/files'
+import { registerHandlers as knowledgeHandlers, ensureKnowledgesDir } from './services/knowledge'
 
-const serviceModules = [
-  authHandlers,
-  conversationsHandlers,
-  messagesHandlers,
-
-  foldersHandlers,
-  mcpHandlers,
-  toolsHandlers,
-  knowledgeHandlers,
-  filesHandlers,
-  attachmentsHandlers,
-  settingsHandlers,
-  shortcutsHandlers,
-  systemHandlers,
-  whisperHandlers,
-  openscadHandlers,
-  quickChatHandlers,
-  schedulerHandlers,
-  ttsHandlers,
-  piExtensionsHandlers,
-]
+// Category B imports — platform-independent, in core, but registered here
+import { registerHandlers as webServerHandlers } from '../core/services/webServer'
+import { registerHandlers as discordHandlers } from '../core/services/discord'
 
 /**
  * Wrap ipcMain.handle() so all unhandled errors are sanitized
  * before reaching the renderer (strips internal file paths).
+ * Also mirrors handlers into engine.dispatch so the web server
+ * (which routes WS messages via dispatch) can access them.
  */
-function withSanitizedErrors(ipcMain: IpcMain): IpcMain {
+function withSanitizedErrors(ipcMain: IpcMain, engine: AgentEngine): IpcMain {
   const original = ipcMain.handle.bind(ipcMain)
   const wrapped = Object.create(ipcMain) as IpcMain
   wrapped.handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => {
@@ -69,31 +38,70 @@ function withSanitizedErrors(ipcMain: IpcMain): IpcMain {
         throw new Error(sanitizeError(err))
       }
     })
-    // Mirror into ipcDispatch so WebSocket bridge can call the same handlers.
-    // Most handlers use `_event` (unused), so passing null is safe.
-    // Exception: openscad:exportStl uses event.sender — blocked in handleWsMessage().
-    ipcDispatch.set(channel, async (...args: unknown[]) => {
+    // Mirror into engine.dispatch so WebSocket bridge can call the same handlers
+    engine.dispatch.handle(channel, listener as (event: unknown, ...args: unknown[]) => unknown)
+  }
+  return wrapped
+}
+
+/**
+ * Bridge engine-owned dispatch to Electron's IPC.
+ * 1. Mirror all core dispatch handlers to ipcMain
+ * 2. Register Category B (platform-independent, not yet in core handlers) on engine.dispatch + ipcMain
+ * 3. Register Category C (Electron-only) services directly on ipcMain
+ */
+export function bridgeDispatchToIpc(engine: AgentEngine, ipcMain: IpcMain): void {
+  // 1. Mirror all core dispatch handlers to ipcMain with error sanitization
+  for (const [channel, handler] of engine.dispatch.entries()) {
+    ipcMain.handle(channel, async (_event, ...args) => {
       try {
-        return await listener(null as unknown as IpcMainInvokeEvent, ...args)
+        return await handler(...args)
       } catch (err) {
         throw new Error(sanitizeError(err))
       }
     })
   }
-  return wrapped
-}
 
-export function registerAllHandlers(ipcMain: IpcMain, db: Database.Database): void {
-  const safeIpc = withSanitizedErrors(ipcMain)
-  for (const register of serviceModules) {
-    register(safeIpc, db)
+  // 2. Register Category B services on engine.dispatch (makes them available to webServer/discord/headless)
+  webServerHandlers(engine.dispatch)
+  discordHandlers(engine.dispatch, engine.dispatch)
+
+  // Mirror Category B handlers that were just registered onto ipcMain
+  // (they weren't in engine.dispatch during the loop above)
+  for (const [channel, handler] of engine.dispatch.entries()) {
+    // Skip channels already mirrored in step 1
+    try {
+      ipcMain.handle(channel, async (_event, ...args) => {
+        try {
+          return await handler(...args)
+        } catch (err) {
+          throw new Error(sanitizeError(err))
+        }
+      })
+    } catch {
+      // ipcMain.handle throws if channel already registered — skip duplicates
+    }
   }
-  themesHandlers(safeIpc)
+
+  // 3. Register Category C (Electron-only) services on ipcMain AND engine.dispatch
+  const safeIpc = withSanitizedErrors(ipcMain, engine)
+  const db = engine.db as any
+
+  systemHandlers(safeIpc, db)
+  whisperHandlers(safeIpc, db)
+  openscadHandlers(safeIpc, db)
+  quickChatHandlers(safeIpc, db)
+  schedulerHandlers(safeIpc, db)
+  ttsHandlers(safeIpc, db)
+  piExtensionsHandlers(safeIpc, db)
   commandsHandlers(safeIpc, db)
   updaterHandlers(safeIpc)
   jupyterHandlers(safeIpc)
-  webServerHandlers(safeIpc)
-  discordHandlers(safeIpc)
+  themesHandlers(safeIpc)
+  filesHandlers(safeIpc, db)
+  knowledgeHandlers(safeIpc, db)
+
+  // Fire-and-forget startup tasks
   ensureThemeDir().catch((err) => console.error('[themes] Failed to ensure theme dir:', err))
   ensureKnowledgesDir().catch((err) => console.error('[knowledge] Failed to ensure knowledges dir:', err))
 }
