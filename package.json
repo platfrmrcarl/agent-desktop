@@ -23,7 +23,10 @@
     "test:renderer": "vitest run --config vitest.config.renderer.ts",
     "test:watch": "vitest --config vitest.config.main.ts",
     "test:coverage": "vitest run --config vitest.config.main.ts --coverage && vitest run --config vitest.config.renderer.ts --coverage",
-    "build:headless": "esbuild src/headless/index.ts --bundle --platform=node --target=node18 --outfile=out/headless/taskRunner.js --external:@anthropic-ai/claude-agent-sdk --external:better-sqlite3"
+    "build:headless": "esbuild src/headless/index.ts --bundle --platform=node --target=node18 --outfile=out/headless/index.js --external:@anthropic-ai/claude-agent-sdk --external:better-sqlite3",
+    "start:server": "node out/headless/index.js --server",
+    "start:discord": "node out/headless/index.js --discord",
+    "start:headless": "node out/headless/index.js --server --discord"
   },
   "author": "Agent Desktop Contributors",
   "license": "AGPL-3.0-only",
