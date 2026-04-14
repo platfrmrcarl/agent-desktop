@@ -24,8 +24,10 @@ import { registerHandlers as discordHandlers } from '../core/services/discord'
 /**
  * Wrap ipcMain.handle() so all unhandled errors are sanitized
  * before reaching the renderer (strips internal file paths).
+ * Also mirrors handlers into engine.dispatch so the web server
+ * (which routes WS messages via dispatch) can access them.
  */
-function withSanitizedErrors(ipcMain: IpcMain): IpcMain {
+function withSanitizedErrors(ipcMain: IpcMain, engine: AgentEngine): IpcMain {
   const original = ipcMain.handle.bind(ipcMain)
   const wrapped = Object.create(ipcMain) as IpcMain
   wrapped.handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => {
@@ -36,6 +38,8 @@ function withSanitizedErrors(ipcMain: IpcMain): IpcMain {
         throw new Error(sanitizeError(err))
       }
     })
+    // Mirror into engine.dispatch so WebSocket bridge can call the same handlers
+    engine.dispatch.handle(channel, listener as (event: unknown, ...args: unknown[]) => unknown)
   }
   return wrapped
 }
@@ -79,8 +83,8 @@ export function bridgeDispatchToIpc(engine: AgentEngine, ipcMain: IpcMain): void
     }
   }
 
-  // 3. Register Category C (Electron-only) services directly on ipcMain
-  const safeIpc = withSanitizedErrors(ipcMain)
+  // 3. Register Category C (Electron-only) services on ipcMain AND engine.dispatch
+  const safeIpc = withSanitizedErrors(ipcMain, engine)
   const db = engine.db as any
 
   systemHandlers(safeIpc, db)
