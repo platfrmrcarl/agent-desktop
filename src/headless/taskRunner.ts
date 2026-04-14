@@ -8,11 +8,14 @@
 import { resolve, join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, appendFileSync, readFileSync, existsSync } from 'fs'
+import { spawn } from 'child_process'
 import { AgentEngine } from '../core'
 import type { Broadcaster } from '../core'
 import { executeTask } from '../core/services/taskExecutor'
-import { createHeadlessContext } from './headlessTaskContext'
-import { enrichHeadlessEnv } from './headlessEnv'
+import type { TaskRunContext } from '../core/services/taskExecutor'
+import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage } from '../core/handlers/messages'
+import { streamMessage } from '../core/services/streaming'
+import { enrichHeadlessEnv, getSessionsBase, getKnowledgesDir } from './headlessEnv'
 
 const DEFAULT_DB_PATH = join(homedir(), '.config', 'agent-desktop', 'agent.db')
 const LOG_PATH = join(homedir(), '.config', 'agent-desktop', 'scheduler-headless.log')
@@ -30,6 +33,56 @@ function log(msg: string): void {
 
 const silentBroadcaster: Broadcaster = {
   broadcast(): void { /* no-op in headless runner */ },
+}
+
+// ─── Headless notifications ────────────────────────────────
+
+async function headlessNotify(title: string, body: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (process.platform === 'linux') {
+      const child = spawn('notify-send', [title, body.slice(0, 200)], { stdio: 'ignore' })
+      child.on('close', () => resolve())
+      child.on('error', () => resolve())
+    } else if (process.platform === 'darwin') {
+      const script = `display notification "${body.slice(0, 200).replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}"`
+      const child = spawn('osascript', ['-e', script], { stdio: 'ignore' })
+      child.on('close', () => resolve())
+      child.on('error', () => resolve())
+    } else {
+      resolve()
+    }
+  })
+}
+
+// ─── TaskRunContext built from core modules ────────────────
+
+function createCoreContext(db: any): TaskRunContext {
+  const sessionsBase = getSessionsBase()
+  const knowledgesDir = getKnowledgesDir()
+  return {
+    buildHistory(conversationId) {
+      return buildMessageHistory(db, conversationId)
+    },
+    getAISettings(conversationId) {
+      return getAISettings(db, conversationId, { sessionsBase, knowledgesDir })
+    },
+    async getSystemPrompt(conversationId, cwd) {
+      return getSystemPrompt(db, conversationId, cwd, { knowledgesDir })
+    },
+    async streamMessage(history, systemPrompt, aiSettings, conversationId) {
+      return streamMessage(history, systemPrompt, aiSettings, conversationId, null, false)
+    },
+    saveMessage(conversationId, role, content, _attachments, toolCalls) {
+      saveMessage(db, conversationId, role as 'user' | 'assistant', content, [], toolCalls)
+    },
+    async notify(title, body) {
+      await headlessNotify(title, body)
+    },
+    onTaskUpdate(task) {
+      log(`[task] ${task.name} (id=${task.id}): ${task.last_status}`)
+    },
+    onConversationsRefresh() {},
+  }
 }
 
 // ─── Tick mode ─────────────────────────────────────────────
@@ -66,7 +119,7 @@ async function runTick(): Promise<void> {
   }
 
   log(`[tick] ${dueTasks.length} due task(s)`)
-  const ctx = createHeadlessContext(engine.db as any)
+  const ctx = createCoreContext(engine.db as any)
 
   // Execute tasks sequentially (sql.js is single-process, no concurrency)
   for (const task of dueTasks) {
@@ -111,7 +164,7 @@ async function runTask(taskId: number): Promise<void> {
     process.exit(1)
   }
 
-  const ctx = createHeadlessContext(engine.db as any)
+  const ctx = createCoreContext(engine.db as any)
   await executeTask(scheduler, ctx, task)
 
   log(`[run-task] Task ${taskId} completed`)
