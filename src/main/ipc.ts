@@ -31,6 +31,10 @@ function withSanitizedErrors(ipcMain: IpcMain, engine: AgentEngine): IpcMain {
   const original = ipcMain.handle.bind(ipcMain)
   const wrapped = Object.create(ipcMain) as IpcMain
   wrapped.handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => {
+    // Skip channels already registered from engine.dispatch (mirrored in step 1)
+    // — avoids "Attempted to register a second handler" for partially-migrated services
+    if (engine.dispatch.has(channel)) return
+
     original(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
       try {
         return await listener(event, ...args)
