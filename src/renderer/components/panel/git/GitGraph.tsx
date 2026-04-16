@@ -14,11 +14,11 @@ interface RefBadge {
   kind: 'head' | 'branch' | 'remote' | 'tag'
 }
 
-function classifyRef(raw: string): RefBadge {
+function classifyRef(raw: string, remoteNames: Set<string>): RefBadge {
   if (raw.startsWith('HEAD -> ')) return { label: raw.slice('HEAD -> '.length), kind: 'head' }
   if (raw === 'HEAD') return { label: 'HEAD', kind: 'head' }
   if (raw.startsWith('tag: ')) return { label: raw.slice('tag: '.length), kind: 'tag' }
-  if (/^[^/]+\//.test(raw)) return { label: raw, kind: 'remote' }
+  if (remoteNames.has(raw)) return { label: raw, kind: 'remote' }
   return { label: raw, kind: 'branch' }
 }
 
@@ -50,10 +50,15 @@ function pathFor(edge: GraphEdge): string {
 
 export function GitGraph({ cwd }: { cwd: string }) {
   const commits = useGitPanelStore((s) => s.commits)
+  const branches = useGitPanelStore((s) => s.branches)
   const selected = useGitPanelStore((s) => s.selectedCommitSha)
   const select = useGitPanelStore((s) => s.selectCommit)
 
   const graph = useMemo(() => (commits && commits.length > 0 ? layout(commits) : null), [commits])
+  const remoteNames = useMemo(
+    () => new Set((branches ?? []).filter(b => b.isRemote).map(b => b.name)),
+    [branches],
+  )
 
   if (!commits || commits.length === 0) {
     return <div className="p-4 text-sm opacity-70">Aucun commit.</div>
@@ -111,7 +116,7 @@ export function GitGraph({ cwd }: { cwd: string }) {
         <ul className="relative" style={{ paddingLeft: svgWidth }}>
           {graph.nodes.map((n) => {
             const isSelected = selected === n.commit.sha
-            const badges = n.commit.refs.map(classifyRef)
+            const badges = n.commit.refs.map(r => classifyRef(r, remoteNames))
             return (
               <li key={n.commit.sha} style={{ height: ROW_HEIGHT }}>
                 <button
