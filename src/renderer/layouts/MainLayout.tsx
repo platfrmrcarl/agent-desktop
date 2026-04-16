@@ -4,7 +4,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useConversationsStore } from '../stores/conversationsStore'
 import { Sidebar } from '../components/sidebar/Sidebar'
 import { ChatView } from '../pages/ChatView'
-import { FileExplorerPanel } from '../components/panel/FileExplorerPanel'
+import { RightSidebarPanel } from '../components/panel/RightSidebarPanel'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { useMobileMode, useCompactMode } from '../hooks/useMobileMode'
 import { useEdgeSwipe, useSwipeDismiss } from '../hooks/useEdgeSwipe'
@@ -291,7 +291,7 @@ export function MainLayout({ onOpenSettings, onOpenScheduler }: { onOpenSettings
             }}
           >
             <ErrorBoundary>
-              <FileExplorerPanel />
+              <RightSidebarPanel />
             </ErrorBoundary>
           </div>
         </>
@@ -315,7 +315,7 @@ export function MainLayout({ onOpenSettings, onOpenScheduler }: { onOpenSettings
             }}
           >
             <ErrorBoundary>
-              <FileExplorerPanel />
+              <RightSidebarPanel />
             </ErrorBoundary>
           </div>
         </>

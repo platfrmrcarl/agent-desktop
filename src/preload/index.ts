@@ -295,6 +295,18 @@ const api: AgentAPI = {
     maximize: () => ipcRenderer.send('window:maximize'),
     close: () => ipcRenderer.send('window:close'),
   },
+  git: {
+    isRepo: (cwd) => withTimeout(ipcRenderer.invoke('git:isRepo', cwd)),
+    status: (cwd) => withTimeout(ipcRenderer.invoke('git:status', cwd)),
+    logGraph: (cwd, opts) => withTimeout(ipcRenderer.invoke('git:logGraph', cwd, opts)),
+    commitDetail: (cwd, sha) => withTimeout(ipcRenderer.invoke('git:commitDetail', cwd, sha)),
+    branches: (cwd) => withTimeout(ipcRenderer.invoke('git:branches', cwd)),
+    stashList: (cwd) => withTimeout(ipcRenderer.invoke('git:stashList', cwd)),
+    checkout: (cwd, name) => withTimeout(ipcRenderer.invoke('git:checkout', cwd, name)),
+    stashSave: (cwd, message) => withTimeout(ipcRenderer.invoke('git:stashSave', cwd, message)),
+    stashPop: (cwd, index) => withTimeout(ipcRenderer.invoke('git:stashPop', cwd, index)),
+    fetch: (cwd, remote) => withTimeout(ipcRenderer.invoke('git:fetch', cwd, remote)),
+  },
 }
 
 contextBridge.exposeInMainWorld('agent', api)

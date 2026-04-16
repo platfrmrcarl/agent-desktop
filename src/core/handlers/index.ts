@@ -20,6 +20,7 @@ import { registerSchedulerHandlers } from './scheduler'
 import { registerTtsHandlers } from './tts'
 import { registerWhisperHandlers } from './whisper'
 import { registerSystemHandlers } from './system'
+import { registerGitHandlers } from './git'
 
 export interface CoreHandlerOptions {
   broadcaster: Broadcaster
@@ -56,4 +57,5 @@ export function registerCoreHandlers(
   registerTtsHandlers(registrar, db)
   registerWhisperHandlers(registrar, db)
   registerSystemHandlers(registrar, db)
+  registerGitHandlers(registrar)
 }
