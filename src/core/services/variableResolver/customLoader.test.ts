@@ -66,6 +66,14 @@ describe('loadCustomVariable', () => {
     const fn2 = await loadCustomVariable('cached', dir)
     expect(fn1).toBe(fn2)
   })
+
+  it('throws a clear error when the .ts file has a syntax error', async () => {
+    writeFileSync(
+      join(dir, 'broken.ts'),
+      `export default (args: string[]) => { this is not valid javascript `
+    )
+    await expect(loadCustomVariable('broken', dir)).rejects.toThrow(/erreur de transpilation/)
+  })
 })
 
 describe('listCustomVariables', () => {

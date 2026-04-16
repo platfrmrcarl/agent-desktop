@@ -1,5 +1,4 @@
 import { readdir, readFile, mkdir, writeFile, stat } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
 import { join, basename, extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { homedir } from 'node:os'
@@ -42,9 +41,11 @@ export async function loadCustomVariable(
   functionsDir: string = DEFAULT_DIR
 ): Promise<VariableFn | null> {
   const srcPath = join(functionsDir, `${name}.ts`)
-  if (!existsSync(srcPath)) return null
-
-  const srcStat = await stat(srcPath)
+  const srcStat = await stat(srcPath).catch((e: NodeJS.ErrnoException) => {
+    if (e.code === 'ENOENT') return null
+    throw e
+  })
+  if (!srcStat) return null
   const cacheKey = `${functionsDir}::${name}`
   const cached = moduleCache.get(cacheKey)
   if (cached && cached.mtimeMs === srcStat.mtimeMs) {
@@ -56,7 +57,7 @@ export async function loadCustomVariable(
 
   const source = await readFile(srcPath, 'utf-8')
 
-  const { outputText } = ts.transpileModule(source, {
+  const result = ts.transpileModule(source, {
     compilerOptions: {
       module: ts.ModuleKind.ESNext,
       target: ts.ScriptTarget.ES2022,
@@ -64,7 +65,20 @@ export async function loadCustomVariable(
       isolatedModules: true,
     },
     fileName: srcPath,
+    reportDiagnostics: true,
   })
+
+  const errorDiagnostics = (result.diagnostics ?? []).filter(
+    d => d.category === ts.DiagnosticCategory.Error
+  )
+  if (errorDiagnostics.length > 0) {
+    const messages = errorDiagnostics
+      .map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n'))
+      .join('; ')
+    throw new Error(`${name}.ts: erreur de transpilation — ${messages}`)
+  }
+
+  const { outputText } = result
 
   const cacheFile = join(cacheDir, `${name}-${srcStat.mtimeMs}.mjs`)
   await writeFile(cacheFile, outputText, 'utf-8')
@@ -85,8 +99,13 @@ export async function loadCustomVariable(
 export async function listCustomVariables(
   functionsDir: string = DEFAULT_DIR
 ): Promise<string[]> {
-  if (!existsSync(functionsDir)) return []
-  const entries = await readdir(functionsDir)
+  let entries: string[]
+  try {
+    entries = await readdir(functionsDir)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw e
+  }
   return entries
     .filter(f => extname(f) === '.ts')
     .map(f => basename(f, '.ts'))
