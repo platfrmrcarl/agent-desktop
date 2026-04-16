@@ -40,13 +40,10 @@ export function Sidebar({ onOpenSettings, onOpenScheduler }: { onOpenSettings?: 
     <div className="flex flex-col h-full">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-3 py-3 flex-shrink-0"
+        className="flex items-center px-3 py-3 flex-shrink-0"
         style={{ borderBottom: '1px solid var(--color-bg)' }}
       >
-        <span className="text-sm font-semibold mobile:hidden" style={{ color: 'var(--color-text)' }}>
-          Conversations
-        </span>
-        <div className="flex items-center gap-1 mobile:gap-2">
+        <div className="flex flex-1 items-center justify-between mobile:gap-2">
           <SortDropdown />
           {onOpenSettings && (
             <button
