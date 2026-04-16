@@ -6,7 +6,10 @@ import { isGitRepo } from './repo'
 import { getStatus } from './status'
 import { getLogGraph, getCommitDetail } from './log'
 import { listBranches } from './branches'
+import { listStash, stashSave, stashPop } from './stash'
+import { checkoutBranch } from './actions'
 import { runGit } from './spawn'
+import { GitOperationError } from '@shared/git-types'
 
 async function mkRepo(): Promise<string> {
   const dir = await fs.mkdtemp(join(os.tmpdir(), 'agent-git-test-'))
@@ -110,5 +113,35 @@ describe('listBranches', () => {
     } finally {
       await fs.rm(remote, { recursive: true, force: true })
     }
+  })
+})
+
+describe('stash', () => {
+  it('saves and pops a stash', async () => {
+    await fs.writeFile(join(tmpDir, 'a.txt'), 'one')
+    await runGit(tmpDir, ['add', 'a.txt'])
+    await runGit(tmpDir, ['commit', '-m', 'add a'])
+    await fs.writeFile(join(tmpDir, 'a.txt'), 'two')
+    await stashSave(tmpDir, 'WIP')
+    const list = await listStash(tmpDir)
+    expect(list).toHaveLength(1)
+    expect(list[0].message).toContain('WIP')
+    await stashPop(tmpDir, 0)
+    expect(await listStash(tmpDir)).toHaveLength(0)
+  })
+})
+
+describe('checkoutBranch', () => {
+  it('checks out an existing branch', async () => {
+    await runGit(tmpDir, ['checkout', '-b', 'feature'])
+    await runGit(tmpDir, ['checkout', 'main'])
+    await checkoutBranch(tmpDir, 'feature')
+    const { stdout } = await runGit(tmpDir, ['branch', '--show-current'])
+    expect(stdout.trim()).toBe('feature')
+  })
+  it('rejects with not-found error for missing branch', async () => {
+    await expect(checkoutBranch(tmpDir, 'does-not-exist')).rejects.toMatchObject({
+      error: { kind: 'not-found', target: 'does-not-exist' },
+    })
   })
 })
