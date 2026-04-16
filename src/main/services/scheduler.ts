@@ -39,6 +39,7 @@ function notifyRenderer(event: string, data: unknown): void {
 
 function createElectronContext(db: Database.Database): TaskRunContext {
   return {
+    db,
     buildHistory(conversationId: number) {
       return buildMessageHistory(db, conversationId)
     },
