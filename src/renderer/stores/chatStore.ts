@@ -646,6 +646,11 @@ window.agent.messages.onStream((chunk: StreamChunk) => {
         const p = parts[i]
         if (p.type === 'tool' && p.status === 'running' && (!toolId || p.id === toolId)) {
           parts[i] = { ...p, input: toolInput }
+          if (p.name === 'Bash' && typeof toolInput.command === 'string') {
+            window.dispatchEvent(new CustomEvent('agent:bash-tool-result', {
+              detail: { command: toolInput.command },
+            }))
+          }
           break
         }
       }
