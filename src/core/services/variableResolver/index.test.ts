@@ -86,20 +86,20 @@ describe('resolveVariables', () => {
   it('resolves variables in parallel (runs concurrently)', async () => {
     writeFileSync(
       join(dir, 'slow1.ts'),
-      `export default () => new Promise((r) => setTimeout(() => r('A'), 80))`
+      `export default () => new Promise((r) => setTimeout(() => r('A'), 200))`
     )
     writeFileSync(
       join(dir, 'slow2.ts'),
-      `export default () => new Promise((r) => setTimeout(() => r('B'), 80))`
+      `export default () => new Promise((r) => setTimeout(() => r('B'), 200))`
     )
     const start = Date.now()
     const out = await resolveVariables('{slow1}+{slow2}', ctx(), {
       functionsDir: dir,
-      timeoutMs: 500,
+      timeoutMs: 1000,
     })
     const duration = Date.now() - start
     expect(out).toBe('A+B')
-    expect(duration).toBeLessThan(200)
+    expect(duration).toBeLessThan(350)
   })
 })
 
