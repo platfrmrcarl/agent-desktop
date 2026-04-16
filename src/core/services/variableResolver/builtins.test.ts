@@ -80,3 +80,43 @@ describe('builtins — random', () => {
     expect(() => fn(['abc', '10'], makeCtx())).toThrow(/args invalides/)
   })
 })
+
+describe('builtins — task context', () => {
+  it('task_name returns ctx.task.name', () => {
+    const fn = builtinRegistry.get('task_name')!.fn
+    const ctx = makeCtx({ task: { ...makeCtx().task, name: 'Daily report' } as any })
+    expect(fn([], ctx)).toBe('Daily report')
+  })
+
+  it('task_run_count returns run_count + 1 (1-indexed)', () => {
+    const fn = builtinRegistry.get('task_run_count')!.fn
+    const ctx = makeCtx({ task: { ...makeCtx().task, run_count: 5 } as any })
+    expect(fn([], ctx)).toBe('6')
+  })
+
+  it('task_run_count returns 1 when run_count is 0', () => {
+    const fn = builtinRegistry.get('task_run_count')!.fn
+    expect(fn([], makeCtx())).toBe('1')
+  })
+
+  it('last_run_at returns empty string on first run', () => {
+    const fn = builtinRegistry.get('last_run_at')!.fn
+    expect(fn([], makeCtx())).toBe('')
+  })
+
+  it('last_run_at formats the previous run timestamp', () => {
+    const fn = builtinRegistry.get('last_run_at')!.fn
+    const ctx = makeCtx({
+      task: { ...makeCtx().task, last_run_at: '2026-04-15T10:00:00.000Z' } as any,
+    })
+    expect(fn(['YYYY-MM-DD'], ctx)).toBe('2026-04-15')
+  })
+
+  it('last_run_at uses ISO date by default', () => {
+    const fn = builtinRegistry.get('last_run_at')!.fn
+    const ctx = makeCtx({
+      task: { ...makeCtx().task, last_run_at: '2026-04-15T10:00:00.000Z' } as any,
+    })
+    expect(fn([], ctx)).toBe('2026-04-15')
+  })
+})

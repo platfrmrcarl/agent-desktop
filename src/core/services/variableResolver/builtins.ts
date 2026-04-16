@@ -65,7 +65,25 @@ export const BUILTINS: BuiltinSpec[] = [
       return String(Math.floor(Math.random() * (max - min + 1)) + min)
     },
   },
-  // Task-context + async added in tasks 4-6
+  {
+    name: 'task_name',
+    description: "Nom de la tâche planifiée en cours d'exécution",
+    fn: (_args, ctx) => ctx.task.name,
+  },
+  {
+    name: 'task_run_count',
+    description: "Numéro d'exécution en cours (1 pour la première, 2 pour la deuxième...)",
+    fn: (_args, ctx) => String((ctx.task.run_count ?? 0) + 1),
+  },
+  {
+    name: 'last_run_at',
+    description: "Date de la dernière exécution. Arg: format. Vide si première exécution.",
+    argsHint: 'FORMAT?',
+    fn: (args, ctx) => {
+      if (!ctx.task.last_run_at) return ''
+      return formatDate(new Date(ctx.task.last_run_at), args[0])
+    },
+  },
 ]
 
 export const builtinRegistry = new Map<string, BuiltinSpec>(
