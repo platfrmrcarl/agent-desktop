@@ -11,6 +11,7 @@ import { NotebookPreview } from '../artifacts/NotebookPreview'
 import { ExpandedViewerModal } from './ExpandedViewerModal'
 import { NewConversationFromFilesModal } from './NewConversationFromFilesModal'
 import type { FileNode } from '../../../shared/types'
+import { isChildPath, pathBasename, pathDirname } from '../../../shared/pathUtils'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useConversationsStore } from '../../stores/conversationsStore'
 import { useMobileMode } from '../../hooks/useMobileMode'
@@ -22,10 +23,7 @@ function getFileExtension(filePath: string): string {
   return filePath.slice(dot + 1).toLowerCase()
 }
 
-function getBasename(filePath: string): string {
-  const idx = filePath.lastIndexOf('/')
-  return idx === -1 ? filePath : filePath.slice(idx + 1)
-}
+const getBasename = pathBasename
 
 const PREVIEW_EXTENSIONS = new Set(['md', 'markdown', 'html', 'htm', 'svg', 'mmd', 'scad', 'obj', 'ipynb'])
 
@@ -236,10 +234,7 @@ function ApplyThemeButton({ filename }: { filename: string }) {
 
 // ── File Tree Node ────────────────────────────────────────────
 
-function getDirname(p: string): string {
-  const idx = p.lastIndexOf('/')
-  return idx <= 0 ? '/' : p.slice(0, idx)
-}
+const getDirname = pathDirname
 
 interface FileTreeNodeProps {
   node: FileNode
@@ -337,7 +332,7 @@ function FileTreeNode({
       // Guard: no drop on self, own parent, or own children
       if (sourcePath === node.path) return
       if (getDirname(sourcePath) === node.path) return
-      if (node.path.startsWith(sourcePath + '/')) return
+      if (isChildPath(sourcePath, node.path)) return
       onDropOnFolder(node.path)
     }
 
@@ -673,7 +668,7 @@ function JsPermissionBanner({ filePath, onAllowOnce, onTrustFolder, onTrustAll, 
   onTrustAll: () => void
   onDismiss: () => void
 }) {
-  const folder = filePath.substring(0, filePath.lastIndexOf('/')) || '/'
+  const folder = pathDirname(filePath)
 
   return (
     <div className="flex-1 flex items-center justify-center p-6">
@@ -1098,7 +1093,7 @@ export function FileExplorerPanel() {
         {selectedFilePath && fileContent !== null ? (() => {
           const isHtml = HTML_EXTENSIONS.has(getFileExtension(selectedFilePath))
           const showJsPrompt = isHtml && !jsEnabled && !jsPromptDismissed && viewMode === 'preview'
-          const dir = selectedFilePath.substring(0, selectedFilePath.lastIndexOf('/')) || '/'
+          const dir = pathDirname(selectedFilePath)
 
           return (
             <>

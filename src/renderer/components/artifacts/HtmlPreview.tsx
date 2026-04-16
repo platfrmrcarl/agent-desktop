@@ -11,7 +11,8 @@ export function HtmlPreview({ content, filePath, allowScripts }: HtmlPreviewProp
   // File preview mode: use custom protocol so relative resources (CSS, images, fonts) resolve
   // localhost hostname prevents standard-scheme URL normalization from eating the first path segment
   if (filePath) {
-    const dir = filePath.substring(0, filePath.lastIndexOf('/'))
+    const sepIdx = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
+    const dir = sepIdx >= 0 ? filePath.substring(0, sepIdx) : filePath
     const previewUrl = `agent-preview://localhost${encodeURI(filePath)}?base=${encodeURIComponent(dir)}`
     const sandbox = allowScripts ? 'allow-scripts' : 'allow-same-origin'
     return (

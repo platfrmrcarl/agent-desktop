@@ -3,6 +3,7 @@ import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { expandTilde } from '../utils/paths'
+import { validatePathSafe } from '../utils/validate'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -25,19 +26,6 @@ const DESCRIPTION_RE = /^description:\s*(.+)$/m
 const NAME_RE = /^name:\s*(.+)$/m
 
 const MACROS_DIR = expandTilde('~/.agent-desktop/macros')
-
-// ─── Inline utilities ───────────────────────────────────────
-
-function validatePathSafe(filePath: string): string {
-  const resolved = path.resolve(filePath)
-  const blocked = ['/proc', '/sys', '/dev', '/boot', '/sbin', '/etc']
-  for (const prefix of blocked) {
-    if (resolved.startsWith(prefix + '/') || resolved === prefix) {
-      throw new Error(`Access denied: ${prefix} is a protected directory`)
-    }
-  }
-  return resolved
-}
 
 function extractDescription(frontmatter: string): string {
   const lineMatch = frontmatter.match(DESCRIPTION_RE)

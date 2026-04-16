@@ -1,6 +1,6 @@
 {
   "name": "agent-desktop",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "Open-source desktop client for Claude AI — Linux, macOS, and Windows.",
   "main": "./out/main/index.js",
   "repository": {
@@ -26,12 +26,14 @@
     "build:headless": "esbuild src/headless/index.ts --bundle --platform=node --target=node18 --outfile=out/headless/index.js --external:@anthropic-ai/claude-agent-sdk --external:better-sqlite3 && cp node_modules/sql.js/dist/sql-wasm.wasm out/headless/sql-wasm.wasm",
     "start:server": "node out/headless/index.js --server",
     "start:discord": "node out/headless/index.js --discord",
-    "start:headless": "node out/headless/index.js --server --discord"
+    "start:headless": "node out/headless/index.js --server --discord",
+    "dist:headless": "bash scripts/package-headless.sh"
   },
   "author": "Agent Desktop Contributors",
   "license": "AGPL-3.0-only",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",
+    "@sinclair/typebox": "^0.34.0",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@mariozechner/pi-ai": "^0.55.1",
     "@mariozechner/pi-coding-agent": "^0.55.1",

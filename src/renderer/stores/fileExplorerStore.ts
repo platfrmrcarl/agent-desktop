@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { FileNode } from '../../shared/types'
+import { isChildPath } from '../../shared/pathUtils'
 
 // ── Tree helpers ─────────────────────────────────────────────
 
@@ -190,7 +191,7 @@ export const useFileExplorerStore = create<FileExplorerState>((set, get) => ({
     next.delete(dirPath)
     // Also collapse all descendant directories
     for (const p of next) {
-      if (p.startsWith(dirPath + '/')) next.delete(p)
+      if (isChildPath(dirPath, p)) next.delete(p)
     }
     set({ expandedPaths: next })
   },
@@ -334,8 +335,9 @@ export const useFileExplorerStore = create<FileExplorerState>((set, get) => ({
   isJsTrusted: (filePath) => {
     const { jsTrustAll, jsTrustedFolders } = get()
     if (jsTrustAll) return true
-    const dir = filePath.substring(0, filePath.lastIndexOf('/'))
-    return jsTrustedFolders.some(f => dir === f || dir.startsWith(f + '/'))
+    const lastSep = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
+    const dir = lastSep >= 0 ? filePath.substring(0, lastSep) : filePath
+    return jsTrustedFolders.some(f => dir === f || isChildPath(f, dir))
   },
 }))
 

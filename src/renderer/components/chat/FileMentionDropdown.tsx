@@ -11,7 +11,8 @@ export interface FlatFile {
 
 export function flattenFileTree(nodes: FileNode[], basePath: string): FlatFile[] {
   const result: FlatFile[] = []
-  const prefix = basePath.endsWith('/') ? basePath : basePath + '/'
+  const hasSep = basePath.endsWith('/') || basePath.endsWith('\\')
+  const prefix = hasSep ? basePath : basePath + '/'
 
   function walk(items: FileNode[]) {
     for (const node of items) {

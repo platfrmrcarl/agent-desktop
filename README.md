@@ -168,6 +168,124 @@ npm run test:main    # main process tests only
 npm run test:renderer # renderer tests only
 ```
 
+## Headless Server (no Electron)
+
+Agent Desktop can run as a headless web server and/or Discord bot without Electron. This is useful for remote access, servers, Raspberry Pi, WSL, or any machine without a display.
+
+### Prerequisites
+
+- **Node.js 18+**
+- **Claude authentication** — run `claude login` via the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), or configure an API key in the database
+- **OpenSSL** *(recommended)* — enables HTTPS. Without it, the server falls back to plain HTTP
+
+<details>
+<summary><strong>Installing OpenSSL</strong></summary>
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt install openssl
+```
+
+**macOS:**
+```bash
+brew install openssl
+```
+
+**Windows:**
+```powershell
+# Via winget (Windows 10+)
+winget install ShiningLight.OpenSSL
+
+# Via Chocolatey
+choco install openssl
+
+# Or download the installer:
+# https://slproweb.com/products/Win32OpenSSL.html
+```
+</details>
+
+### Quick Start (from source)
+
+```bash
+git clone https://github.com/BaLaurent/agent-desktop.git
+cd agent-desktop
+npm install
+npm run build            # compile TypeScript
+npm run build:headless   # bundle headless entry point
+node out/headless/index.js --server
+```
+
+### Standalone Package (deployable)
+
+Build a self-contained distribution that runs on any Node 18+ machine:
+
+```bash
+npm run dist:headless    # outputs dist-headless/
+```
+
+Deploy it anywhere:
+
+```bash
+cd dist-headless
+npm install              # installs only the Claude Agent SDK
+node index.js --server   # start web server (default port 3484)
+```
+
+### Usage
+
+```bash
+# Web server only
+node index.js --server
+
+# Discord bot only
+node index.js --discord
+
+# Both
+node index.js --server --discord
+
+# Custom port + LAN-wide access
+node index.js --server --port 8080 --access-mode all
+
+# Run scheduled tasks (one-shot)
+node index.js --tick
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_DB_PATH` | `~/.config/agent-desktop/agent.db` | SQLite database path |
+| `AGENT_THEMES_DIR` | `~/.agent-desktop/themes` | Themes directory |
+| `DISCORD_TOKEN` | — | Discord bot token (required for `--discord`) |
+
+### HTTPS vs HTTP
+
+The server generates a self-signed SSL certificate on first run (requires OpenSSL). If OpenSSL is not installed, it falls back to plain HTTP with a warning:
+
+```
+[webServer] SSL unavailable — falling back to HTTP (less secure)
+[webServer] Listening on http://192.168.1.42:3484/s/abc123 (HTTP — install OpenSSL for HTTPS)
+```
+
+HTTPS is recommended for LAN access — browsers block certain features (clipboard, notifications, service workers) on insecure origins.
+
+### Windows Notes
+
+- Use PowerShell or Command Prompt (not Git Bash) for best compatibility
+- OpenSSL is not bundled with Windows — install it separately (see above)
+- Ensure `openssl` is in your `PATH` after installation
+- Node.js installer: https://nodejs.org/
+
+### macOS Notes
+
+- OpenSSL ships with macOS but may be outdated — `brew install openssl` for a recent version
+- You may need to allow network access in System Settings > Privacy & Security > Firewall
+
+### Linux Notes
+
+- Most distributions include OpenSSL by default
+- If using a firewall (`ufw`, `iptables`), open the server port: `sudo ufw allow 3484`
+
 ## Technology Stack
 
 | Layer | Technology |

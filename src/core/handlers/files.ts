@@ -5,7 +5,8 @@ import { join, resolve as pathResolve, extname, dirname, basename } from 'path'
 import os from 'os'
 import { spawn } from 'child_process'
 import { expandTilde } from '../utils/paths'
-import { validateString, validatePositiveInt } from '../utils/validate'
+import { validateString, validatePositiveInt, validatePathSafe } from '../utils/validate'
+import { isChildPath } from '../../shared/pathUtils'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -19,20 +20,6 @@ const BINARY_MODEL_EXTS = new Set(['stl', '3mf', 'ply'])
 const IMAGE_EXTS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif',
 ])
-
-const BLOCKED_PREFIXES = ['/proc', '/sys', '/dev', '/boot', '/sbin', '/etc']
-
-// ─── Inline utilities ───────────────────────────────────────
-
-function validatePathSafe(filePath: string): string {
-  const abs = pathResolve(filePath)
-  for (const prefix of BLOCKED_PREFIXES) {
-    if (abs.startsWith(prefix + '/') || abs === prefix) {
-      throw new Error(`Access denied: ${prefix} is a protected directory`)
-    }
-  }
-  return abs
-}
 
 function getImageMime(ext: string): string {
   switch (ext) {
@@ -294,7 +281,7 @@ export function registerFilesHandlers(
     if (dirname(resolvedSource) === resolvedDest) throw new Error('Source is already in the destination directory')
 
     const sourceStat = await fsp.stat(resolvedSource)
-    if (sourceStat.isDirectory() && (resolvedDest === resolvedSource || resolvedDest.startsWith(resolvedSource + '/'))) {
+    if (sourceStat.isDirectory() && (resolvedDest === resolvedSource || isChildPath(resolvedSource, resolvedDest))) {
       throw new Error('Cannot move a folder into itself or its own children')
     }
 

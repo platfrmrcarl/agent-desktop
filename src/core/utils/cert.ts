@@ -7,6 +7,34 @@ interface CertResult {
   cert: Buffer
 }
 
+function opensslInstallHint(): string {
+  switch (process.platform) {
+    case 'win32':
+      return 'Install OpenSSL for Windows: https://slproweb.com/products/Win32OpenSSL.html\n' +
+        '  Or via winget:  winget install ShiningLight.OpenSSL\n' +
+        '  Or via choco:   choco install openssl'
+    case 'darwin':
+      return 'Install via Homebrew: brew install openssl'
+    default:
+      return 'Install via your package manager, e.g.: sudo apt install openssl'
+  }
+}
+
+function checkOpenssl(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile('openssl', ['version'], { timeout: 5_000 }, (err) => {
+      if (err) {
+        reject(new Error(
+          `OpenSSL is required for the HTTPS server but was not found.\n` +
+          `  ${opensslInstallHint()}`
+        ))
+      } else {
+        resolve()
+      }
+    })
+  })
+}
+
 export async function ensureSelfSignedCert(sslDir: string): Promise<CertResult> {
   const keyPath = path.join(sslDir, 'key.pem')
   const certPath = path.join(sslDir, 'cert.pem')
@@ -21,6 +49,9 @@ export async function ensureSelfSignedCert(sslDir: string): Promise<CertResult> 
   } catch {
     // Files missing or unreadable — generate below
   }
+
+  // Verify OpenSSL is available before attempting generation
+  await checkOpenssl()
 
   // Ensure directory exists
   await fs.mkdir(sslDir, { recursive: true })
@@ -40,7 +71,7 @@ export async function ensureSelfSignedCert(sslDir: string): Promise<CertResult> 
     ], { timeout: 10_000 }, (err, _stdout, stderr) => {
       if (err) {
         const hint = stderr?.trim().slice(0, 200) || err.message
-        reject(new Error(`Failed to generate SSL certificate: ${hint}. Is openssl installed?`))
+        reject(new Error(`Failed to generate SSL certificate: ${hint}`))
       } else {
         resolve()
       }

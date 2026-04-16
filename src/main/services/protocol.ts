@@ -1,6 +1,6 @@
 import { protocol, net } from 'electron'
 import { pathToFileURL } from 'url'
-import { resolve } from 'path'
+import path from 'path'
 import { validatePathSafe } from '../utils/validate'
 
 /**
@@ -43,7 +43,7 @@ export function registerPreviewProtocol(): void {
     }
 
     // Resolve to absolute and validate
-    filePath = resolve(filePath)
+    filePath = path.resolve(filePath)
     try {
       validatePathSafe(filePath)
     } catch {
@@ -52,8 +52,9 @@ export function registerPreviewProtocol(): void {
 
     // If base directory specified, restrict to that subtree
     if (allowedBase) {
-      const resolvedBase = resolve(allowedBase)
-      if (!filePath.startsWith(resolvedBase + '/') && filePath !== resolvedBase) {
+      const resolvedBase = path.resolve(allowedBase)
+      const rel = path.relative(resolvedBase, filePath)
+      if (rel && (rel.startsWith('..') || path.isAbsolute(rel))) {
         return new Response('Forbidden', { status: 403 })
       }
     }

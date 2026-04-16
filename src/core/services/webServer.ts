@@ -19,6 +19,7 @@ let serverToken: string | null = null
 let serverPort: number | null = null
 let serverShortCode: string | null = null
 let serverAccessMode: 'lan' | 'all' = 'lan'
+let serverProtocol: 'https' | 'http' = 'https'
 const authenticatedClients = new Set<WebSocket>()
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 const clientAlive = new WeakMap<WebSocket, boolean>()
@@ -589,11 +590,11 @@ export interface ServerStartOptions {
 
 export async function startServer(port: number, options?: ServerStartOptions): Promise<{ url: string; token: string }> {
   // Early return if already running
-  if (tcpServer) {
+  if (tcpServer || httpServer) {
     const ip = getLanIp()
     const url = serverShortCode
-      ? `https://${ip}:${serverPort}/s/${serverShortCode}`
-      : `https://${ip}:${serverPort}?token=${serverToken}`
+      ? `${serverProtocol}://${ip}:${serverPort}/s/${serverShortCode}`
+      : `${serverProtocol}://${ip}:${serverPort}?token=${serverToken}`
     return { url, token: serverToken! }
   }
 
@@ -601,9 +602,20 @@ export async function startServer(port: number, options?: ServerStartOptions): P
   serverDispatch = options?.dispatch ?? null
   rendererDir = options?.rendererDir ?? path.join(__dirname, '../renderer')
 
-  // Load or generate SSL certificate
+  // Try SSL, fall back to HTTP if OpenSSL is unavailable
   const resolvedSslDir = options?.sslDir ?? path.join(__dirname, '../../ssl')
-  const { key, cert: certPem } = await ensureSelfSignedCert(resolvedSslDir)
+  let sslKey: Buffer | null = null
+  let sslCert: Buffer | null = null
+  try {
+    const result = await ensureSelfSignedCert(resolvedSslDir)
+    sslKey = result.key
+    sslCert = result.cert
+    serverProtocol = 'https'
+  } catch (err) {
+    console.warn(`[webServer] SSL unavailable — falling back to HTTP (less secure)`)
+    console.warn(`[webServer] ${err instanceof Error ? err.message : String(err)}`)
+    serverProtocol = 'http'
+  }
 
   serverToken = crypto.randomBytes(32).toString('hex')
   serverPort = port
@@ -613,107 +625,107 @@ export async function startServer(port: number, options?: ServerStartOptions): P
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
 
-  return new Promise((resolve, reject) => {
-    httpServer = https.createServer({ key, cert: certPem }, (req, res) => {
-      // Network access check
-      if (!isAllowedRemote(req.socket.remoteAddress)) {
+  // Shared request handler — works identically for HTTP and HTTPS
+  const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse) => {
+    if (!isAllowedRemote(req.socket.remoteAddress)) {
+      res.writeHead(403)
+      res.end('Forbidden: LAN access only')
+      return
+    }
+
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+
+    const url = new URL(req.url || '/', `http://localhost:${port}`)
+
+    if (url.pathname === '/agent-ws-shim.js') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' })
+      res.end(shimScript)
+      return
+    }
+
+    const shortMatch = url.pathname.match(/^\/s\/([a-zA-Z0-9]+)$/)
+    if (shortMatch) {
+      if (shortMatch[1] !== serverShortCode) {
         res.writeHead(403)
-        res.end('Forbidden: LAN access only')
+        res.end('Invalid short code')
         return
       }
-
-      // CORS headers for dev mode
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204)
-        res.end()
-        return
-      }
-
-      const url = new URL(req.url || '/', `http://localhost:${port}`)
-
-      // Serve the shim as a standalone script
-      if (url.pathname === '/agent-ws-shim.js') {
-        res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' })
-        res.end(shimScript)
-        return
-      }
-
-      // Short URL route: /s/<code>
-      const shortMatch = url.pathname.match(/^\/s\/([a-zA-Z0-9]+)$/)
-      if (shortMatch) {
-        if (shortMatch[1] !== serverShortCode) {
-          res.writeHead(403)
-          res.end('Invalid short code')
-          return
-        }
-        // Serve index.html with token injected via window.__AGENT_TOKEN__
-        const tokenScript = `<script>window.__AGENT_TOKEN__=${JSON.stringify(serverToken)};</script>`
-        if (devUrl) {
-          proxyToDevWithTokenInjection(devUrl, req, res, shimScript, tokenScript)
-        } else {
-          serveStaticFileWithTokenInjection('/', res, shimScript, tokenScript)
-        }
-        return
-      }
-
+      const tokenScript = `<script>window.__AGENT_TOKEN__=${JSON.stringify(serverToken)};</script>`
       if (devUrl) {
-        // Dev mode: proxy to electron-vite dev server
-        proxyToDev(devUrl, url.pathname, req, res, shimScript)
+        proxyToDevWithTokenInjection(devUrl, req, res, shimScript, tokenScript)
       } else {
-        // Production: serve static files from out/renderer/
-        serveStaticFile(url.pathname, res, shimScript)
+        serveStaticFileWithTokenInjection('/', res, shimScript, tokenScript)
       }
-    })
+      return
+    }
+
+    if (devUrl) {
+      proxyToDev(devUrl, url.pathname, req, res, shimScript)
+    } else {
+      serveStaticFile(url.pathname, res, shimScript)
+    }
+  }
+
+  // Shared upgrade handler — works identically for HTTP and HTTPS
+  const upgradeHandler = (req: http.IncomingMessage, socket: import('stream').Duplex, head: Buffer) => {
+    if (!isAllowedRemote(req.socket.remoteAddress)) {
+      socket.destroy()
+      return
+    }
+
+    const url = new URL(req.url || '/', `http://localhost:${port}`)
+    if (url.pathname === '/ws') {
+      wss!.handleUpgrade(req, socket, head, (wsClient) => {
+        wss!.emit('connection', wsClient, req)
+      })
+    } else if (devUrl) {
+      const target = new URL(devUrl)
+      const proxyReq = http.request({
+        hostname: target.hostname,
+        port: target.port,
+        path: req.url,
+        headers: req.headers,
+        method: req.method,
+      })
+      proxyReq.on('upgrade', (_proxyRes, proxySocket, proxyHead) => {
+        let response = 'HTTP/1.1 101 Switching Protocols\r\n'
+        for (let i = 0; i < _proxyRes.rawHeaders.length; i += 2) {
+          response += _proxyRes.rawHeaders[i] + ': ' + _proxyRes.rawHeaders[i + 1] + '\r\n'
+        }
+        response += '\r\n'
+        socket.write(response)
+        if (proxyHead.length) socket.write(proxyHead)
+        if (head.length) proxySocket.write(head)
+        proxySocket.pipe(socket)
+        socket.pipe(proxySocket)
+        socket.on('error', () => proxySocket.destroy())
+        proxySocket.on('error', () => socket.destroy())
+      })
+      proxyReq.on('error', () => socket.destroy())
+      proxyReq.end()
+    } else {
+      socket.destroy()
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    // Create server — HTTPS with TCP wrapper, or plain HTTP as fallback
+    if (sslKey && sslCert) {
+      httpServer = https.createServer({ key: sslKey, cert: sslCert }, requestHandler)
+    } else {
+      httpServer = http.createServer(requestHandler)
+    }
 
     wss = new WebSocketServer({ noServer: true, maxPayload: 10 * 1024 * 1024 })
-
-    httpServer.on('upgrade', (req, socket, head) => {
-      // Network access check for WebSocket
-      if (!isAllowedRemote(req.socket.remoteAddress)) {
-        socket.destroy()
-        return
-      }
-
-      const url = new URL(req.url || '/', `http://localhost:${port}`)
-      if (url.pathname === '/ws') {
-        wss!.handleUpgrade(req, socket, head, (wsClient) => {
-          wss!.emit('connection', wsClient, req)
-        })
-      } else if (devUrl) {
-        // Proxy Vite HMR WebSocket to dev server
-        const target = new URL(devUrl)
-        const proxyReq = http.request({
-          hostname: target.hostname,
-          port: target.port,
-          path: req.url,
-          headers: req.headers,
-          method: req.method,
-        })
-        proxyReq.on('upgrade', (_proxyRes, proxySocket, proxyHead) => {
-          // Forward upstream 101 response with correct Sec-WebSocket-Accept
-          let response = 'HTTP/1.1 101 Switching Protocols\r\n'
-          for (let i = 0; i < _proxyRes.rawHeaders.length; i += 2) {
-            response += _proxyRes.rawHeaders[i] + ': ' + _proxyRes.rawHeaders[i + 1] + '\r\n'
-          }
-          response += '\r\n'
-          socket.write(response)
-          if (proxyHead.length) socket.write(proxyHead)
-          if (head.length) proxySocket.write(head)
-          proxySocket.pipe(socket)
-          socket.pipe(proxySocket)
-          socket.on('error', () => proxySocket.destroy())
-          proxySocket.on('error', () => socket.destroy())
-        })
-        proxyReq.on('error', () => socket.destroy())
-        proxyReq.end()
-      } else {
-        socket.destroy()
-      }
-    })
+    httpServer.on('upgrade', upgradeHandler)
 
     wss.on('connection', (wsClient) => {
       clientAlive.set(wsClient, true)
@@ -753,39 +765,46 @@ export async function startServer(port: number, options?: ServerStartOptions): P
       reject(err)
     })
 
-    // HTTP→HTTPS redirect server (never exposed on its own port)
-    const redirectServer = http.createServer((req, res) => {
-      const host = req.headers.host || `localhost:${port}`
-      // Strip port from host if present, re-add the same port for HTTPS
-      const hostname = host.replace(/:\d+$/, '')
-      res.writeHead(301, { Location: `https://${hostname}:${port}${req.url || '/'}` })
-      res.end()
-    })
-
-    // TCP wrapper: peek first byte to detect TLS (0x16) vs plain HTTP
-    tcpServer = net.createServer((socket) => {
-      socket.once('readable', () => {
-        const buf = socket.read(1)
-        if (!buf || buf.length === 0) return
-        socket.unshift(buf)
-        // TLS handshake starts with 0x16 (ContentType.Handshake)
-        const target = buf[0] === 0x16 ? httpServer! : redirectServer
-        target.emit('connection', socket)
+    if (sslKey && sslCert) {
+      // HTTPS mode: TCP wrapper peeks first byte to detect TLS vs plain HTTP
+      const redirectServer = http.createServer((req, res) => {
+        const host = req.headers.host || `localhost:${port}`
+        const hostname = host.replace(/:\d+$/, '')
+        res.writeHead(301, { Location: `https://${hostname}:${port}${req.url || '/'}` })
+        res.end()
       })
-      socket.on('error', () => {}) // ignore connection resets
-    })
 
-    tcpServer.on('error', (err) => {
-      console.error('[webServer] TCP server error:', err.message)
-      reject(err)
-    })
+      tcpServer = net.createServer((socket) => {
+        socket.once('readable', () => {
+          const buf = socket.read(1)
+          if (!buf || buf.length === 0) return
+          socket.unshift(buf)
+          const target = buf[0] === 0x16 ? httpServer! : redirectServer
+          target.emit('connection', socket)
+        })
+        socket.on('error', () => {})
+      })
 
-    tcpServer.listen(port, '0.0.0.0', () => {
-      const ip = getLanIp()
-      const shortUrl = `https://${ip}:${port}/s/${serverShortCode}`
-      console.log(`[webServer] Listening on ${shortUrl} (HTTP→HTTPS redirect enabled)`)
-      resolve({ url: shortUrl, token: serverToken! })
-    })
+      tcpServer.on('error', (err) => {
+        console.error('[webServer] TCP server error:', err.message)
+        reject(err)
+      })
+
+      tcpServer.listen(port, '0.0.0.0', () => {
+        const ip = getLanIp()
+        const shortUrl = `https://${ip}:${port}/s/${serverShortCode}`
+        console.log(`[webServer] Listening on ${shortUrl} (HTTPS, HTTP→HTTPS redirect enabled)`)
+        resolve({ url: shortUrl, token: serverToken! })
+      })
+    } else {
+      // HTTP fallback: direct listen, no TCP wrapper needed
+      httpServer.listen(port, '0.0.0.0', () => {
+        const ip = getLanIp()
+        const shortUrl = `http://${ip}:${port}/s/${serverShortCode}`
+        console.log(`[webServer] Listening on ${shortUrl} (HTTP — install OpenSSL for HTTPS)`)
+        resolve({ url: shortUrl, token: serverToken! })
+      })
+    }
   })
 }
 
@@ -812,13 +831,22 @@ export async function stopServer(): Promise<void> {
     wss = null
   }
 
-  // httpServer never calls .listen() (tcpServer owns the port) — just null it
-  httpServer = null
-
+  // HTTPS mode: tcpServer owns the port; HTTP mode: httpServer listens directly
   if (tcpServer) {
+    httpServer = null
     await new Promise<void>((resolve) => {
       tcpServer!.close(() => {
         tcpServer = null
+        serverToken = null
+        serverPort = null
+        serverShortCode = null
+        resolve()
+      })
+    })
+  } else if (httpServer) {
+    await new Promise<void>((resolve) => {
+      httpServer!.close(() => {
+        httpServer = null
         serverToken = null
         serverPort = null
         serverShortCode = null
@@ -847,11 +875,11 @@ export async function getServerStatus(): Promise<{
   const ip = getLanIp()
   const host = getHostname()
   const shortUrl = serverShortCode
-    ? `https://${ip}:${serverPort}/s/${serverShortCode}`
-    : `https://${ip}:${serverPort}?token=${serverToken}`
+    ? `${serverProtocol}://${ip}:${serverPort}/s/${serverShortCode}`
+    : `${serverProtocol}://${ip}:${serverPort}?token=${serverToken}`
   const shortUrlHostname = serverShortCode
-    ? `https://${host}:${serverPort}/s/${serverShortCode}`
-    : `https://${host}:${serverPort}?token=${serverToken}`
+    ? `${serverProtocol}://${host}:${serverPort}/s/${serverShortCode}`
+    : `${serverProtocol}://${host}:${serverPort}?token=${serverToken}`
   return {
     running: true,
     port: serverPort,

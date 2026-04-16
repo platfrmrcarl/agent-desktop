@@ -7,6 +7,7 @@ import { shell, app } from 'electron'
 import { spawn } from 'child_process'
 import type { FileNode } from '../../shared/types'
 import { validateString, validatePathSafe, validatePositiveInt } from '../utils/validate'
+import { isChildPath } from '../../shared/pathUtils'
 import { expandTilde } from '../utils/paths'
 import { IMAGE_EXTS, getImageMime, mimeToExt } from '../utils/mime'
 
@@ -293,7 +294,7 @@ export function registerHandlers(ipcMain: IpcMain, _db: Database.Database): void
 
     // Prevent moving a folder into itself or its own children
     const sourceStat = await fsp.stat(resolvedSource)
-    if (sourceStat.isDirectory() && (resolvedDest === resolvedSource || resolvedDest.startsWith(resolvedSource + '/'))) {
+    if (sourceStat.isDirectory() && (resolvedDest === resolvedSource || isChildPath(resolvedSource, resolvedDest))) {
       throw new Error('Cannot move a folder into itself or its own children')
     }
 

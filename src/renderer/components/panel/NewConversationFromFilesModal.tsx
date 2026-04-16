@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { pathBasename } from '../../../shared/pathUtils'
 
 interface Props {
   paths: string[]
@@ -6,10 +7,7 @@ interface Props {
   onClose: () => void
 }
 
-function getBasename(p: string): string {
-  const idx = p.lastIndexOf('/')
-  return idx === -1 ? p : p.slice(idx + 1)
-}
+const getBasename = pathBasename
 
 export function NewConversationFromFilesModal({ paths, onConfirm, onClose }: Props) {
   const [method, setMethod] = useState<'copy' | 'symlink'>('copy')

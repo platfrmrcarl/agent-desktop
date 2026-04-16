@@ -3,6 +3,7 @@ import Editor from '@monaco-editor/react'
 import { useFileExplorerStore } from '../../stores/fileExplorerStore'
 import { useMobileMode } from '../../hooks/useMobileMode'
 import { HtmlPreview } from '../artifacts/HtmlPreview'
+import { pathBasename } from '../../../shared/pathUtils'
 import { MarkdownArtifact } from '../artifacts/MarkdownArtifact'
 import { MermaidBlock } from '../artifacts/MermaidBlock'
 import { ModelPreview } from '../artifacts/ModelPreview'
@@ -33,10 +34,7 @@ function getFileExtension(filePath: string): string {
   return filePath.slice(dot + 1).toLowerCase()
 }
 
-function getBasename(filePath: string): string {
-  const idx = filePath.lastIndexOf('/')
-  return idx === -1 ? filePath : filePath.slice(idx + 1)
-}
+const getBasename = pathBasename
 
 const MODEL_EXTENSIONS = new Set(['stl', 'obj', '3mf', 'ply'])
 

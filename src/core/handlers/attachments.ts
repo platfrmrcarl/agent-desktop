@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type { HandleRegistrar } from '../dispatch'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
+import { validatePathSafe } from '../utils/validate'
 
 const MAX_IMAGE_FILE_SIZE = 100_000_000 // 100MB
 const MAX_TEXT_FILE_SIZE = 10 * 1024 * 1024 // 10MB
@@ -13,18 +14,6 @@ const IMAGE_EXTENSIONS_DOTTED = new Set([
 const TEXT_EXTENSIONS = new Set([
   '.txt', '.md', '.js', '.ts', '.py', '.json', '.csv', '.yaml', '.yml',
 ])
-
-const BLOCKED_PREFIXES = ['/proc', '/sys', '/dev', '/boot', '/sbin', '/etc']
-
-function validatePathSafe(filePath: string): string {
-  const resolved = path.resolve(filePath)
-  for (const prefix of BLOCKED_PREFIXES) {
-    if (resolved.startsWith(prefix + '/') || resolved === prefix) {
-      throw new Error(`Access denied: ${prefix} is a protected directory`)
-    }
-  }
-  return resolved
-}
 
 function getMimeType(ext: string): string {
   const mimeMap: Record<string, string> = {

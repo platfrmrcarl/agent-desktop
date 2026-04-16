@@ -6,7 +6,7 @@ import type { AISettings } from '../services/streaming'
 import type { Message, Attachment, ToolCall, ToolApprovalResponse, AskUserResponse, KnowledgeSelection, CwdWhitelistEntry } from '../types/types'
 import { streamMessage, abortStream, respondToApproval, sendChunk, notifyConversationUpdated, injectApiKeyEnv } from '../services/streaming'
 import { loadAgentSDK } from '../services/anthropic'
-import { validateString, validatePositiveInt } from '../utils/validate'
+import { validateString, validatePositiveInt, validatePathSafe } from '../utils/validate'
 import { safeJsonParse } from '../utils/json'
 import { HAIKU_MODEL } from '../types/constants'
 import { mkdirSync } from 'fs'
@@ -39,25 +39,7 @@ export function invalidateCwdCache(conversationId: number): void {
   cwdCache.delete(conversationId)
 }
 
-// ─── Path Validation ──────────────────────────────────────────
-
-const BLOCKED_PREFIXES = ['/proc', '/sys', '/dev', '/boot', '/sbin', '/etc']
-
-function validatePathSafe(filePath: string, allowedBase?: string): string {
-  const resolved = resolve(filePath)
-  for (const prefix of BLOCKED_PREFIXES) {
-    if (resolved.startsWith(prefix + '/') || resolved === prefix) {
-      throw new Error(`Access denied: ${prefix} is a protected directory`)
-    }
-  }
-  if (allowedBase) {
-    const resolvedBase = resolve(allowedBase)
-    if (!resolved.startsWith(resolvedBase + '/') && resolved !== resolvedBase) {
-      throw new Error(`Path traversal detected: ${resolved} is outside ${resolvedBase}`)
-    }
-  }
-  return resolved
-}
+// validatePathSafe imported from ../utils/validate
 
 // ─── Retry Settings ───────────────────────────────────────────
 
