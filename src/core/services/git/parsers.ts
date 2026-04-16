@@ -1,6 +1,6 @@
 import type { GitStatus, GitFileStatus, GitCommit, GitBranch, GitStashEntry } from '@shared/git-types'
 
-export const LOG_FORMAT = '%H%x00%P%x00%s%x00%b%x00%an%x00%ae%x00%aI%x00%D%x1e'
+export const LOG_FORMAT = '%H%x00%P%x00%s%x00%an%x00%ae%x00%aI%x00%D%x1e'
 export const BRANCH_FORMAT = '%(refname:short)%00%(upstream:short)%00%(upstream:track)%00%(objectname)%00%(contents:subject)%00%(committerdate:iso-strict)%00%(HEAD)'
 export const STASH_FORMAT = '%gd%x00%gs%x00%cI'
 
@@ -52,15 +52,15 @@ export function parseLogFormat(raw: string): GitCommit[] {
   if (!raw) return []
   const entries = raw.split(RS).filter(Boolean)
   return entries.map((entry) => {
-    const [sha, parentsStr, subject, body, authorName, authorEmail, authorDate, refsStr] = entry.split(NUL)
+    const [sha, parentsStr, subject, authorName, authorEmail, authorDate, refsStr] = entry.trim().split(NUL)
     const parents = parentsStr ? parentsStr.split(' ').filter(Boolean) : []
     const refs = refsStr ? refsStr.split(',').map(s => s.trim()).filter(Boolean) : []
     return {
       sha,
       shortSha: sha.slice(0, 7),
       parents,
-      subject: subject ?? '',
-      body: body ?? '',
+      subject: (subject ?? '').trim(),
+      body: '',
       authorName: authorName ?? '',
       authorEmail: authorEmail ?? '',
       authorDate: authorDate ?? '',

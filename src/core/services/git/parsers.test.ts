@@ -57,14 +57,14 @@ describe('parseLogFormat', () => {
   const NUL = '\x00'
   const RS = '\x1e'
 
-  const build = (rows: Array<[sha: string, parents: string, subject: string, body: string, an: string, ae: string, date: string, refs: string]>) =>
+  const build = (rows: Array<[sha: string, parents: string, subject: string, an: string, ae: string, date: string, refs: string]>) =>
     rows.map(r => r.join(NUL)).join(RS) + RS
 
   it('parses linear log', () => {
     const raw = build([
-      ['ccc', 'bbb', 'third', 'body3', 'Alice', 'a@x', '2026-04-10T12:00:00+00:00', 'HEAD -> master'],
-      ['bbb', 'aaa', 'second', '', 'Alice', 'a@x', '2026-04-09T12:00:00+00:00', ''],
-      ['aaa', '', 'first', '', 'Alice', 'a@x', '2026-04-08T12:00:00+00:00', 'tag: v0'],
+      ['ccc', 'bbb', 'third', 'Alice', 'a@x', '2026-04-10T12:00:00+00:00', 'HEAD -> master'],
+      ['bbb', 'aaa', 'second', 'Alice', 'a@x', '2026-04-09T12:00:00+00:00', ''],
+      ['aaa', '', 'first', 'Alice', 'a@x', '2026-04-08T12:00:00+00:00', 'tag: v0'],
     ])
     const commits = parseLogFormat(raw)
     expect(commits).toHaveLength(3)
@@ -77,7 +77,7 @@ describe('parseLogFormat', () => {
 
   it('parses merge commit with two parents', () => {
     const raw = build([
-      ['ddd', 'ccc aaa', 'merge', '', 'Alice', 'a@x', '2026-04-11T12:00:00+00:00', 'HEAD -> master'],
+      ['ddd', 'ccc aaa', 'merge', 'Alice', 'a@x', '2026-04-11T12:00:00+00:00', 'HEAD -> master'],
     ])
     const commits = parseLogFormat(raw)
     expect(commits[0].parents).toEqual(['ccc', 'aaa'])
@@ -85,7 +85,7 @@ describe('parseLogFormat', () => {
 
   it('splits multiple refs separated by comma', () => {
     const raw = build([
-      ['ccc', '', 'x', '', 'A', 'a@x', '2026-04-10T12:00:00+00:00', 'HEAD -> master, origin/master, tag: v1'],
+      ['ccc', '', 'x', 'A', 'a@x', '2026-04-10T12:00:00+00:00', 'HEAD -> master, origin/master, tag: v1'],
     ])
     const commits = parseLogFormat(raw)
     expect(commits[0].refs).toEqual(['HEAD -> master', 'origin/master', 'tag: v1'])
@@ -93,7 +93,7 @@ describe('parseLogFormat', () => {
 
   it('derives shortSha as 7 chars', () => {
     const raw = build([
-      ['abcdef1234567890abcdef1234567890abcdef12', '', 'x', '', 'A', 'a@x', '2026-04-10T12:00:00+00:00', ''],
+      ['abcdef1234567890abcdef1234567890abcdef12', '', 'x', 'A', 'a@x', '2026-04-10T12:00:00+00:00', ''],
     ])
     expect(parseLogFormat(raw)[0].shortSha).toBe('abcdef1')
   })
