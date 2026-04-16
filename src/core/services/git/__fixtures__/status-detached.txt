@@ -1,0 +1,2 @@
+# branch.oid abc123def456abc123def456abc123def456abc1
+# branch.head (detached)

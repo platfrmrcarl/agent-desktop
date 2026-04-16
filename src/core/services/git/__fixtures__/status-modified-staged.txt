@@ -1,0 +1,7 @@
+# branch.oid abc123def456abc123def456abc123def456abc1
+# branch.head master
+# branch.upstream origin/master
+# branch.ab +2 -1
+1 M. N... 100644 100644 100644 aaa bbb src/index.ts
+1 .M N... 100644 100644 100644 ccc ddd src/app.ts
+? README.md
