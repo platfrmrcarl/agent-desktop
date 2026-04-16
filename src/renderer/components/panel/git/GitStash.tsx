@@ -10,29 +10,29 @@ export function GitStash({ cwd }: { cwd: string }) {
 
   return (
     <div className="text-xs flex flex-col h-full">
-      <div className="p-2 border-b border-[color:var(--contrast-12)] flex gap-1">
+      <div className="p-2 border-b border-[color:color-mix(in_srgb,var(--color-text)_12%,transparent)] flex gap-1">
         <input
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
           placeholder="Message (optionnel)"
-          className="flex-1 px-2 py-1 bg-[color:var(--base)] border border-[color:var(--contrast-12)] rounded"
+          className="flex-1 px-2 py-1 bg-[color:var(--color-bg)] border border-[color:color-mix(in_srgb,var(--color-text)_12%,transparent)] rounded"
         />
         <button
           onClick={() => { stashSave(cwd, msg || undefined); setMsg('') }}
-          className="px-2 py-1 bg-[color:var(--accent)] text-[color:var(--contrast)] rounded"
+          className="px-2 py-1 bg-[color:var(--color-accent)] text-[color:var(--color-text-contrast)] rounded"
         >
           Stash
         </button>
       </div>
-      {error && <div className="p-2 text-[color:var(--danger)]">Erreur: {error.kind}</div>}
+      {error && <div className="p-2 text-[color:var(--color-error)]">Erreur: {error.kind}</div>}
       <ul className="flex-1 overflow-auto">
         {(stashes ?? []).map((s) => (
-          <li key={s.index} className="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--contrast-12)]">
+          <li key={s.index} className="flex items-center gap-2 px-3 py-1.5 border-b border-[color:color-mix(in_srgb,var(--color-text)_12%,transparent)]">
             <span className="font-mono opacity-60">#{s.index}</span>
             <span className="truncate flex-1">{s.message}</span>
             <button
               onClick={() => stashPop(cwd, s.index)}
-              className="px-2 py-0.5 rounded hover:bg-[color:color-mix(in_srgb,var(--contrast)_10%,transparent)]"
+              className="px-2 py-0.5 rounded hover:bg-[color:color-mix(in_srgb,var(--color-text)_10%,transparent)]"
             >
               Pop
             </button>

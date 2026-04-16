@@ -14,13 +14,13 @@ export function RightSidebarPanel() {
     <div className="flex flex-col h-full w-full overflow-hidden">
       <div
         role="tablist"
-        className="flex border-b border-[color:var(--contrast-12)] shrink-0"
+        className="flex border-b border-[color:color-mix(in_srgb,var(--color-text)_12%,transparent)] shrink-0"
       >
         <button
           role="tab"
           aria-selected={activeTab === 'preview'}
           onClick={() => setActiveTab('preview')}
-          className={`px-3 py-1.5 text-sm ${activeTab === 'preview' ? 'bg-[color:var(--base)]' : 'opacity-70 hover:opacity-100'}`}
+          className={`px-3 py-1.5 text-sm ${activeTab === 'preview' ? 'bg-[color:var(--color-bg)]' : 'opacity-70 hover:opacity-100'}`}
         >
           Preview
         </button>
@@ -32,11 +32,11 @@ export function RightSidebarPanel() {
           title={!isRepo ? "Ce dossier n'est pas un repo git" : undefined}
           onClick={() => isRepo && setActiveTab('git')}
           className={`px-3 py-1.5 text-sm flex items-center gap-1.5 ${
-            activeTab === 'git' && isRepo ? 'bg-[color:var(--base)]' : 'opacity-70 hover:opacity-100'
+            activeTab === 'git' && isRepo ? 'bg-[color:var(--color-bg)]' : 'opacity-70 hover:opacity-100'
           } ${!isRepo ? 'opacity-40 cursor-not-allowed' : ''}`}
         >
           Git
-          {loading && <span className="w-2 h-2 rounded-full bg-[color:var(--accent)] animate-pulse" />}
+          {loading && <span className="w-2 h-2 rounded-full bg-[color:var(--color-accent)] animate-pulse" />}
         </button>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">

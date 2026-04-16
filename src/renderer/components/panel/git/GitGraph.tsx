@@ -25,13 +25,13 @@ function classifyRef(raw: string, remoteNames: Set<string>): RefBadge {
 function refClasses(kind: RefBadge['kind']): string {
   switch (kind) {
     case 'head':
-      return 'bg-[color:color-mix(in_srgb,var(--accent)_35%,transparent)] border-[color:var(--accent)]'
+      return 'bg-[color:color-mix(in_srgb,var(--color-accent)_35%,transparent)] border-[color:var(--color-accent)]'
     case 'branch':
-      return 'bg-[color:color-mix(in_srgb,var(--accent)_20%,transparent)] border-[color:color-mix(in_srgb,var(--accent)_40%,transparent)]'
+      return 'bg-[color:color-mix(in_srgb,var(--color-accent)_20%,transparent)] border-[color:color-mix(in_srgb,var(--color-accent)_40%,transparent)]'
     case 'remote':
-      return 'bg-[color:color-mix(in_srgb,var(--info,var(--accent))_20%,transparent)] border-[color:color-mix(in_srgb,var(--info,var(--accent))_40%,transparent)]'
+      return 'bg-[color:color-mix(in_srgb,var(--color-tool)_20%,transparent)] border-[color:color-mix(in_srgb,var(--color-tool)_40%,transparent)]'
     case 'tag':
-      return 'bg-[color:color-mix(in_srgb,var(--warning)_25%,transparent)] border-[color:color-mix(in_srgb,var(--warning)_45%,transparent)]'
+      return 'bg-[color:color-mix(in_srgb,var(--color-warning)_25%,transparent)] border-[color:color-mix(in_srgb,var(--color-warning)_45%,transparent)]'
   }
 }
 
@@ -114,14 +114,14 @@ export function GitGraph({ cwd }: { cwd: string }) {
                   cy={cy}
                   r={NODE_RADIUS}
                   fill={n.color}
-                  stroke={isSelected ? 'var(--contrast)' : 'none'}
+                  stroke={isSelected ? 'var(--color-text)' : 'none'}
                   strokeWidth={isSelected ? 2 : 0}
                 />
                 <circle
                   cx={cx}
                   cy={cy}
                   r={INNER_RADIUS}
-                  fill="var(--base)"
+                  fill="var(--color-bg)"
                 />
               </g>
             )
@@ -138,8 +138,8 @@ export function GitGraph({ cwd }: { cwd: string }) {
                   aria-label={n.commit.shortSha}
                   onClick={() => select(cwd, n.commit.sha)}
                   style={{ height: ROW_HEIGHT }}
-                  className={`flex items-center gap-2 w-full pr-3 pl-1 text-left hover:bg-[color:color-mix(in_srgb,var(--contrast)_10%,transparent)] ${
-                    isSelected ? 'bg-[color:color-mix(in_srgb,var(--accent)_15%,transparent)]' : ''
+                  className={`flex items-center gap-2 w-full pr-3 pl-1 text-left hover:bg-[color:color-mix(in_srgb,var(--color-text)_10%,transparent)] ${
+                    isSelected ? 'bg-[color:color-mix(in_srgb,var(--color-accent)_15%,transparent)]' : ''
                   }`}
                 >
                   {badges.map((b, i) => (

@@ -1,10 +1,10 @@
 const PALETTE = [
-  'var(--accent)',
-  'var(--accent-2, var(--accent))',
-  'var(--success)',
-  'var(--warning)',
-  'var(--danger)',
-  'var(--info, var(--accent))',
+  'var(--color-accent)',
+  'var(--color-primary)',
+  'var(--color-success)',
+  'var(--color-warning)',
+  'var(--color-error)',
+  'var(--color-tool)',
 ]
 
 export function pickTrackColor(trackIndex: number): string {

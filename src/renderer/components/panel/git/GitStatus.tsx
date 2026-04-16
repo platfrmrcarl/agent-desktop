@@ -3,12 +3,12 @@ import type { GitFileStatus } from '@shared/git-types'
 
 function colorFor(char: GitFileStatus['index'] | GitFileStatus['worktree']): string {
   switch (char) {
-    case 'M': return 'var(--warning)'
-    case 'A': return 'var(--success)'
-    case 'D': return 'var(--danger)'
-    case 'R': return 'var(--info, var(--accent))'
-    case 'C': return 'var(--info, var(--accent))'
-    case '?': return 'var(--contrast-60, var(--contrast))'
+    case 'M': return 'var(--color-warning)'
+    case 'A': return 'var(--color-success)'
+    case 'D': return 'var(--color-error)'
+    case 'R': return 'var(--color-tool)'
+    case 'C': return 'var(--color-tool)'
+    case '?': return 'color-mix(in srgb, var(--color-text) 60%, transparent)'
     default: return 'transparent'
   }
 }
@@ -19,7 +19,7 @@ export function GitStatus() {
   const loading = useGitPanelStore((s) => s.loading.status)
 
   if (loading && !status) return <div className="p-3 text-xs opacity-70">Chargement…</div>
-  if (error) return <div className="p-3 text-xs text-[color:var(--danger)]">Erreur: {error.kind}</div>
+  if (error) return <div className="p-3 text-xs text-[color:var(--color-error)]">Erreur: {error.kind}</div>
   if (!status) return null
   if (status.clean) return <div className="p-3 text-xs opacity-70">Working tree propre.</div>
 

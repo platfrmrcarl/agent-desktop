@@ -5,7 +5,7 @@ export function GitBranches({ cwd }: { cwd: string }) {
   const checkout = useGitPanelStore((s) => s.checkout)
   const error = useGitPanelStore((s) => s.errors.branches)
 
-  if (error) return <div className="p-3 text-xs text-[color:var(--danger)]">Erreur: {error.kind}</div>
+  if (error) return <div className="p-3 text-xs text-[color:var(--color-error)]">Erreur: {error.kind}</div>
   if (!branches) return <div className="p-3 text-xs opacity-70">Chargement…</div>
 
   const local = branches.filter((b) => !b.isRemote)
@@ -20,7 +20,7 @@ export function GitBranches({ cwd }: { cwd: string }) {
             <button
               disabled={b.isCurrent}
               onClick={() => checkout(cwd, b.name)}
-              className={`w-full text-left px-3 py-1 hover:bg-[color:color-mix(in_srgb,var(--contrast)_10%,transparent)] flex items-center gap-2 ${
+              className={`w-full text-left px-3 py-1 hover:bg-[color:color-mix(in_srgb,var(--color-text)_10%,transparent)] flex items-center gap-2 ${
                 b.isCurrent ? 'opacity-100 font-semibold' : ''
               } disabled:cursor-default`}
               aria-label={b.name}

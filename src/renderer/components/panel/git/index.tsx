@@ -29,14 +29,14 @@ export function GitTab() {
   return (
     <div className="flex flex-col h-full">
       <GitHeader cwd={cwd} />
-      <div role="tablist" className="flex border-b border-[color:var(--contrast-12)] text-xs shrink-0">
+      <div role="tablist" className="flex border-b border-[color:color-mix(in_srgb,var(--color-text)_12%,transparent)] text-xs shrink-0">
         {SUBTABS.map((t) => (
           <button
             key={t.id}
             role="tab"
             aria-selected={activeSubTab === t.id}
             onClick={() => setActiveSubTab(t.id)}
-            className={`px-3 py-1 ${activeSubTab === t.id ? 'bg-[color:var(--base)] font-semibold' : 'opacity-70 hover:opacity-100'}`}
+            className={`px-3 py-1 ${activeSubTab === t.id ? 'bg-[color:var(--color-bg)] font-semibold' : 'opacity-70 hover:opacity-100'}`}
           >
             {t.label}
           </button>
