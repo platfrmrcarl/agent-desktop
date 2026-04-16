@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { isGitRepo } from './repo'
 import { getStatus } from './status'
 import { getLogGraph, getCommitDetail } from './log'
+import { listBranches } from './branches'
 import { runGit } from './spawn'
 
 async function mkRepo(): Promise<string> {
@@ -86,5 +87,28 @@ describe('getCommitDetail', () => {
     const detail = await getCommitDetail(tmpDir, sha)
     expect(detail.body).toContain('Body line 1')
     expect(detail.files).toEqual([{ path: 'a.txt', status: 'A' }])
+  })
+})
+
+describe('listBranches', () => {
+  it('lists local branches with current marker', async () => {
+    await runGit(tmpDir, ['checkout', '-b', 'feature'])
+    const branches = await listBranches(tmpDir)
+    const current = branches.find(b => b.isCurrent)!
+    expect(current.name).toBe('feature')
+    expect(branches.find(b => b.name === 'main')?.isCurrent).toBe(false)
+  })
+
+  it('lists remote branches when a remote exists', async () => {
+    const remote = await fs.mkdtemp(join(os.tmpdir(), 'agent-git-remote-'))
+    try {
+      await runGit(remote, ['init', '--bare', '-b', 'main'])
+      await runGit(tmpDir, ['remote', 'add', 'origin', remote])
+      await runGit(tmpDir, ['push', '-u', 'origin', 'main'])
+      const branches = await listBranches(tmpDir)
+      expect(branches.some(b => b.isRemote && b.name === 'origin/main')).toBe(true)
+    } finally {
+      await fs.rm(remote, { recursive: true, force: true })
+    }
   })
 })
