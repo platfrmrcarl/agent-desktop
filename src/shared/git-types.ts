@@ -1,7 +1,7 @@
 export interface GitFileStatus {
   path: string
-  index: 'M' | 'A' | 'D' | 'R' | 'C' | '?' | ' '
-  worktree: 'M' | 'A' | 'D' | 'R' | 'C' | '?' | ' '
+  index: 'M' | 'A' | 'D' | 'R' | 'C' | '?' | '.'
+  worktree: 'M' | 'A' | 'D' | 'R' | 'C' | '?' | '.'
   renamedFrom?: string
 }
 

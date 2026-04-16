@@ -2,7 +2,7 @@ import type { GitStatus, GitFileStatus, GitCommit, GitBranch, GitStashEntry } fr
 
 export const LOG_FORMAT = '%H%x00%P%x00%s%x00%b%x00%an%x00%ae%x00%aI%x00%D%x1e'
 export const BRANCH_FORMAT = '%(refname:short)%00%(upstream:short)%00%(upstream:track)%00%(objectname)%00%(contents:subject)%00%(committerdate:iso-strict)%00%(HEAD)'
-export const STASH_FORMAT = '%gd%x00%gs%x00%gD%x00%cI'
+export const STASH_FORMAT = '%gd%x00%gs%x00%cI'
 
 const NUL = '\x00'
 const RS = '\x1e'
@@ -30,8 +30,8 @@ export function parseStatusPorcelainV2(raw: string): GitStatus {
       const isRename = line.startsWith('2 ')
       const parts = line.split(' ')
       const xy = parts[1]
-      const index = (xy[0] === '.' ? '.' : xy[0]) as GitFileStatus['index']
-      const worktree = (xy[1] === '.' ? '.' : xy[1]) as GitFileStatus['worktree']
+      const index = xy[0] as GitFileStatus['index']
+      const worktree = xy[1] as GitFileStatus['worktree']
       if (isRename) {
         const tail = parts.slice(9).join(' ')
         const [newPath, oldPath] = tail.split('\t')
@@ -101,12 +101,13 @@ export function parseBranchList(raw: string): GitBranch[] {
 export function parseStashList(raw: string): GitStashEntry[] {
   if (!raw.trim()) return []
   return raw.split('\n').filter(Boolean).map((line) => {
-    const [gd, message, branch, date] = line.split(NUL)
+    const [gd, message, date] = line.split(NUL)
     const m = gd.match(/stash@\{(\d+)\}/)
+    const branchMatch = message.match(/^(?:WIP on|On) ([^:]+):/)
     return {
-      index: m ? Number(m[1]) : 0,
+      index: m ? Number(m[1]) : 0, // fallback: reflog format unexpected; callers should treat 0 as possibly-corrupted
       message,
-      branch,
+      branch: branchMatch ? branchMatch[1] : '',
       date,
     }
   })

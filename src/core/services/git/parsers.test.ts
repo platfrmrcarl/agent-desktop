@@ -104,6 +104,10 @@ describe('parseBranchList', () => {
   const row = (name: string, upstream: string, track: string, sha: string, subj: string, date: string, head: '*' | ' ') =>
     [name, upstream, track, sha, subj, date, head].join(NUL)
 
+  it('returns empty array for empty input', () => {
+    expect(parseBranchList('')).toEqual([])
+  })
+
   it('parses local and remote branches with tracking', () => {
     const raw = [
       row('master', 'origin/master', '[ahead 1, behind 2]', 'abc', 'Master tip', '2026-04-10T12:00:00+00:00', '*'),
@@ -122,8 +126,8 @@ describe('parseStashList', () => {
   const NUL = '\x00'
   it('parses multiple stash entries', () => {
     const raw = [
-      ['stash@{0}', 'On master: WIP commit', 'master', '2026-04-10T12:00:00+00:00'].join(NUL),
-      ['stash@{1}', 'On feature: WIP', 'feature', '2026-04-09T12:00:00+00:00'].join(NUL),
+      ['stash@{0}', 'On master: WIP commit', '2026-04-10T12:00:00+00:00'].join(NUL),
+      ['stash@{1}', 'On feature: WIP', '2026-04-09T12:00:00+00:00'].join(NUL),
     ].join('\n')
     const stashes = parseStashList(raw)
     expect(stashes).toHaveLength(2)
@@ -134,6 +138,7 @@ describe('parseStashList', () => {
       date: '2026-04-10T12:00:00+00:00',
     })
     expect(stashes[1].index).toBe(1)
+    expect(stashes[1].branch).toBe('feature')
   })
 
   it('returns empty array for empty input', () => {
