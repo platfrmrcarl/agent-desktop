@@ -68,6 +68,27 @@ Every theme must define these variables inside \`:root { }\`:
 2. Define all \`--color-*\` variables inside \`:root { }\`
 3. Reload themes in Settings > Appearance
 4. Click your theme to activate it
+
+## Variables used by the Git Panel
+
+The Git tab in the right sidebar uses these CSS custom properties to render
+its graph (commit nodes, edges, ref pills) and sub-tabs (Status, Branches, Stash):
+
+| Variable                | Used for                                          |
+|-------------------------|----------------------------------------------------|
+| \`--color-accent\`        | Track 1 (default branch), HEAD pill background, branch pill, hover/select highlights |
+| \`--color-primary\`       | Track 2 in graph palette                          |
+| \`--color-success\`       | Track 3 in graph palette, status \`A\` (added) icon |
+| \`--color-warning\`       | Track 4 in graph palette, status \`M\` (modified), tag pills |
+| \`--color-error\`         | Track 5 in graph palette, status \`D\` (deleted), error banners |
+| \`--color-tool\`          | Track 6 in graph palette, status \`R\`/\`C\` (renamed/copied), remote pills |
+| \`--color-bg\`            | Inner hollow of donut nodes, sub-tab active background |
+| \`--color-text\`          | Selected node outline, untracked file icon (with 60% mix), borders (with 12% mix), hover overlays (with 10% mix) |
+| \`--color-text-contrast\` | Text on accent-filled buttons (e.g. "Stash" button) |
+
+The graph cycles through 6 colors per branch track in this order:
+\`accent → primary → success → warning → error → tool\` (then repeats).
+For repos with a single linear branch, all commits use \`--color-accent\`.
 `
 
 function filenameToName(filename: string): string {
