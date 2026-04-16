@@ -92,15 +92,16 @@ export function GitGraph({ cwd }: { cwd: string }) {
             </marker>
           </defs>
           {graph.edges.map((e, i) => (
-            <path
-              key={i}
-              d={pathFor(e)}
-              style={{ stroke: e.color }}
-              strokeWidth={3}
-              fill="none"
-              strokeLinecap="round"
-              markerEnd={e.kind === 'merge' ? 'url(#arrow-merge)' : undefined}
-            />
+            <g key={i} style={{ color: e.color }}>
+              <path
+                d={pathFor(e)}
+                stroke="currentColor"
+                strokeWidth={3}
+                fill="none"
+                strokeLinecap="round"
+                markerEnd={e.kind === 'merge' ? 'url(#arrow-merge)' : undefined}
+              />
+            </g>
           ))}
           {graph.nodes.map((n) => {
             const cx = LEFT_PAD + n.x * TRACK_WIDTH
