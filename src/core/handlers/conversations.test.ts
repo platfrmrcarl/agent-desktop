@@ -20,6 +20,10 @@ describe('conversations handlers', () => {
     expect(dispatch.has('conversations:get')).toBe(true)
   })
 
+  it('registers conversations:markOpened handler', () => {
+    expect(dispatch.has('conversations:markOpened')).toBe(true)
+  })
+
   it('registers conversations:create handler', () => {
     expect(dispatch.has('conversations:create')).toBe(true)
   })

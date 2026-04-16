@@ -41,6 +41,7 @@ export interface AgentAPI {
   conversations: {
     list(): Promise<Conversation[]>
     get(id: number): Promise<ConversationWithMessages>
+    markOpened(id: number): Promise<void>
     create(title?: string, folderId?: number): Promise<Conversation>
     update(id: number, data: Partial<Conversation>): Promise<void>
     delete(id: number): Promise<void>

@@ -196,6 +196,9 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
       if (id !== null) sessionStorage.setItem(SESSION_KEY, String(id))
       else sessionStorage.removeItem(SESSION_KEY)
     }
+    if (id !== null) {
+      void window.agent.conversations.markOpened(id).catch(() => {})
+    }
   },
 
   searchConversations: async (query) => {

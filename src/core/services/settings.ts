@@ -47,6 +47,9 @@ const ALLOWED_SETTING_KEYS = new Set<string>([
   'quickChat_responseNotification',
   'quickChat_responseBubble',
   'quickChat_voiceHeadless',
+  'quickChat_resumeLastConversationText',
+  'quickChat_resumeLastConversationVoice',
+  'quickChat_resumePreferLastOpened',
   // Global shortcuts
   'globalShortcut_quickChat',
   'globalShortcut_quickVoice',

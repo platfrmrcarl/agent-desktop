@@ -64,12 +64,19 @@ function makeMockDb(overrides: Record<string, any> = {}) {
     'quickChat_voiceConversationId': undefined,
     'quickChat_separateVoiceConversation': undefined,
     'quickChat_voiceHeadless': undefined,
+    'quickChat_resumeLastConversationText': undefined,
+    'quickChat_resumeLastConversationVoice': undefined,
     'ai_model': undefined,
     ...overrides,
   }
 
   const insertedConversations: number[] = []
   let nextId = 42
+  // Mock "last user conversation" — tests set this to simulate real DB state.
+  // When `null`, findLastUserConversationId returns null; when a number, returns it
+  // unless it's in the exclusion list.
+  const lastUserConvRef: { id: number | null } = { id: (overrides._lastUserConvId as number | null) ?? null }
+  const lastOpenedConvRef: { id: number | null } = { id: (overrides._lastOpenedConvId as number | null) ?? null }
 
   return {
     prepare: vi.fn((sql: string) => {
@@ -92,6 +99,26 @@ function makeMockDb(overrides: Record<string, any> = {}) {
             const voiceId = store['quickChat_voiceConversationId']
             if (id && (String(id) === textId || String(id) === voiceId)) return { 1: 1 }
             return undefined
+          }),
+        }
+      }
+      if (sql.includes('INNER JOIN messages m ON m.conversation_id = c.id')) {
+        // findLastUserConversationId query
+        return {
+          get: vi.fn((...excludeIds: number[]) => {
+            const id = lastUserConvRef.id
+            if (id === null || excludeIds.includes(id)) return undefined
+            return { id }
+          }),
+        }
+      }
+      if (sql.includes('c.last_opened_at IS NOT NULL')) {
+        // findLastOpenedConversationId query
+        return {
+          get: vi.fn((...excludeIds: number[]) => {
+            const id = lastOpenedConvRef.id
+            if (id === null || excludeIds.includes(id)) return undefined
+            return { id }
           }),
         }
       }
@@ -121,6 +148,7 @@ function makeMockDb(overrides: Record<string, any> = {}) {
     }),
     _store: store,
     _insertedConversations: insertedConversations,
+    _lastUserConvRef: lastUserConvRef,
   } as any
 }
 
@@ -226,6 +254,129 @@ describe('QuickChat Service', () => {
         (c: any[]) => c[0].includes('DELETE FROM messages')
       )
       expect(deleteCalls.length).toBe(2)
+    })
+
+    it('resumes last user conversation when quickChat_resumeLastConversationText=true', async () => {
+      const { registerHandlers } = await import('./quickChat')
+      const db = makeMockDb({
+        'quickChat_resumeLastConversationText': 'true',
+        _lastUserConvId: 99,
+      })
+      registerHandlers(mockIpcMain as unknown as IpcMain, db)
+
+      const handler = mockIpcMain.handle.mock.calls.find(
+        (c: any[]) => c[0] === 'quickChat:getConversationId'
+      )?.[1]
+
+      const id = await handler({}, 'text')
+      expect(id).toBe(99)
+    })
+
+    it('resumes independently for voice toggle', async () => {
+      const { registerHandlers } = await import('./quickChat')
+      const db = makeMockDb({
+        'quickChat_resumeLastConversationVoice': 'true',
+        _lastUserConvId: 77,
+      })
+      registerHandlers(mockIpcMain as unknown as IpcMain, db)
+
+      const handler = mockIpcMain.handle.mock.calls.find(
+        (c: any[]) => c[0] === 'quickChat:getConversationId'
+      )?.[1]
+
+      // Text uses normal path (creates new convo), voice resumes
+      const textId = await handler({}, 'text')
+      const voiceId = await handler({}, 'voice')
+
+      expect(voiceId).toBe(77)
+      expect(textId).not.toBe(77)
+    })
+
+    it('falls back to dedicated conversation when resume returns null', async () => {
+      const { registerHandlers } = await import('./quickChat')
+      const db = makeMockDb({
+        'quickChat_resumeLastConversationText': 'true',
+        _lastUserConvId: null,
+      })
+      registerHandlers(mockIpcMain as unknown as IpcMain, db)
+
+      const handler = mockIpcMain.handle.mock.calls.find(
+        (c: any[]) => c[0] === 'quickChat:getConversationId'
+      )?.[1]
+
+      const id = await handler({}, 'text')
+      // Falls back to dedicated → first INSERT yields id=42
+      expect(id).toBe(42)
+    })
+
+    it('uses findLastOpenedConversationId when preferLastOpened=true', async () => {
+      const { registerHandlers } = await import('./quickChat')
+      const db = makeMockDb({
+        'quickChat_resumeLastConversationText': 'true',
+        'quickChat_resumePreferLastOpened': 'true',
+        _lastUserConvId: 99,
+        _lastOpenedConvId: 55,
+      })
+      registerHandlers(mockIpcMain as unknown as IpcMain, db)
+
+      const handler = mockIpcMain.handle.mock.calls.find(
+        (c: any[]) => c[0] === 'quickChat:getConversationId'
+      )?.[1]
+
+      const id = await handler({}, 'text')
+      expect(id).toBe(55)
+    })
+
+    it('falls back to dedicated conv when preferLastOpened=true but no opened history', async () => {
+      const { registerHandlers } = await import('./quickChat')
+      const db = makeMockDb({
+        'quickChat_resumeLastConversationText': 'true',
+        'quickChat_resumePreferLastOpened': 'true',
+        _lastUserConvId: 99,
+        _lastOpenedConvId: null,
+      })
+      registerHandlers(mockIpcMain as unknown as IpcMain, db)
+
+      const handler = mockIpcMain.handle.mock.calls.find(
+        (c: any[]) => c[0] === 'quickChat:getConversationId'
+      )?.[1]
+
+      const id = await handler({}, 'text')
+      // No opened history → falls back to dedicated (not to last user message)
+      expect(id).toBe(42)
+    })
+
+    it('preferLastOpened is ignored when resume toggle is off', async () => {
+      const { registerHandlers } = await import('./quickChat')
+      const db = makeMockDb({
+        'quickChat_resumePreferLastOpened': 'true',
+        _lastOpenedConvId: 55,
+      })
+      registerHandlers(mockIpcMain as unknown as IpcMain, db)
+
+      const handler = mockIpcMain.handle.mock.calls.find(
+        (c: any[]) => c[0] === 'quickChat:getConversationId'
+      )?.[1]
+
+      const id = await handler({}, 'text')
+      // Resume off → dedicated convo created (id=42), preferLastOpened never consulted
+      expect(id).toBe(42)
+    })
+
+    it('resume toggle off preserves existing dedicated-conversation behavior', async () => {
+      const { registerHandlers } = await import('./quickChat')
+      const db = makeMockDb({
+        'quickChat_conversationId': '10',
+        _lastUserConvId: 99,
+      })
+      registerHandlers(mockIpcMain as unknown as IpcMain, db)
+
+      const handler = mockIpcMain.handle.mock.calls.find(
+        (c: any[]) => c[0] === 'quickChat:getConversationId'
+      )?.[1]
+
+      const id = await handler({}, 'text')
+      expect(id).toBe(10)
     })
 
     it('purge does not double-delete when text and voice share same conversation', async () => {

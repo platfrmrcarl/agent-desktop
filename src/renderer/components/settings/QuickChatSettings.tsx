@@ -90,6 +90,45 @@ export function QuickChatSettings() {
         <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--color-text)' }}>
           <input
             type="checkbox"
+            checked={settings.quickChat_resumeLastConversationText === 'true'}
+            onChange={(e) => setSetting('quickChat_resumeLastConversationText', e.target.checked ? 'true' : 'false')}
+            className="accent-[var(--color-primary)]"
+          />
+          Resume last user conversation (text)
+        </label>
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          Text Quick Chat continues the most recent conversation where you sent a message (excluding dedicated Quick Chat conversations). Falls back to the dedicated Quick Chat conversation if none exists.
+        </span>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--color-text)' }}>
+          <input
+            type="checkbox"
+            checked={settings.quickChat_resumeLastConversationVoice === 'true'}
+            onChange={(e) => setSetting('quickChat_resumeLastConversationVoice', e.target.checked ? 'true' : 'false')}
+            className="accent-[var(--color-primary)]"
+          />
+          Resume last user conversation (voice)
+        </label>
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          Voice Quick Chat continues the most recent conversation where you sent a message (excluding dedicated Quick Chat conversations). Falls back to the dedicated Quick Chat conversation if none exists.
+        </span>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--color-text)' }}>
+          <input
+            type="checkbox"
+            checked={settings.quickChat_resumePreferLastOpened === 'true'}
+            onChange={(e) => setSetting('quickChat_resumePreferLastOpened', e.target.checked ? 'true' : 'false')}
+            className="accent-[var(--color-primary)]"
+          />
+          Prefer last opened conversation
+        </label>
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          When a resume toggle above is active, use the most recently opened conversation (selected in the sidebar) instead of the one with the most recent user message. No effect if no resume toggle is enabled.
+        </span>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--color-text)' }}>
+          <input
+            type="checkbox"
             checked={settings.quickChat_separateVoiceConversation === 'true'}
             onChange={(e) => setSetting('quickChat_separateVoiceConversation', e.target.checked ? 'true' : 'false')}
             className="accent-[var(--color-primary)]"
@@ -97,7 +136,7 @@ export function QuickChatSettings() {
           Separate conversations for text and voice
         </label>
         <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          When enabled, voice Quick Chat uses a dedicated conversation instead of sharing with text mode.
+          When enabled, voice Quick Chat uses a dedicated conversation instead of sharing with text mode. Ignored if resume is active.
         </span>
       </div>
 

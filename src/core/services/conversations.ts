@@ -17,6 +17,52 @@ export class ConversationService {
       .all() as Conversation[]
   }
 
+  /** Returns the ID of the most recent conversation containing a user message, excluding given IDs. */
+  findLastUserConversationId(excludeIds: number[] = []): number | null {
+    const filtered = excludeIds.filter((n) => Number.isFinite(n) && n > 0)
+    const notInClause = filtered.length > 0
+      ? `AND c.id NOT IN (${filtered.map(() => '?').join(',')})`
+      : ''
+    const row = this.db
+      .prepare(
+        `SELECT c.id
+         FROM conversations c
+         INNER JOIN messages m ON m.conversation_id = c.id AND m.role = 'user'
+         WHERE 1=1 ${notInClause}
+         GROUP BY c.id
+         ORDER BY MAX(m.created_at) DESC
+         LIMIT 1`
+      )
+      .get(...filtered) as { id: number } | undefined
+    return row ? row.id : null
+  }
+
+  /** Returns the ID of the most recently opened conversation (last_opened_at), excluding given IDs. */
+  findLastOpenedConversationId(excludeIds: number[] = []): number | null {
+    const filtered = excludeIds.filter((n) => Number.isFinite(n) && n > 0)
+    const notInClause = filtered.length > 0
+      ? `AND c.id NOT IN (${filtered.map(() => '?').join(',')})`
+      : ''
+    const row = this.db
+      .prepare(
+        `SELECT c.id
+         FROM conversations c
+         WHERE c.last_opened_at IS NOT NULL ${notInClause}
+         ORDER BY c.last_opened_at DESC
+         LIMIT 1`
+      )
+      .get(...filtered) as { id: number } | undefined
+    return row ? row.id : null
+  }
+
+  /** Bumps last_opened_at to 'now' for the given conversation. Silently ignores non-existent ids. */
+  markOpened(id: number): void {
+    validatePositiveInt(id, 'conversationId')
+    this.db
+      .prepare("UPDATE conversations SET last_opened_at = datetime('now') WHERE id = ?")
+      .run(id)
+  }
+
   get(id: number): ConversationWithMessages | null {
     validatePositiveInt(id, 'conversationId')
     const conversation = this.db

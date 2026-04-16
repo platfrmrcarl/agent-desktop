@@ -8,6 +8,7 @@ import { getMainWindow } from '../index'
 import { broadcast } from '../utils/broadcast'
 import { DEFAULT_MODEL } from '../../shared/constants'
 import { duckVolume, restoreVolume } from '../utils/volume'
+import { ConversationService } from '../../core/services/conversations'
 
 let overlayWindow: BrowserWindow | null = null
 let headlessActive = false
@@ -20,7 +21,28 @@ function getSetting(key: string): string {
   return row?.value || ''
 }
 
+function resolveResumeTarget(mode: 'text' | 'voice'): number | null {
+  const resumeKey = mode === 'voice'
+    ? 'quickChat_resumeLastConversationVoice'
+    : 'quickChat_resumeLastConversationText'
+  if (getSetting(resumeKey) !== 'true') return null
+
+  const textId = Number(getSetting('quickChat_conversationId')) || 0
+  const voiceId = Number(getSetting('quickChat_voiceConversationId')) || 0
+  const excludeIds = [textId, voiceId].filter((n) => n > 0)
+
+  const preferLastOpened = getSetting('quickChat_resumePreferLastOpened') === 'true'
+  const service = new ConversationService(db)
+  return preferLastOpened
+    ? service.findLastOpenedConversationId(excludeIds)
+    : service.findLastUserConversationId(excludeIds)
+}
+
 function ensureConversation(mode?: 'text' | 'voice'): number {
+  const resolvedMode: 'text' | 'voice' = mode === 'voice' ? 'voice' : 'text'
+  const resumedId = resolveResumeTarget(resolvedMode)
+  if (resumedId !== null) return resumedId
+
   const separate = getSetting('quickChat_separateVoiceConversation') === 'true'
   const useVoiceKey = separate && mode === 'voice'
   const settingKey = useVoiceKey ? 'quickChat_voiceConversationId' : 'quickChat_conversationId'

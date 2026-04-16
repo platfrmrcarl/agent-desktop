@@ -21,6 +21,14 @@ export function registerConversationsHandlers(registrar: HandleRegistrar, db: Sq
     }
   })
 
+  registrar.handle('conversations:markOpened', async (_event, id: unknown) => {
+    try {
+      service.markOpened(id as number)
+    } catch (err) {
+      throw new Error(`Failed to mark conversation opened: ${(err as Error).message}`)
+    }
+  })
+
   registrar.handle('conversations:create', async (_event, title?: unknown, folderId?: unknown) => {
     try {
       return service.create(title as string | undefined, folderId as number | undefined)

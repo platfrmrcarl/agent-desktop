@@ -233,6 +233,12 @@ function runMigrations(db: Database.Database): void {
     try { db.exec('ALTER TABLE conversations ADD COLUMN color TEXT') } catch (e) { console.warn('[migration] conversations.color:', e) }
   }
 
+  // Add last_opened_at column to conversations (tracks user activation in sidebar for QuickChat resume)
+  const convCols6 = db.pragma('table_info(conversations)') as { name: string }[]
+  if (!convCols6.some((c) => c.name === 'last_opened_at')) {
+    try { db.exec('ALTER TABLE conversations ADD COLUMN last_opened_at TEXT') } catch (e) { console.warn('[migration] conversations.last_opened_at:', e) }
+  }
+
   // Ensure exactly one default folder exists
   const hasDefault = db.prepare('SELECT id FROM folders WHERE is_default = 1').get()
   if (!hasDefault) {
