@@ -174,3 +174,47 @@ describe('builtins — async git/fs', () => {
     await expect(fn([], makeCtx())).rejects.toThrow(/chemin requis/)
   })
 })
+
+describe('builtins — db', () => {
+  function makeFakeDb(rows: Array<{ content: string }>) {
+    return {
+      prepare: (_sql: string) => ({
+        get: (_convId: number) => rows[0],
+      }),
+    } as any
+  }
+
+  it('previous_output returns last assistant message content', () => {
+    const fn = builtinRegistry.get('previous_output')!.fn
+    const db = makeFakeDb([{ content: 'Previous assistant response' }])
+    const result = fn([], makeCtx({ db }))
+    expect(result).toBe('Previous assistant response')
+  })
+
+  it('previous_output returns empty string when no row exists', () => {
+    const fn = builtinRegistry.get('previous_output')!.fn
+    const db = { prepare: () => ({ get: () => undefined }) } as any
+    expect(fn([], makeCtx({ db }))).toBe('')
+  })
+
+  it('previous_output truncates to default 2000 chars', () => {
+    const fn = builtinRegistry.get('previous_output')!.fn
+    const long = 'x'.repeat(3000)
+    const db = makeFakeDb([{ content: long }])
+    const result = fn([], makeCtx({ db })) as string
+    expect(result.length).toBe(2001) // 2000 + '…'
+    expect(result.endsWith('…')).toBe(true)
+  })
+
+  it('previous_output accepts custom max chars', () => {
+    const fn = builtinRegistry.get('previous_output')!.fn
+    const db = makeFakeDb([{ content: 'abcdefghij' }])
+    expect(fn(['5'], makeCtx({ db }))).toBe('abcde…')
+  })
+
+  it('previous_output does not add ellipsis if content fits', () => {
+    const fn = builtinRegistry.get('previous_output')!.fn
+    const db = makeFakeDb([{ content: 'short' }])
+    expect(fn(['10'], makeCtx({ db }))).toBe('short')
+  })
+})

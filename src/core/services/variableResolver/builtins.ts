@@ -115,6 +115,24 @@ export const BUILTINS: BuiltinSpec[] = [
       return await readFile(abs, 'utf-8')
     },
   },
+  {
+    name: 'previous_output',
+    description: "Dernier message assistant de la conversation de la tâche. Arg: max chars (défaut 2000).",
+    argsHint: 'MAX_CHARS?',
+    fn: (args, ctx) => {
+      const maxChars = args[0] ? Number(args[0]) : 2000
+      if (Number.isNaN(maxChars) || maxChars <= 0) {
+        throw new Error(`previous_output: max_chars invalide "${args[0]}"`)
+      }
+      const row = ctx.db.prepare(
+        `SELECT content FROM messages
+         WHERE conversation_id = ? AND role = 'assistant'
+         ORDER BY id DESC LIMIT 1`
+      ).get(ctx.task.conversation_id) as { content?: string } | undefined
+      const content = row?.content ?? ''
+      return content.length > maxChars ? content.slice(0, maxChars) + '…' : content
+    },
+  },
 ]
 
 export const builtinRegistry = new Map<string, BuiltinSpec>(
