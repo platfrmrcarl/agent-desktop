@@ -16,6 +16,7 @@ import { resolve, join } from 'path'
 import { homedir } from 'os'
 import { AgentEngine, noopHookRunner, noopPlatformIO, noopSystemUI } from '../core'
 import type { Broadcaster } from '../core'
+import { addBroadcastHandler } from '../core/utils/broadcast'
 import { enrichHeadlessEnv } from './headlessEnv'
 
 // ─── CLI parsing ─────────────────────────────────────
@@ -81,6 +82,7 @@ async function runServices(): Promise<void> {
 
   // WS broadcaster — wired after server starts
   let wsBroadcast: ((channel: string, ...args: unknown[]) => void) | null = null
+  const cleanups: Array<() => void> = []
 
   const broadcaster: Broadcaster = {
     broadcast(channel: string, ...args: unknown[]): void {
@@ -122,6 +124,12 @@ async function runServices(): Promise<void> {
       accessMode: serverAccessMode,
     })
     wsBroadcast = getWsBroadcaster() ?? null
+
+    // Wire stream chunks (sendChunk → broadcast utility → WS clients)
+    cleanups.push(addBroadcastHandler((channel, ...args) => {
+      wsBroadcast?.(channel, ...args)
+    }))
+
     console.log(`[headless] Web server running at ${result.url}`)
     console.log(`[headless] Access token: ${result.token}`)
   }
@@ -135,6 +143,7 @@ async function runServices(): Promise<void> {
   // Graceful shutdown
   const shutdown = async () => {
     console.log(`[headless] Shutting down...`)
+    for (const cleanup of cleanups) cleanup()
     await engine.shutdown()
     process.exit(0)
   }

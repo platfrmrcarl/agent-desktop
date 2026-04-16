@@ -6,15 +6,36 @@ import {
   REST,
   Routes,
   Events,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  EmbedBuilder,
+  ComponentType,
 } from 'discord.js'
-import type { ChatInputCommandInteraction, AutocompleteInteraction, Message } from 'discord.js'
+import type {
+  ChatInputCommandInteraction,
+  AutocompleteInteraction,
+  Message,
+  TextChannel,
+  StringSelectMenuInteraction,
+  ButtonInteraction,
+  ModalSubmitInteraction,
+} from 'discord.js'
 import type { DispatchRegistry } from '../dispatch'
 import type { HandleRegistrar } from '../dispatch'
+import type { AskUserQuestion, AskUserResponse } from '../types'
+import { addBroadcastHandler } from '../utils/broadcast'
 
 // ─── State ───────────────────────────────────────────
 
 let client: Client | null = null
 let botDispatch: DispatchRegistry | null = null
+let unsubscribeBroadcast: (() => void) | null = null
 const channelConversations = new Map<string, number>() // channelId → conversationId
 
 // ─── Binding persistence ─────────────────────────────
@@ -356,6 +377,284 @@ async function handleCompact(interaction: ChatInputCommandInteraction): Promise<
   }
 }
 
+// ─── AskUserQuestion handler ────────────────────────
+
+const ASK_USER_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+
+function handleAskUserChunk(payload: Record<string, unknown>): void {
+  const conversationId = payload.conversationId as number | undefined
+  if (!conversationId) return
+
+  // Reverse lookup: find the Discord channel bound to this conversation
+  let targetChannelId: string | null = null
+  for (const [channelId, convId] of channelConversations) {
+    if (convId === conversationId) {
+      targetChannelId = channelId
+      break
+    }
+  }
+  if (!targetChannelId) return
+
+  const requestId = payload.requestId as string
+  let questions: AskUserQuestion[]
+  try {
+    questions = JSON.parse(payload.questions as string) as AskUserQuestion[]
+  } catch {
+    console.error('[discord] Failed to parse ask_user questions')
+    return
+  }
+
+  presentAskUser(targetChannelId, requestId, questions).catch((err) => {
+    console.error('[discord] Failed to present ask_user:', err)
+  })
+}
+
+async function presentAskUser(
+  channelId: string,
+  requestId: string,
+  questions: AskUserQuestion[],
+): Promise<void> {
+  if (!client || !botDispatch) return
+
+  const channel = await client.channels.fetch(channelId)
+  if (!channel || !('send' in channel)) return
+
+  const textChannel = channel as TextChannel
+
+  // Build embed with questions
+  const embed = new EmbedBuilder()
+    .setTitle('Question')
+    .setColor(0x5865F2) // Discord blurple
+    .setDescription(
+      questions
+        .map((q, i) => {
+          const header = q.header ? `**${q.header}**\n` : ''
+          const opts = q.options.length > 0
+            ? '\n' + q.options.map((o) => `  • **${o.label}** — ${o.description}`).join('\n')
+            : ''
+          return `${questions.length > 1 ? `**${i + 1}.** ` : ''}${header}${q.question}${opts}`
+        })
+        .join('\n\n'),
+    )
+
+  // Build action rows
+  const rows: ActionRowBuilder<any>[] = []
+
+  // Collect indices of questions without options (need dedicated buttons)
+  const textOnlyIndices: number[] = []
+
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i]
+    if (q.options.length === 0) {
+      textOnlyIndices.push(i)
+      continue
+    }
+
+    const select = new StringSelectMenuBuilder()
+      .setCustomId(`askuser_${requestId}_q${i}`)
+      .setPlaceholder(q.header || q.question.slice(0, 100))
+
+    for (const opt of q.options) {
+      select.addOptions(
+        new StringSelectMenuOptionBuilder()
+          .setLabel(opt.label.slice(0, 100))
+          .setDescription(opt.description.slice(0, 100))
+          .setValue(opt.label),
+      )
+    }
+
+    // "Autre..." option for per-question free text
+    select.addOptions(
+      new StringSelectMenuOptionBuilder()
+        .setLabel('Autre...')
+        .setDescription('Saisir une réponse libre')
+        .setValue('__other__'),
+    )
+
+    if (q.multiSelect) {
+      select.setMinValues(1)
+      select.setMaxValues(q.options.length + 1) // +1 for "Autre..."
+    }
+
+    rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select))
+  }
+
+  // Per-question buttons for text-only questions (no predefined options)
+  if (textOnlyIndices.length > 0) {
+    const buttons = textOnlyIndices.map((idx) =>
+      new ButtonBuilder()
+        .setCustomId(`askuser_text_${requestId}_q${idx}`)
+        .setLabel((questions[idx].header || `Q${idx + 1}`).slice(0, 80))
+        .setStyle(ButtonStyle.Secondary),
+    )
+    // Discord allows max 5 buttons per row
+    for (let b = 0; b < buttons.length; b += 5) {
+      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.slice(b, b + 5)))
+    }
+  }
+
+  const msg = await textChannel.send({ embeds: [embed], components: rows })
+
+  // Track answers — all questions must be answered (via select or button→modal)
+  const answers: Record<string, string> = {}
+  const totalRequired = questions.length
+  let submitted = false
+
+  function trySubmit(): void {
+    if (submitted) return
+    // Submit when all questions with options have been answered via select
+    const answeredCount = Object.keys(answers).length
+    if (answeredCount >= totalRequired) {
+      doSubmit()
+    }
+  }
+
+  async function doSubmit(): Promise<void> {
+    if (submitted) return
+    submitted = true
+
+    try {
+      await botDispatch!.get('messages:respondToApproval')!(requestId, { answers } as AskUserResponse)
+    } catch (err) {
+      console.error('[discord] Failed to submit ask_user response:', err)
+    }
+
+    // Edit message to show submitted answers and remove components
+    const answerSummary = Object.entries(answers)
+      .map(([idx, val]) => `**${questions[Number(idx)]?.header || `Q${Number(idx) + 1}`}:** ${val}`)
+      .join('\n')
+
+    const doneEmbed = EmbedBuilder.from(embed)
+      .setColor(0x57F287) // Green
+      .setFooter({ text: 'Répondu' })
+
+    await msg.edit({
+      embeds: [doneEmbed],
+      content: answerSummary || undefined,
+      components: [],
+    }).catch(() => {})
+  }
+
+  // Collector for select menus and buttons
+  const collector = msg.createMessageComponentCollector({
+    time: ASK_USER_TIMEOUT_MS,
+  })
+
+  collector.on('collect', async (interaction) => {
+    if (submitted) return
+
+    // Whitelist check
+    if (!(await isUserAllowed(interaction.user.id))) {
+      if (interaction.isRepliable()) {
+        await interaction.reply({ content: 'Not authorized.', flags: MessageFlags.Ephemeral })
+      }
+      return
+    }
+
+    if (interaction.isStringSelectMenu()) {
+      const selectInteraction = interaction as StringSelectMenuInteraction
+      const match = selectInteraction.customId.match(/^askuser_[^_]+_q(\d+)$/)
+      if (!match) return
+      const qIndex = parseInt(match[1], 10)
+      const selected = selectInteraction.values
+
+      if (selected.includes('__other__')) {
+        // Show modal for this specific question
+        const modal = buildModalForQuestions(requestId, [questions[qIndex]], [qIndex])
+        await selectInteraction.showModal(modal)
+      } else {
+        answers[String(qIndex)] = selected.join(', ')
+        await selectInteraction.deferUpdate()
+        trySubmit()
+      }
+    } else if (interaction.isButton()) {
+      const buttonInteraction = interaction as ButtonInteraction
+      // Per-question text button: askuser_text_{requestId}_q{index}
+      const btnMatch = buttonInteraction.customId.match(/^askuser_text_[^_]+_q(\d+)$/)
+      if (btnMatch) {
+        const qIndex = parseInt(btnMatch[1], 10)
+        const modal = buildModalForQuestions(requestId, [questions[qIndex]], [qIndex])
+        await buttonInteraction.showModal(modal)
+      }
+    }
+  })
+
+  // Handle modal submissions (must be on client, not collector)
+  const modalHandler = async (interaction: { isModalSubmit(): boolean; customId: string; fields: any; deferUpdate(): Promise<void>; user: { id: string } }) => {
+    if (!interaction.isModalSubmit()) return
+    const modalInteraction = interaction as unknown as ModalSubmitInteraction
+    if (modalInteraction.customId !== `askuser_submit_${requestId}`) return
+    if (submitted) return
+
+    if (!(await isUserAllowed(modalInteraction.user.id))) return
+
+    // Extract answers from modal fields
+    for (let i = 0; i < questions.length; i++) {
+      try {
+        const value = modalInteraction.fields.getTextInputValue(`q${i}`)
+        if (value) answers[String(i)] = value
+      } catch {
+        // Field not present in this modal
+      }
+    }
+
+    await modalInteraction.deferUpdate().catch(() => {})
+    doSubmit()
+
+    // Clean up this handler
+    client?.removeListener(Events.InteractionCreate, modalHandler as any)
+  }
+
+  client.on(Events.InteractionCreate, modalHandler as any)
+
+  collector.on('end', async (_collected, reason) => {
+    client?.removeListener(Events.InteractionCreate, modalHandler as any)
+
+    if (reason === 'time' && !submitted) {
+      // Timeout — unblock stream with empty answers
+      submitted = true
+      try {
+        await botDispatch!.get('messages:respondToApproval')!(requestId, { answers: {} } as AskUserResponse)
+      } catch {
+        // Stream may have been aborted
+      }
+      const timeoutEmbed = EmbedBuilder.from(embed)
+        .setColor(0xED4245) // Red
+        .setFooter({ text: 'Timeout — pas de réponse' })
+      await msg.edit({ embeds: [timeoutEmbed], components: [] }).catch(() => {})
+    }
+  })
+}
+
+function buildModalForQuestions(
+  requestId: string,
+  questions: AskUserQuestion[],
+  indices: number[],
+): ModalBuilder {
+  const modal = new ModalBuilder()
+    .setCustomId(`askuser_submit_${requestId}`)
+    .setTitle('Réponse')
+
+  // Discord modals support max 5 text inputs
+  for (const idx of indices.slice(0, 5)) {
+    const q = questions[indices.indexOf(idx)]
+    if (!q) continue
+    const input = new TextInputBuilder()
+      .setCustomId(`q${idx}`)
+      .setLabel((q.header || q.question || `Question ${idx + 1}`).slice(0, 45))
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+
+    if (q.options.length > 0) {
+      input.setPlaceholder(q.options.map((o) => o.label).join(', ').slice(0, 100))
+    }
+
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input))
+  }
+
+  return modal
+}
+
 // ─── Message handler ────────────────────────────────
 
 async function handleMessage(message: Message): Promise<void> {
@@ -518,11 +817,21 @@ export async function startBot(options: BotStartOptions): Promise<void> {
 
   client.on(Events.MessageCreate, handleMessage)
 
+  // Subscribe to broadcast events to intercept ask_user chunks
+  unsubscribeBroadcast = addBroadcastHandler((channel, ...args) => {
+    if (channel !== 'messages:stream') return
+    const payload = args[0] as Record<string, unknown> | undefined
+    if (payload?.type !== 'ask_user') return
+    handleAskUserChunk(payload)
+  })
+
   await client.login(token)
   await loadBindings()
 }
 
 export async function stopBot(): Promise<void> {
+  unsubscribeBroadcast?.()
+  unsubscribeBroadcast = null
   if (client) {
     client.destroy()
     client = null
@@ -544,6 +853,8 @@ export function getBotStatus(): { connected: boolean; username?: string; guildCo
 export function getChannelConversations(): Map<string, number> {
   return channelConversations
 }
+
+export { handleAskUserChunk as _handleAskUserChunk, buildModalForQuestions as _buildModalForQuestions }
 
 // ─── IPC handlers ───────────────────────────────────
 
