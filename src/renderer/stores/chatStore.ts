@@ -646,11 +646,6 @@ window.agent.messages.onStream((chunk: StreamChunk) => {
         const p = parts[i]
         if (p.type === 'tool' && p.status === 'running' && (!toolId || p.id === toolId)) {
           parts[i] = { ...p, input: toolInput }
-          if (p.name === 'Bash' && typeof toolInput.command === 'string') {
-            window.dispatchEvent(new CustomEvent('agent:bash-tool-result', {
-              detail: { command: toolInput.command },
-            }))
-          }
           break
         }
       }
@@ -677,6 +672,13 @@ window.agent.messages.onStream((chunk: StreamChunk) => {
               parts[i] = { ...parts[i], input: JSON.parse(chunk.toolInput) as Record<string, unknown> }
             } catch { /* ignore invalid JSON */ }
           }
+          // Dispatch after Bash has actually finished so git state is up-to-date
+          const resolvedInput = (parts[i] as { input?: Record<string, unknown> }).input
+          if (p.name === 'Bash' && typeof resolvedInput?.command === 'string') {
+            window.dispatchEvent(new CustomEvent('agent:bash-tool-result', {
+              detail: { command: resolvedInput.command },
+            }))
+          }
           found = true
           break
         }
@@ -695,6 +697,12 @@ window.agent.messages.onStream((chunk: StreamChunk) => {
           output: chunk.toolOutput || chunk.content || '',
           input: toolInput,
         })
+        // Dispatch for untracked Bash results too
+        if (chunk.toolName === 'Bash' && typeof toolInput?.command === 'string') {
+          window.dispatchEvent(new CustomEvent('agent:bash-tool-result', {
+            detail: { command: toolInput.command },
+          }))
+        }
       }
       commitParts(parts)
       break
