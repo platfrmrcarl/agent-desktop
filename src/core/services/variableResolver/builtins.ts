@@ -92,8 +92,8 @@ export const BUILTINS: BuiltinSpec[] = [
   },
   {
     name: 'last_commit',
-    description: "Dernier commit git (hash court + sujet) dans le cwd. Args: flags git log additionnels.",
-    argsHint: 'FLAGS?',
+    description: "Dernier commit git dans le cwd. Sans arg: 'hash sujet' (format par défaut '%h %s'). Args: flags supplémentaires de 'git log' uniquement (PAS de 'git rev-parse'). Ex: '--pretty=format:%h' pour juste le hash court, '--pretty=format:%H %an %ad' pour hash long + auteur + date. Note: '--short' n'est pas un flag valide de 'git log'.",
+    argsHint: 'GIT_LOG_FLAGS?',
     fn: async (args, ctx) => {
       const extra = args.filter(a => a.length > 0)
       const { stdout } = await execFileAsync(
