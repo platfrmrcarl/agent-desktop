@@ -1,8 +1,14 @@
 import type { BuiltinSpec } from './types'
+import { execFile } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
+import { promisify } from 'node:util'
+import { isAbsolute, resolve as pathResolve } from 'node:path'
 
 // ─── Helpers ────────────────────────────────────────────────
 
 const pad = (n: number) => String(n).padStart(2, '0')
+
+const execFileAsync = promisify(execFile)
 
 /**
  * Minimal date formatter. Tokens: YYYY, MM, DD, HH, mm, ss.
@@ -82,6 +88,31 @@ export const BUILTINS: BuiltinSpec[] = [
     fn: (args, ctx) => {
       if (!ctx.task.last_run_at) return ''
       return formatDate(new Date(ctx.task.last_run_at), args[0])
+    },
+  },
+  {
+    name: 'last_commit',
+    description: "Dernier commit git (hash court + sujet) dans le cwd. Args: flags git log additionnels.",
+    argsHint: 'FLAGS?',
+    fn: async (args, ctx) => {
+      const extra = args.filter(a => a.length > 0)
+      const { stdout } = await execFileAsync(
+        'git',
+        ['log', '-1', '--pretty=format:%h %s', ...extra],
+        { cwd: ctx.cwd, timeout: 4000 }
+      )
+      return stdout.trim()
+    },
+  },
+  {
+    name: 'file_contents',
+    description: "Contenu d'un fichier en UTF-8. Arg: chemin (relatif au cwd ou absolu).",
+    argsHint: 'PATH',
+    fn: async (args, ctx) => {
+      const path = args[0]
+      if (!path) throw new Error('file_contents: chemin requis')
+      const abs = isAbsolute(path) ? path : pathResolve(ctx.cwd, path)
+      return await readFile(abs, 'utf-8')
     },
   },
 ]
