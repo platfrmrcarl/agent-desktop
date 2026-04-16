@@ -78,14 +78,28 @@ export function GitGraph({ cwd }: { cwd: string }) {
           aria-label={`Git graph, ${commits.length} commits`}
           className="absolute left-0 top-0 pointer-events-none"
         >
+          <defs>
+            <marker
+              id="arrow-merge"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
+            </marker>
+          </defs>
           {graph.edges.map((e, i) => (
             <path
               key={i}
               d={pathFor(e)}
-              stroke={e.color}
-              strokeWidth={2.5}
+              style={{ stroke: e.color }}
+              strokeWidth={3}
               fill="none"
               strokeLinecap="round"
+              markerEnd={e.kind === 'merge' ? 'url(#arrow-merge)' : undefined}
             />
           ))}
           {graph.nodes.map((n) => {
