@@ -9,6 +9,7 @@ import { registerToolsHandlers } from './tools'
 import { registerShortcutsHandlers } from './shortcuts'
 import { registerMcpHandlers } from './mcp'
 import { registerAuthHandlers } from './auth'
+import { registerModelsHandlers } from './models'
 import { registerAttachmentsHandlers } from './attachments'
 import { registerMessagesHandlers } from './messages'
 import { registerFilesHandlers } from './files'
@@ -40,6 +41,7 @@ export function registerCoreHandlers(
   registerShortcutsHandlers(registrar, db)
   registerMcpHandlers(registrar, db)
   registerAuthHandlers(registrar, db)
+  registerModelsHandlers(registrar)
   registerAttachmentsHandlers(registrar, db)
   registerMessagesHandlers(registrar, db, {
     broadcaster: options.broadcaster,

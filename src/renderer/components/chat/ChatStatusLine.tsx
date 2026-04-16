@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { MODEL_OPTIONS, PERMISSION_OPTIONS, PERMISSION_LABELS, shortenModelName, buildModelOptions } from '../../../shared/constants'
+import { PERMISSION_OPTIONS, PERMISSION_LABELS, shortenModelName, buildModelOptions } from '../../../shared/constants'
+import { useModelsStore } from '../../stores/modelsStore'
 import { CheckIcon } from '../icons/CheckIcon'
 import { ChevronDownIcon } from '../icons/ChevronDownIcon'
 import { Checkbox } from '../ui/Checkbox'
@@ -31,6 +32,9 @@ interface ChatStatusLineProps {
 }
 
 export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChange, onPermissionModeChange, onMcpServerToggle, kbCollections, onKbCollectionToggle, onKbAccessToggle, extensionStatus, customModels }: ChatStatusLineProps) {
+  const baseModels = useModelsStore((s) => s.models)
+  const fetchModels = useModelsStore((s) => s.fetch)
+  useEffect(() => { fetchModels() }, [fetchModels])
   const shortModel = shortenModelName(model)
   const modeLabel = PERMISSION_LABELS[permissionMode] || permissionMode
   const [modelOpen, setModelOpen] = useState(false)
@@ -98,9 +102,9 @@ export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChang
             role="listbox"
             aria-label="Model selection"
           >
-            {buildModelOptions(customModels || []).map((opt, i) => (
+            {buildModelOptions(customModels || [], baseModels).map((opt, i) => (
               <span key={opt.value}>
-                {i === MODEL_OPTIONS.length && (customModels?.length ?? 0) > 0 && (
+                {i === baseModels.length && (customModels?.length ?? 0) > 0 && (
                   <hr style={{ borderColor: 'var(--color-text-muted)', opacity: 0.2, margin: '2px 0' }} />
                 )}
                 <button

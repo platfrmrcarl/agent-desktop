@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { TTS_SUMMARY_MODEL_OPTIONS } from '../../../shared/constants'
+import { useModelsStore } from '../../stores/modelsStore'
 
 interface DetectedPlayer {
   name: string
@@ -47,7 +47,11 @@ export function TTSSettings() {
   const summaryPrompt = settings.tts_summaryPrompt || ''
   const summaryModel = settings.tts_summaryModel || ''
 
-  const isPresetModel = !summaryModel || TTS_SUMMARY_MODEL_OPTIONS.some(o => o.value === summaryModel)
+  const fetchedModels = useModelsStore((s) => s.models)
+  const fetchModels = useModelsStore((s) => s.fetch)
+  useEffect(() => { fetchModels() }, [fetchModels])
+
+  const isPresetModel = !summaryModel || fetchedModels.some(o => o.value === summaryModel)
   const isCustomModel = summaryModel !== '' && !isPresetModel
 
   // Detect available audio players on mount
@@ -380,7 +384,7 @@ export function TTSSettings() {
                 Summary Model
               </label>
               <select
-                value={isCustomModel ? '__custom__' : (summaryModel || TTS_SUMMARY_MODEL_OPTIONS[0].value)}
+                value={isCustomModel ? '__custom__' : (summaryModel || fetchedModels[0]?.value || '')}
                 onChange={(e) => {
                   const val = e.target.value
                   if (val === '__custom__') {
@@ -393,7 +397,7 @@ export function TTSSettings() {
                 style={inputStyle}
                 aria-label="TTS summary model"
               >
-                {TTS_SUMMARY_MODEL_OPTIONS.map((o) => (
+                {fetchedModels.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
                 <option value="__custom__">Custom</option>

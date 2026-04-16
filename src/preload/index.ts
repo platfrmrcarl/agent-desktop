@@ -19,6 +19,10 @@ const api: AgentAPI = {
     login: () => withTimeout(ipcRenderer.invoke('auth:login')),
     logout: () => withTimeout(ipcRenderer.invoke('auth:logout')),
   },
+  models: {
+    list: () => withTimeout(ipcRenderer.invoke('models:list'), 15000),
+    refresh: () => withTimeout(ipcRenderer.invoke('models:refresh'), 15000),
+  },
   conversations: {
     list: () => withTimeout(ipcRenderer.invoke('conversations:list')),
     get: (id) => withTimeout(ipcRenderer.invoke('conversations:get', id)),

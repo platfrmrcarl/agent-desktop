@@ -19,6 +19,7 @@ export const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 
 export const MODEL_OPTIONS = [
   { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  { value: 'claude-opus-4-7', label: 'Opus 4.7' },
   { value: 'claude-opus-4-6', label: 'Opus 4.6' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ] as const
@@ -34,10 +35,13 @@ export function parseCustomModels(json: string | undefined): string[] {
   catch { return [] }
 }
 
-/** MODEL_OPTIONS + saved custom models (for dropdowns) */
-export function buildModelOptions(customModels: string[]): { value: string; label: string }[] {
+/** baseModels (defaults to MODEL_OPTIONS) + saved custom models (for dropdowns) */
+export function buildModelOptions(
+  customModels: string[],
+  baseModels: readonly { value: string; label: string }[] = MODEL_OPTIONS,
+): { value: string; label: string }[] {
   return [
-    ...MODEL_OPTIONS,
+    ...baseModels.map(o => ({ value: o.value, label: o.label })),
     ...customModels.map(m => ({ value: m, label: shortenModelName(m) })),
   ]
 }
@@ -85,12 +89,6 @@ export const TTS_RESPONSE_OPTIONS = [
   { value: 'full', label: 'Full Response' },
   { value: 'summary', label: 'Summary' },
   { value: 'auto', label: 'Auto (Full or Summary)' },
-] as const
-
-export const TTS_SUMMARY_MODEL_OPTIONS = [
-  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
 ] as const
 
 // ─── AI Override Setting Definitions ─────────────────────────

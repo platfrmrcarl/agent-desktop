@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useAuthStore } from '../../stores/authStore'
-import { MODEL_OPTIONS, DEFAULT_MODEL, SETTING_SOURCES_OPTIONS, SKILLS_TOGGLE_OPTIONS, SDK_BACKEND_OPTIONS, CONFIG_SHARING_OPTIONS, parseCustomModels, shortenModelName, type PIExtensionInfo } from '../../../shared/constants'
+import { DEFAULT_MODEL, SETTING_SOURCES_OPTIONS, SKILLS_TOGGLE_OPTIONS, SDK_BACKEND_OPTIONS, CONFIG_SHARING_OPTIONS, parseCustomModels, shortenModelName, type PIExtensionInfo } from '../../../shared/constants'
+import { useModelsStore } from '../../stores/modelsStore'
 import { SystemPromptEditorModal } from './SystemPromptEditorModal'
 import { CwdWhitelistEditor } from './CwdWhitelistEditor'
 import type { CwdWhitelistEntry } from '../../../shared/types'
@@ -30,7 +31,10 @@ export function AISettings() {
   const model = settings['ai_model'] ?? DEFAULT_MODEL
   const isCustomModel = !!customModel
   const customModels = parseCustomModels(settings['ai_customModels'])
-  const presetValues = new Set(MODEL_OPTIONS.map(o => o.value))
+  const fetchedModels = useModelsStore((s) => s.models)
+  const fetchModels = useModelsStore((s) => s.fetch)
+  useEffect(() => { fetchModels() }, [fetchModels])
+  const presetValues = new Set(fetchedModels.map(o => o.value))
   const maxTurns = settings['ai_maxTurns'] ?? '1'
   const maxThinkingTokens = settings['ai_maxThinkingTokens'] ?? '0'
   const maxBudgetUsd = settings['ai_maxBudgetUsd'] ?? '0'
@@ -363,7 +367,7 @@ export function AISettings() {
             }}
             aria-label="Select AI model"
           >
-            {MODEL_OPTIONS.map((opt) => (
+            {fetchedModels.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>

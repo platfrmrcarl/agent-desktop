@@ -34,6 +34,10 @@ export interface AgentAPI {
     login(): Promise<AuthStatus>
     logout(): Promise<void>
   }
+  models: {
+    list(): Promise<{ value: string; label: string }[]>
+    refresh(): Promise<{ value: string; label: string }[]>
+  }
   conversations: {
     list(): Promise<Conversation[]>
     get(id: number): Promise<ConversationWithMessages>
