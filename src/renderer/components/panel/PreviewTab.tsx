@@ -783,7 +783,7 @@ function CreateInput({ kind, onSubmit, onCancel }: {
   )
 }
 
-export function FileExplorerPanel() {
+export function PreviewTab() {
   const { tree, selectedFilePath, fileContent, editorContent, fileLanguage, fileWarning, loading, error, refresh, selectFile, cwd, expandedPaths, toggleDir, expandDir, viewMode, multiSelectedPaths, toggleMultiSelect, clearMultiSelection } = useFileExplorerStore()
   const themesCwd = isThemesDirectory(cwd)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: FileNode } | null>(null)
