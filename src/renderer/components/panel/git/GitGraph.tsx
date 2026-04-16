@@ -53,6 +53,8 @@ export function GitGraph({ cwd }: { cwd: string }) {
   const branches = useGitPanelStore((s) => s.branches)
   const selected = useGitPanelStore((s) => s.selectedCommitSha)
   const select = useGitPanelStore((s) => s.selectCommit)
+  const bodyCache = useGitPanelStore((s) => s.bodyCache)
+  const prefetchBody = useGitPanelStore((s) => s.prefetchCommitBody)
 
   const graph = useMemo(() => (commits && commits.length > 0 ? layout(commits) : null), [commits])
   const remoteNames = useMemo(
@@ -132,11 +134,18 @@ export function GitGraph({ cwd }: { cwd: string }) {
           {graph.nodes.map((n) => {
             const isSelected = selected === n.commit.sha
             const badges = n.commit.refs.map(r => classifyRef(r, remoteNames))
+            const body = bodyCache[n.commit.sha]
+            const tooltip = body && body.trim()
+              ? `${n.commit.subject}\n\n${body.trim()}\n\n— ${n.commit.authorName} <${n.commit.authorEmail}> · ${n.commit.shortSha}`
+              : `${n.commit.subject}\n\n— ${n.commit.authorName} <${n.commit.authorEmail}> · ${n.commit.shortSha}`
             return (
               <li key={n.commit.sha} style={{ height: ROW_HEIGHT }}>
                 <button
                   aria-label={n.commit.shortSha}
+                  title={tooltip}
                   onClick={() => select(cwd, n.commit.sha)}
+                  onMouseEnter={() => prefetchBody(cwd, n.commit.sha)}
+                  onFocus={() => prefetchBody(cwd, n.commit.sha)}
                   style={{ height: ROW_HEIGHT }}
                   className={`flex items-center gap-2 w-full pr-3 pl-1 text-left hover:bg-[color:color-mix(in_srgb,var(--color-text)_10%,transparent)] ${
                     isSelected ? 'bg-[color:color-mix(in_srgb,var(--color-accent)_15%,transparent)]' : ''

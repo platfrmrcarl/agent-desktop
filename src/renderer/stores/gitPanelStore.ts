@@ -22,6 +22,7 @@ interface GitPanelState {
   stashes: GitStashEntry[] | null
   selectedCommitSha: string | null
   commitDetail: { sha: string; body: string; files: GitCommitFile[] } | null
+  bodyCache: Record<string, string>
   loading: Loading
   errors: Errors
   lastRefreshAt: number
@@ -29,6 +30,7 @@ interface GitPanelState {
   setActiveSubTab: (tab: GitSubTab) => void
   refresh: (cwd: string) => Promise<void>
   selectCommit: (cwd: string, sha: string) => Promise<void>
+  prefetchCommitBody: (cwd: string, sha: string) => Promise<void>
   checkout: (cwd: string, name: string) => Promise<void>
   stashSave: (cwd: string, message?: string) => Promise<void>
   stashPop: (cwd: string, index: number) => Promise<void>
@@ -36,7 +38,7 @@ interface GitPanelState {
   reset: () => void
 }
 
-const INIT: Omit<GitPanelState, 'setActiveSubTab' | 'refresh' | 'selectCommit' | 'checkout' | 'stashSave' | 'stashPop' | 'fetch' | 'reset'> = {
+const INIT: Omit<GitPanelState, 'setActiveSubTab' | 'refresh' | 'selectCommit' | 'prefetchCommitBody' | 'checkout' | 'stashSave' | 'stashPop' | 'fetch' | 'reset'> = {
   activeSubTab: 'graph' as GitSubTab,
   status: null,
   commits: null,
@@ -44,6 +46,7 @@ const INIT: Omit<GitPanelState, 'setActiveSubTab' | 'refresh' | 'selectCommit' |
   stashes: null,
   selectedCommitSha: null,
   commitDetail: null,
+  bodyCache: {},
   loading: { status: false, log: false, branches: false, stash: false },
   errors: { status: null, log: null, branches: null, stash: null, action: null },
   lastRefreshAt: 0,
@@ -92,9 +95,22 @@ export const useGitPanelStore = create<GitPanelState>((set, get) => ({
     set({ selectedCommitSha: sha, commitDetail: null })
     try {
       const d = await window.agent.git.commitDetail(cwd, sha)
-      set({ commitDetail: { sha, body: d.body, files: d.files } })
+      set({
+        commitDetail: { sha, body: d.body, files: d.files },
+        bodyCache: { ...get().bodyCache, [sha]: d.body },
+      })
     } catch (e) {
       set({ errors: { ...get().errors, action: toGitError(e) } })
+    }
+  },
+
+  prefetchCommitBody: async (cwd, sha) => {
+    if (get().bodyCache[sha] !== undefined) return
+    try {
+      const d = await window.agent.git.commitDetail(cwd, sha)
+      set({ bodyCache: { ...get().bodyCache, [sha]: d.body } })
+    } catch {
+      // Silent: prefetch is best-effort, don't pollute errors.action
     }
   },
 
