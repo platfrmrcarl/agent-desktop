@@ -27,6 +27,7 @@ import type {
 } from '../shared/types'
 import type { PIExtensionInfo } from '../shared/constants'
 import type { PiUIEvent, PiUIRequest, PiUIResponse } from '../shared/piUITypes'
+import type { GitStatus, GitCommit, GitCommitFile, GitBranch, GitStashEntry } from '../shared/git-types'
 
 export interface AgentAPI {
   auth: {
@@ -231,6 +232,18 @@ export interface AgentAPI {
     minimize(): void
     maximize(): void
     close(): void
+  }
+  git: {
+    isRepo(cwd: string | null): Promise<boolean>
+    status(cwd: string): Promise<GitStatus>
+    logGraph(cwd: string, opts?: { limit?: number; branch?: string }): Promise<GitCommit[]>
+    commitDetail(cwd: string, sha: string): Promise<{ body: string; files: GitCommitFile[] }>
+    branches(cwd: string): Promise<GitBranch[]>
+    stashList(cwd: string): Promise<GitStashEntry[]>
+    checkout(cwd: string, name: string): Promise<void>
+    stashSave(cwd: string, message?: string): Promise<void>
+    stashPop(cwd: string, index: number): Promise<void>
+    fetch(cwd: string, remote?: string): Promise<void>
   }
 }
 
