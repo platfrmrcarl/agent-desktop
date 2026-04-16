@@ -1,0 +1,140 @@
+import type { BuiltinSpec } from './types'
+import { execFile } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
+import { promisify } from 'node:util'
+import { isAbsolute, resolve as pathResolve } from 'node:path'
+
+// ─── Helpers ────────────────────────────────────────────────
+
+const pad = (n: number) => String(n).padStart(2, '0')
+
+const execFileAsync = promisify(execFile)
+
+/**
+ * Minimal date formatter. Tokens: YYYY, MM, DD, HH, mm, ss.
+ * Kept inline (no date-fns dep) — 6 tokens suffice for our use cases.
+ */
+function formatDate(d: Date, fmt?: string): string {
+  if (!fmt) return d.toISOString().slice(0, 10)
+  return fmt
+    .replace(/YYYY/g, String(d.getFullYear()))
+    .replace(/MM/g, pad(d.getMonth() + 1))
+    .replace(/DD/g, pad(d.getDate()))
+    .replace(/HH/g, pad(d.getHours()))
+    .replace(/mm/g, pad(d.getMinutes()))
+    .replace(/ss/g, pad(d.getSeconds()))
+}
+
+const WEEKDAYS_FR = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi']
+
+// ─── Built-ins (sync) ──────────────────────────────────────
+
+export const BUILTINS: BuiltinSpec[] = [
+  {
+    name: 'today_date',
+    description: "Date du jour. Arg: format (DD/MM/YYYY, YYYY-MM-DD...). Par défaut ISO YYYY-MM-DD.",
+    argsHint: 'FORMAT?',
+    fn: (args, ctx) => formatDate(ctx.now, args[0]),
+  },
+  {
+    name: 'now',
+    description: "Timestamp ISO complet avec timezone",
+    fn: (_args, ctx) => ctx.now.toISOString(),
+  },
+  {
+    name: 'time',
+    description: "Heure courante en HH:mm (local)",
+    fn: (_args, ctx) => formatDate(ctx.now, 'HH:mm'),
+  },
+  {
+    name: 'timestamp',
+    description: "Unix timestamp en secondes",
+    fn: (_args, ctx) => String(Math.floor(ctx.now.getTime() / 1000)),
+  },
+  {
+    name: 'day_of_week',
+    description: "Jour de la semaine en français (lundi, mardi...)",
+    fn: (_args, ctx) => WEEKDAYS_FR[ctx.now.getDay()],
+  },
+  {
+    name: 'random',
+    description: "Entier aléatoire entre min et max inclus. Défaut: 0:100.",
+    argsHint: 'min:max?',
+    fn: (args) => {
+      const minRaw = args[0]
+      const maxRaw = args[1]
+      const min = minRaw !== undefined && minRaw !== '' ? Number(minRaw) : 0
+      const max = maxRaw !== undefined && maxRaw !== '' ? Number(maxRaw) : 100
+      if (Number.isNaN(min) || Number.isNaN(max)) {
+        throw new Error(`random: args invalides "${args.join(':')}"`)
+      }
+      return String(Math.floor(Math.random() * (max - min + 1)) + min)
+    },
+  },
+  {
+    name: 'task_name',
+    description: "Nom de la tâche planifiée en cours d'exécution",
+    fn: (_args, ctx) => ctx.task.name,
+  },
+  {
+    name: 'task_run_count',
+    description: "Numéro d'exécution en cours (1 pour la première, 2 pour la deuxième...)",
+    fn: (_args, ctx) => String((ctx.task.run_count ?? 0) + 1),
+  },
+  {
+    name: 'last_run_at',
+    description: "Date de la dernière exécution. Arg: format. Vide si première exécution.",
+    argsHint: 'FORMAT?',
+    fn: (args, ctx) => {
+      if (!ctx.task.last_run_at) return ''
+      return formatDate(new Date(ctx.task.last_run_at), args[0])
+    },
+  },
+  {
+    name: 'last_commit',
+    description: "Dernier commit git dans le cwd. Sans arg: 'hash sujet' (format par défaut '%h %s'). Args: flags supplémentaires de 'git log' uniquement (PAS de 'git rev-parse'). Ex: '--pretty=format:%h' pour juste le hash court, '--pretty=format:%H %an %ad' pour hash long + auteur + date. Note: '--short' n'est pas un flag valide de 'git log'.",
+    argsHint: 'GIT_LOG_FLAGS?',
+    fn: async (args, ctx) => {
+      const extra = args.filter(a => a.length > 0)
+      const { stdout } = await execFileAsync(
+        'git',
+        ['log', '-1', '--pretty=format:%h %s', ...extra],
+        { cwd: ctx.cwd, timeout: 4000 }
+      )
+      return stdout.trim()
+    },
+  },
+  {
+    name: 'file_contents',
+    description: "Contenu d'un fichier en UTF-8. Arg: chemin (relatif au cwd ou absolu).",
+    argsHint: 'PATH',
+    fn: async (args, ctx) => {
+      const path = args[0]
+      if (!path) throw new Error('file_contents: chemin requis')
+      const abs = isAbsolute(path) ? path : pathResolve(ctx.cwd, path)
+      return await readFile(abs, 'utf-8')
+    },
+  },
+  {
+    name: 'previous_output',
+    description: "Dernier message assistant de la conversation de la tâche. Arg: max chars (défaut 2000).",
+    argsHint: 'MAX_CHARS?',
+    fn: (args, ctx) => {
+      const maxChars = args[0] ? Number(args[0]) : 2000
+      if (Number.isNaN(maxChars) || maxChars <= 0) {
+        throw new Error(`previous_output: max_chars invalide "${args[0]}"`)
+      }
+      const row = ctx.db.prepare(
+        `SELECT content FROM messages
+         WHERE conversation_id = ? AND role = 'assistant'
+         ORDER BY id DESC LIMIT 1`
+      ).get(ctx.task.conversation_id) as { content?: string } | undefined
+      const content = row?.content ?? ''
+      return content.length > maxChars ? content.slice(0, maxChars) + '…' : content
+    },
+  },
+]
+
+export const builtinRegistry = new Map<string, BuiltinSpec>(
+  BUILTINS.map(b => [b.name, b])
+)

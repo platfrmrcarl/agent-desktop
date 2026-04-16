@@ -1,6 +1,8 @@
+import type { Database } from 'better-sqlite3'
 import type { ScheduledTask, ToolCall } from '../types'
 import type { AISettings } from './streaming'
 import type { SchedulerService } from './scheduler'
+import { resolveVariablesWithReport } from './variableResolver'
 
 // ─── TaskRunContext (injected by Electron or headless) ─────
 
@@ -27,6 +29,8 @@ export interface TaskRunContext {
   /** Called when a task or conversation state changes — broadcast to renderer / logs */
   onTaskUpdate(task: ScheduledTask): void
   onConversationsRefresh(): void
+  /** Read-only DB handle — used by variableResolver builtins (e.g., previous_output). */
+  db: Database
 }
 
 // ─── executeTask ───────────────────────────────────────────
@@ -51,12 +55,29 @@ export async function executeTask(
       ctx.onConversationsRefresh()
     }
 
-    // Save user message (the scheduled prompt)
-    ctx.saveMessage(task.conversation_id, 'user', task.prompt)
+    // Load AI settings early — we need cwd for variable resolution
+    const aiSettings = ctx.getAISettings(task.conversation_id)
+
+    // Resolve variables in the prompt (built-ins + ~/.agent-desktop/functions/*.ts)
+    const { resolved: resolvedPrompt, errors: resolverErrors } =
+      await resolveVariablesWithReport(task.prompt, {
+        task,
+        cwd: aiSettings.cwd || process.cwd(),
+        db: ctx.db,
+        now: new Date(),
+      })
+    if (resolverErrors.length > 0) {
+      console.warn(
+        `[scheduler] Task "${task.name}" (id=${task.id}) variable errors:`,
+        resolverErrors
+      )
+    }
+
+    // Save user message (resolved prompt)
+    ctx.saveMessage(task.conversation_id, 'user', resolvedPrompt)
 
     // Build context — same flow as messages:send
     const history = ctx.buildHistory(task.conversation_id)
-    const aiSettings = ctx.getAISettings(task.conversation_id)
 
     // Force bypass for unattended execution
     aiSettings.permissionMode = 'bypassPermissions'

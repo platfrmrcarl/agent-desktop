@@ -52,7 +52,15 @@ function createMockScheduler(): {
 }
 
 function createMockCtx(): {
-  [K in keyof TaskRunContext]: ReturnType<typeof vi.fn>
+  buildHistory: ReturnType<typeof vi.fn>
+  getAISettings: ReturnType<typeof vi.fn>
+  getSystemPrompt: ReturnType<typeof vi.fn>
+  streamMessage: ReturnType<typeof vi.fn>
+  saveMessage: ReturnType<typeof vi.fn>
+  notify: ReturnType<typeof vi.fn>
+  onTaskUpdate: ReturnType<typeof vi.fn>
+  onConversationsRefresh: ReturnType<typeof vi.fn>
+  db: any
 } {
   return {
     buildHistory: vi.fn(() => []),
@@ -63,6 +71,7 @@ function createMockCtx(): {
     notify: vi.fn(async () => {}),
     onTaskUpdate: vi.fn(),
     onConversationsRefresh: vi.fn(),
+    db: {} as any,
   }
 }
 
@@ -170,5 +179,22 @@ describe('executeTask', () => {
     const aiSettings = ctx.streamMessage.mock.calls[0][2]
     expect(aiSettings.mcpServers?.['agent_scheduler']).toBeUndefined()
     expect(aiSettings.permissionMode).toBe('bypassPermissions')
+  })
+
+  it('resolves variables in task.prompt before saving the user message', async () => {
+    const task = {
+      id: 1, name: 'DailyReport', prompt: 'Hello {task_name}!', conversation_id: 1,
+      enabled: true, interval_value: 1, interval_unit: 'hours',
+      schedule_time: null, catch_up: false, max_runs: null,
+      last_run_at: null, next_run_at: null, last_status: null,
+      last_error: null, run_count: 0, notify_desktop: false, notify_voice: false,
+    } as any
+
+    await executeTask(scheduler as unknown as SchedulerService, ctx, task)
+
+    const calls = (ctx.saveMessage as any).mock.calls
+    const userCall = calls.find((c: any) => c[1] === 'user')
+    expect(userCall).toBeDefined()
+    expect(userCall[2]).toBe('Hello DailyReport!')
   })
 })

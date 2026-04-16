@@ -60,6 +60,7 @@ function createCoreContext(db: any): TaskRunContext {
   const sessionsBase = getSessionsBase()
   const knowledgesDir = getKnowledgesDir()
   return {
+    db,
     buildHistory(conversationId) {
       return buildMessageHistory(db, conversationId)
     },
