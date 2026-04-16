@@ -1,4 +1,4 @@
-import { readdir, readFile, mkdir, writeFile, stat } from 'node:fs/promises'
+import { readdir, readFile, mkdir, writeFile, stat, unlink } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { homedir } from 'node:os'
@@ -29,6 +29,18 @@ export function warnOverrideOnce(name: string): void {
   console.warn(`[variableResolver] custom override for builtin "${name}"`)
 }
 
+/** Delete any existing <name>-*.mjs files in cacheDir, ignoring errors. */
+async function pruneStaleCacheFor(name: string, cacheDir: string): Promise<void> {
+  try {
+    const entries = await readdir(cacheDir)
+    const prefix = `${name}-`
+    const stale = entries.filter(f => f.startsWith(prefix) && f.endsWith('.mjs'))
+    await Promise.all(stale.map(f => unlink(join(cacheDir, f)).catch(() => {})))
+  } catch {
+    // cacheDir might not exist yet — fine
+  }
+}
+
 /**
  * Load a custom variable function from <functionsDir>/<name>.ts.
  * - Returns null if no file exists
@@ -54,6 +66,7 @@ export async function loadCustomVariable(
 
   const cacheDir = join(functionsDir, CACHE_SUBDIR)
   await mkdir(cacheDir, { recursive: true })
+  await pruneStaleCacheFor(name, cacheDir)
 
   const source = await readFile(srcPath, 'utf-8')
 

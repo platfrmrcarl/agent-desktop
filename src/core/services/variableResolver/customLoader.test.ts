@@ -74,6 +74,46 @@ describe('loadCustomVariable', () => {
     )
     await expect(loadCustomVariable('broken', dir)).rejects.toThrow(/erreur de transpilation/)
   })
+
+  it('removes stale .mjs cache files when retranspiling on hot-reload', async () => {
+    const { readdirSync } = await import('node:fs')
+    const file = join(dir, 'evolving.ts')
+    writeFileSync(file, `export default () => 'v1'`)
+    await loadCustomVariable('evolving', dir)
+
+    // Force mtime forward + edit
+    writeFileSync(file, `export default () => 'v2'`)
+    const future = Date.now() / 1000 + 10
+    const { utimesSync } = await import('node:fs')
+    utimesSync(file, future, future)
+    await loadCustomVariable('evolving', dir)
+
+    const cacheDir = join(dir, '.cache')
+    const files = readdirSync(cacheDir).filter((f: string) => f.startsWith('evolving-') && f.endsWith('.mjs'))
+    // Only ONE evolving-*.mjs should remain (the latest mtime), not 2
+    expect(files).toHaveLength(1)
+  })
+
+  it('does not delete cache files for other variables', async () => {
+    const { readdirSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.ts'), `export default () => 'A'`)
+    writeFileSync(join(dir, 'b.ts'), `export default () => 'B'`)
+    await loadCustomVariable('a', dir)
+    await loadCustomVariable('b', dir)
+
+    // Edit only a.ts
+    writeFileSync(join(dir, 'a.ts'), `export default () => 'A2'`)
+    const future = Date.now() / 1000 + 10
+    const { utimesSync } = await import('node:fs')
+    utimesSync(join(dir, 'a.ts'), future, future)
+    await loadCustomVariable('a', dir)
+
+    const cacheDir = join(dir, '.cache')
+    const aFiles = readdirSync(cacheDir).filter((f: string) => f.startsWith('a-'))
+    const bFiles = readdirSync(cacheDir).filter((f: string) => f.startsWith('b-'))
+    expect(aFiles).toHaveLength(1)  // pruned
+    expect(bFiles).toHaveLength(1)  // preserved
+  })
 })
 
 describe('listCustomVariables', () => {
