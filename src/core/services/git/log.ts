@@ -21,7 +21,7 @@ export async function getCommitDetail(cwd: string, sha: string): Promise<{ body:
   const { stdout: nameStatus } = await runGit(cwd, ['show', '--name-status', '--pretty=format:', sha])
   const files: GitCommitFile[] = nameStatus
     .split('\n')
-    .filter(Boolean)
+    .filter(line => line.includes('\t'))
     .map(line => {
       const parts = line.split('\t')
       const code = parts[0]
