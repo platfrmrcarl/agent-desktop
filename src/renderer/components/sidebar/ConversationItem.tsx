@@ -7,6 +7,7 @@ import { useMobileMode } from '../../hooks/useMobileMode'
 import { ContextMenu, ContextMenuItem, ContextMenuDivider } from '../shared/ContextMenu'
 import { MoveToFolderModal } from '../shared/MoveToFolderModal'
 import { ColorSwatches, ColorPicker } from '../shared/ColorPicker'
+import { parseDbTimestamp } from '../../utils/dbTime'
 
 function invertHex(hex: string): string {
   const r = 255 - parseInt(hex.slice(1, 3), 16)
@@ -411,9 +412,8 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
 })
 
 function formatTimeAgo(dateStr: string): string {
-  const now = Date.now()
-  const then = new Date(dateStr).getTime()
-  const diffMs = now - then
+  const then = parseDbTimestamp(dateStr)
+  const diffMs = Date.now() - then.getTime()
   const minutes = Math.floor(diffMs / 60000)
   if (minutes < 1) return 'just now'
   if (minutes < 60) return `${minutes}m ago`
@@ -421,5 +421,5 @@ function formatTimeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 30) return `${days}d ago`
-  return new Date(dateStr).toLocaleDateString()
+  return then.toLocaleDateString()
 }

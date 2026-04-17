@@ -20,7 +20,9 @@ describe('runGit', () => {
   })
 
   it('throws GitOperationError timeout when command exceeds timeoutMs', async () => {
-    const promise = runGit(process.cwd(), ['log', '--oneline', '-n', '1'], { timeoutMs: 1 })
+    // hash-object --stdin blocks until stdin closes — guarantees the timer wins the race,
+    // unlike fast-completing reads (e.g. `log -n 1`) which can flake under load.
+    const promise = runGit(process.cwd(), ['hash-object', '--stdin'], { timeoutMs: 10 })
     await expect(promise).rejects.toBeInstanceOf(GitOperationError)
   })
 

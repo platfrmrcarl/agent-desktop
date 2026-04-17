@@ -8,6 +8,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useAgentDisplayName } from '../../hooks/useAgentDisplayName'
 import { useMobileMode } from '../../hooks/useMobileMode'
 import type { Message, CreateScheduledTask } from '../../../shared/types'
+import { parseDbTimestamp } from '../../utils/dbTime'
 
 interface MessageBubbleProps {
   message: Message
@@ -22,7 +23,7 @@ interface MessageBubbleProps {
 
 function formatRelativeTime(dateStr: string): string {
   const now = Date.now()
-  const then = new Date(dateStr).getTime()
+  const then = parseDbTimestamp(dateStr).getTime()
   const diffSec = Math.floor((now - then) / 1000)
 
   if (diffSec < 60) return 'just now'
@@ -218,7 +219,7 @@ export function MessageBubble({ message, isLast, effectiveTtsResponseMode, effec
         <div
           className="text-[10px] mt-2 select-none"
           style={{ color: 'var(--color-text-muted)' }}
-          title={new Date(message.created_at).toLocaleString()}
+          title={parseDbTimestamp(message.created_at).toLocaleString()}
         >
           {formatRelativeTime(message.created_at)}
         </div>
