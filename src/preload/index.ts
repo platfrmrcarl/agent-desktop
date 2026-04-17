@@ -198,6 +198,7 @@ const api: AgentAPI = {
     toggle: (id: number, enabled: boolean) => withTimeout(ipcRenderer.invoke('scheduler:toggle', id, enabled)),
     runNow: (id: number) => withTimeout(ipcRenderer.invoke('scheduler:runNow', id)),
     conversationTasks: (conversationId: number) => withTimeout(ipcRenderer.invoke('scheduler:conversationTasks', conversationId)),
+    listVariables: () => withTimeout(ipcRenderer.invoke('scheduler:listVariables')),
     toggleBackground: (enabled: boolean) => withTimeout(ipcRenderer.invoke('scheduler:toggleBackground', enabled)),
     backgroundStatus: () => withTimeout(ipcRenderer.invoke('scheduler:backgroundStatus')),
     onTaskUpdate: (callback: (task: unknown) => void) => {

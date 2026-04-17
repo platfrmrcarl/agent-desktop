@@ -1,9 +1,14 @@
 import { tokenize } from './syntax'
 import { builtinRegistry } from './builtins'
-import { loadCustomVariable, listCustomVariables, warnOverrideOnce } from './customLoader'
-import type { ResolverCtx, ResolutionReport, VariableFn } from './types'
+import {
+  loadCustomVariable,
+  listCustomVariables,
+  readCustomVariableMetadata,
+  warnOverrideOnce,
+} from './customLoader'
+import type { ResolverCtx, ResolutionReport, VariableFn, VariableInfo } from './types'
 
-export type { ResolverCtx, VariableFn, BuiltinSpec, ResolutionReport } from './types'
+export type { ResolverCtx, VariableFn, BuiltinSpec, ResolutionReport, VariableInfo } from './types'
 
 const DEFAULT_TIMEOUT_MS = 5000
 
@@ -99,26 +104,34 @@ export async function resolveVariables(
 
 export async function listVariables(
   opts: { functionsDir?: string } = {}
-): Promise<Array<{
-  name: string
-  description: string
-  source: 'builtin' | 'custom'
-  argsHint?: string
-}>> {
-  const customNames = new Set(await listCustomVariables(opts.functionsDir))
-  const out: Array<{ name: string; description: string; source: 'builtin' | 'custom'; argsHint?: string }> = []
+): Promise<VariableInfo[]> {
+  const customNames = await listCustomVariables(opts.functionsDir)
+  const metadataEntries = await Promise.all(
+    customNames.map(async name => [
+      name,
+      await readCustomVariableMetadata(name, opts.functionsDir),
+    ] as const)
+  )
+  const customMetadata = new Map(metadataEntries)
+  const out: VariableInfo[] = []
 
   for (const spec of builtinRegistry.values()) {
+    const customMeta = customMetadata.get(spec.name)
     out.push({
       name: spec.name,
-      description: spec.description,
-      argsHint: spec.argsHint,
-      source: customNames.has(spec.name) ? 'custom' : 'builtin',
+      description: customMeta?.description ?? spec.description,
+      argsHint: customMeta?.argsHint ?? spec.argsHint,
+      source: customMeta !== undefined ? 'custom' : 'builtin',
     })
   }
-  for (const name of customNames) {
+  for (const [name, meta] of customMetadata) {
     if (!builtinRegistry.has(name)) {
-      out.push({ name, description: '(custom function)', source: 'custom' })
+      out.push({
+        name,
+        description: meta.description ?? '(custom function)',
+        argsHint: meta.argsHint,
+        source: 'custom',
+      })
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name))

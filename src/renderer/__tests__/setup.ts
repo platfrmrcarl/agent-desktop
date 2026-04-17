@@ -158,6 +158,18 @@ export const mockAgent = {
     maximize: vi.fn(),
     close: vi.fn(),
   },
+  scheduler: {
+    list: vi.fn().mockResolvedValue([]),
+    get: vi.fn().mockResolvedValue(null),
+    create: vi.fn().mockResolvedValue(undefined),
+    update: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined),
+    toggle: vi.fn().mockResolvedValue(undefined),
+    runNow: vi.fn().mockResolvedValue(undefined),
+    conversationTasks: vi.fn().mockResolvedValue([]),
+    listVariables: vi.fn().mockResolvedValue([]),
+    onTaskUpdate: vi.fn().mockReturnValue(() => {}),
+  },
 }
 
 // Install global mock before any store modules load

@@ -20,7 +20,7 @@ export { SchedulerService, computeNextRun, getExpectedThemeFilename } from './se
 export { executeTask } from './services/taskExecutor'
 export type { TaskRunContext, StreamResult } from './services/taskExecutor'
 export { resolveVariables, resolveVariablesWithReport, listVariables } from './services/variableResolver'
-export type { ResolverCtx, VariableFn, BuiltinSpec, ResolutionReport } from './services/variableResolver'
+export type { ResolverCtx, VariableFn, BuiltinSpec, ResolutionReport, VariableInfo } from './services/variableResolver'
 
 // Dispatch
 export { DispatchRegistry } from './dispatch'

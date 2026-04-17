@@ -143,4 +143,101 @@ describe('listVariables', () => {
     const list = await listVariables({ functionsDir: dir })
     expect(list.find(v => v.name === 'weather')?.source).toBe('custom')
   })
+
+  it('extracts description from JSDoc block of custom variable', async () => {
+    writeFileSync(
+      join(dir, 'weather.ts'),
+      `/**
+ * Fetches current weather for a given city.
+ */
+export default (args: string[]) => 'sunny'`
+    )
+    const list = await listVariables({ functionsDir: dir })
+    const weather = list.find(v => v.name === 'weather')
+    expect(weather?.description).toBe('Fetches current weather for a given city.')
+  })
+
+  it('extracts argsHint from @arg tags, joining with ":"', async () => {
+    writeFileSync(
+      join(dir, 'fetch.ts'),
+      `/**
+ * Does stuff.
+ * @arg city - City name
+ * @arg country - Country code
+ */
+export default () => ''`
+    )
+    const list = await listVariables({ functionsDir: dir })
+    expect(list.find(v => v.name === 'fetch')?.argsHint).toBe('city:country')
+  })
+
+  it('marks [name] bracketed args as optional with "?" suffix', async () => {
+    writeFileSync(
+      join(dir, 'greet.ts'),
+      `/**
+ * Greets someone.
+ * @arg name - required name
+ * @arg [style] - optional style
+ */
+export default () => ''`
+    )
+    const list = await listVariables({ functionsDir: dir })
+    expect(list.find(v => v.name === 'greet')?.argsHint).toBe('name:style?')
+  })
+
+  it('supports @param as alternative to @arg', async () => {
+    writeFileSync(
+      join(dir, 'legacy.ts'),
+      `/**
+ * Old-style.
+ * @param {string} foo - foo
+ * @param {string} [bar] - bar
+ */
+export default () => ''`
+    )
+    const list = await listVariables({ functionsDir: dir })
+    expect(list.find(v => v.name === 'legacy')?.argsHint).toBe('foo:bar?')
+  })
+
+  it('falls back to "(custom function)" when no JSDoc present', async () => {
+    writeFileSync(join(dir, 'bare.ts'), `export default () => ''`)
+    const list = await listVariables({ functionsDir: dir })
+    expect(list.find(v => v.name === 'bare')?.description).toBe('(custom function)')
+  })
+
+  it('collapses multi-line JSDoc description into single line', async () => {
+    writeFileSync(
+      join(dir, 'multi.ts'),
+      `/**
+ * Line one of description
+ * continues on line two.
+ */
+export default () => ''`
+    )
+    const list = await listVariables({ functionsDir: dir })
+    expect(list.find(v => v.name === 'multi')?.description)
+      .toBe('Line one of description continues on line two.')
+  })
+
+  it('override of builtin uses custom JSDoc description, not builtin', async () => {
+    writeFileSync(
+      join(dir, 'today_date.ts'),
+      `/**
+ * My special today implementation.
+ */
+export default () => 'X'`
+    )
+    const list = await listVariables({ functionsDir: dir })
+    const td = list.find(v => v.name === 'today_date')
+    expect(td?.source).toBe('custom')
+    expect(td?.description).toBe('My special today implementation.')
+  })
+
+  it('override without JSDoc falls back to builtin description', async () => {
+    writeFileSync(join(dir, 'today_date.ts'), `export default () => ''`)
+    const list = await listVariables({ functionsDir: dir })
+    const td = list.find(v => v.name === 'today_date')
+    expect(td?.source).toBe('custom')
+    expect(td?.description).toMatch(/Date du jour/)
+  })
 })

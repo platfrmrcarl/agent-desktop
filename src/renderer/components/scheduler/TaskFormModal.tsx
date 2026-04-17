@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { ScheduledTask, CreateScheduledTask, IntervalUnit } from '../../../shared/types'
+import type { ScheduledTask, CreateScheduledTask, IntervalUnit, VariableInfo } from '../../../shared/types'
 import { useConversationsStore } from '../../stores/conversationsStore'
 
 interface Props {
@@ -33,10 +33,17 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
   const [notifyVoice, setNotifyVoice] = useState(task?.notify_voice || false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [variables, setVariables] = useState<VariableInfo[]>([])
 
   useEffect(() => {
     loadConversations()
   }, [loadConversations])
+
+  useEffect(() => {
+    window.agent.scheduler.listVariables()
+      .then((list) => setVariables(list))
+      .catch(() => setVariables([]))
+  }, [])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -145,6 +152,58 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
                 border: '1px solid var(--color-text-muted)/20',
               }}
             />
+            {variables.length > 0 && (
+              <details className="mt-2 group">
+                <summary
+                  className="cursor-pointer select-none text-xs flex items-center gap-1.5 py-1"
+                  style={{ color: 'var(--color-text-muted)', listStyle: 'none' }}
+                >
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 10 10"
+                    className="transition-transform group-open:rotate-90"
+                    fill="currentColor"
+                  >
+                    <path d="M3 1l4 4-4 4V1z" />
+                  </svg>
+                  <span>Available variables ({variables.length}) — use <code className="font-mono">{'{name}'}</code> or <code className="font-mono">{'{name:arg}'}</code></span>
+                </summary>
+                <div
+                  className="mt-2 rounded p-2 max-h-56 overflow-y-auto space-y-1.5 text-xs"
+                  style={{
+                    backgroundColor: 'var(--color-bg)',
+                    border: '1px solid color-mix(in srgb, var(--color-text-muted) 15%, transparent)',
+                  }}
+                >
+                  {variables.map((v) => (
+                    <div key={v.name} className="flex items-start gap-2">
+                      <code
+                        className="font-mono px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap"
+                        style={{
+                          backgroundColor: 'color-mix(in srgb, var(--color-primary) 12%, transparent)',
+                          color: 'var(--color-text)',
+                        }}
+                      >
+                        {'{'}{v.name}{v.argsHint ? `:${v.argsHint}` : ''}{'}'}
+                      </code>
+                      {v.source === 'custom' && (
+                        <span
+                          className="text-[10px] uppercase px-1 py-0.5 rounded shrink-0"
+                          style={{
+                            backgroundColor: 'color-mix(in srgb, var(--color-accent, var(--color-primary)) 20%, transparent)',
+                            color: 'var(--color-text)',
+                          }}
+                        >
+                          custom
+                        </span>
+                      )}
+                      <span style={{ color: 'var(--color-text-muted)' }}>{v.description}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
 
           {/* Conversation */}

@@ -28,6 +28,14 @@ export interface BuiltinSpec {
   fn: VariableFn
 }
 
+/** Info publique sur une variable — retournée par listVariables() pour l'UI. */
+export interface VariableInfo {
+  name: string
+  description: string
+  source: 'builtin' | 'custom'
+  argsHint?: string
+}
+
 /** Détail retourné par resolveVariablesWithReport pour observabilité. */
 export interface ResolutionReport {
   resolved: string

@@ -291,6 +291,7 @@ function generateShim(token: string): string {
       toggle: function(id, e) { return invoke('scheduler:toggle', [id, e]); },
       runNow: function(id) { return invoke('scheduler:runNow', [id]); },
       conversationTasks: function(cid) { return invoke('scheduler:conversationTasks', [cid]); },
+      listVariables: function() { return invoke('scheduler:listVariables', []); },
       onTaskUpdate: function(cb) { return subscribe('scheduler:taskUpdate', cb); },
     },
     updates: {

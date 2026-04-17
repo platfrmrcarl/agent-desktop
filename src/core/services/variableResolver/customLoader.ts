@@ -108,6 +108,56 @@ export async function loadCustomVariable(
   return typedFn
 }
 
+/**
+ * Parse the leading JSDoc block of a custom variable source file.
+ * - Description = text before the first @tag (whitespace-collapsed)
+ * - argsHint = names extracted from @arg / @param tags, joined by ':'
+ *   Brackets around a name ([foo]) → optional → suffix '?'
+ * Returns empty object if file is missing, has no JSDoc, or parsing yields nothing.
+ */
+export async function readCustomVariableMetadata(
+  name: string,
+  functionsDir: string = DEFAULT_DIR
+): Promise<{ description?: string; argsHint?: string }> {
+  const srcPath = join(functionsDir, `${name}.ts`)
+  let source: string
+  try {
+    source = await readFile(srcPath, 'utf-8')
+  } catch {
+    return {}
+  }
+
+  const block = source.match(/\/\*\*([\s\S]*?)\*\//)
+  if (!block) return {}
+
+  const body = block[1]
+    .split('\n')
+    .map(line => line.replace(/^\s*\*\s?/, '').trimEnd())
+    .join('\n')
+    .trim()
+
+  const firstTagIdx = body.search(/^@\w+/m)
+  const descPart = firstTagIdx === -1 ? body : body.slice(0, firstTagIdx).trim()
+  const tagsPart = firstTagIdx === -1 ? '' : body.slice(firstTagIdx)
+
+  const description = descPart.length > 0 ? descPart.replace(/\s+/g, ' ') : undefined
+
+  const argNames: string[] = []
+  // @arg or @param, optional {type}, then [name] or name
+  const tagRe = /@(?:arg|param)(?:\s+\{[^}]*\})?\s+(\[?[a-zA-Z_$][\w$]*\]?)/g
+  let m: RegExpExecArray | null
+  while ((m = tagRe.exec(tagsPart)) !== null) {
+    let argName = m[1]
+    if (argName.startsWith('[') && argName.endsWith(']')) {
+      argName = argName.slice(1, -1) + '?'
+    }
+    argNames.push(argName)
+  }
+  const argsHint = argNames.length > 0 ? argNames.join(':') : undefined
+
+  return { description, argsHint }
+}
+
 /** List basenames of .ts files in functionsDir (no extension, ignores .cache contents). */
 export async function listCustomVariables(
   functionsDir: string = DEFAULT_DIR

@@ -1,6 +1,7 @@
 import type { HandleRegistrar } from '../dispatch'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import { SchedulerService } from '../services/scheduler'
+import { listVariables } from '../services/variableResolver'
 
 export function registerSchedulerHandlers(registrar: HandleRegistrar, db: SqlJsAdapter): void {
   let service: SchedulerService | null = null
@@ -41,6 +42,8 @@ export function registerSchedulerHandlers(registrar: HandleRegistrar, db: SqlJsA
     // Platform scheduler install/uninstall is Electron-only — not available headless
     return enabled as boolean
   })
+
+  registrar.handle('scheduler:listVariables', async () => listVariables({}))
 
   registrar.handle('scheduler:backgroundStatus', async () => {
     const setting = (db as any).prepare("SELECT value FROM settings WHERE key = 'scheduler_background_enabled'")

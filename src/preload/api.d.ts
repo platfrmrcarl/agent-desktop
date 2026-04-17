@@ -24,6 +24,7 @@ import type {
   ScheduledTask,
   CreateScheduledTask,
   JupyterOutputChunk,
+  VariableInfo,
 } from '../shared/types'
 import type { PIExtensionInfo } from '../shared/constants'
 import type { PiUIEvent, PiUIRequest, PiUIResponse } from '../shared/piUITypes'
@@ -178,6 +179,7 @@ export interface AgentAPI {
     toggle(id: number, enabled: boolean): Promise<void>
     runNow(id: number): Promise<void>
     conversationTasks(conversationId: number): Promise<number[]>
+    listVariables(): Promise<VariableInfo[]>
     onTaskUpdate(callback: (task: ScheduledTask) => void): () => void
   }
   updates: {
