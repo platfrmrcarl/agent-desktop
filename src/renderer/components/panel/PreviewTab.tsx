@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Editor from '@monaco-editor/react'
 import { useFileExplorerStore } from '../../stores/fileExplorerStore'
+import { useMonacoFontSize } from '../../hooks/useMonacoFontSize'
 import { HtmlPreview } from '../artifacts/HtmlPreview'
 import { MarkdownArtifact } from '../artifacts/MarkdownArtifact'
 import { MermaidBlock } from '../artifacts/MermaidBlock'
@@ -487,6 +488,7 @@ function FileTreeNode({
 
 function MonacoFileEditor({ content, language }: { content: string; language: string | null }) {
   const { editorContent, setEditorContent, saveFile } = useFileExplorerStore()
+  const monacoFontSize = useMonacoFontSize(13)
 
   const handleMount = (editor: any, monaco: any) => {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveFile())
@@ -500,7 +502,7 @@ function MonacoFileEditor({ content, language }: { content: string; language: st
       value={editorContent ?? content}
       onChange={(val) => setEditorContent(val ?? '')}
       onMount={handleMount}
-      options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', scrollBeyondLastLine: false }}
+      options={{ minimap: { enabled: false }, fontSize: monacoFontSize, wordWrap: 'on', scrollBeyondLastLine: false }}
     />
   )
 }

@@ -3,6 +3,7 @@ import DOMPurify from 'dompurify'
 import { MarkdownArtifact } from './MarkdownArtifact'
 import { useFileExplorerStore } from '../../stores/fileExplorerStore'
 import type { JupyterOutputChunk } from '../../../shared/types'
+import { useMonacoFontSize } from '../../hooks/useMonacoFontSize'
 
 // Lazy-load Monaco editor (~2-5MB bundle) — deferred until a code cell enters edit mode
 let _MonacoEditorComponent: React.ComponentType<any> | null = null
@@ -540,6 +541,7 @@ const NotebookCellView = React.memo(function NotebookCellView({
 }: NotebookCellViewProps) {
   const source = cell.source
   const MonacoEditor = useMonacoEditor()
+  const monacoFontSize = useMonacoFontSize(12)
 
   // Trigger Monaco load when editing a code cell
   useEffect(() => {
@@ -716,7 +718,7 @@ const NotebookCellView = React.memo(function NotebookCellView({
                   wordWrap: 'on',
                   lineNumbers: 'on',
                   scrollBeyondLastLine: false,
-                  fontSize: 12,
+                  fontSize: monacoFontSize,
                   tabSize: 4,
                   renderLineHighlight: 'none',
                   overviewRulerLanes: 0,

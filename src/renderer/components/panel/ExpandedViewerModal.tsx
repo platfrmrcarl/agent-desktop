@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Editor from '@monaco-editor/react'
 import { useFileExplorerStore } from '../../stores/fileExplorerStore'
 import { useMobileMode } from '../../hooks/useMobileMode'
+import { useMonacoFontSize } from '../../hooks/useMonacoFontSize'
 import { HtmlPreview } from '../artifacts/HtmlPreview'
 import { pathBasename } from '../../../shared/pathUtils'
 import { MarkdownArtifact } from '../artifacts/MarkdownArtifact'
@@ -50,6 +51,7 @@ export function ExpandedViewerModal({
 }: ExpandedViewerModalProps) {
   const [mode, setMode] = useState(initialMode)
   const mobile = useMobileMode()
+  const monacoFontSize = useMonacoFontSize(13)
   const filename = getBasename(filePath)
 
   const handleClose = useCallback(() => {
@@ -144,7 +146,7 @@ export function ExpandedViewerModal({
       onMount={handleMount}
       options={{
         minimap: { enabled: false },
-        fontSize: 13,
+        fontSize: monacoFontSize,
         wordWrap: 'on',
         scrollBeyondLastLine: false,
         lineNumbers: 'on',

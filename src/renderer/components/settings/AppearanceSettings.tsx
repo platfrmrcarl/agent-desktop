@@ -3,6 +3,7 @@ import Editor from '@monaco-editor/react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { ThemeFile } from '../../../shared/types'
 import { applyFontScale, parseFontScale } from '../../utils/fontScale'
+import { useMonacoFontSize } from '../../hooks/useMonacoFontSize'
 
 const TEMPLATE_CSS = `/* My Custom Theme */
 :root {
@@ -65,6 +66,8 @@ export function AppearanceSettings() {
   useEffect(() => {
     applyFontScale(currentFontSize)
   }, [currentFontSize])
+
+  const monacoFontSize = useMonacoFontSize(13)
 
   const handleSelectTheme = (theme: ThemeFile) => {
     if (autoThemeEnabled) {
@@ -611,7 +614,7 @@ export function AppearanceSettings() {
               onChange={(val) => setCssContent(val ?? '')}
               options={{
                 minimap: { enabled: false },
-                fontSize: 13,
+                fontSize: monacoFontSize,
                 lineNumbers: 'on',
                 wordWrap: 'on',
                 scrollBeyondLastLine: false,

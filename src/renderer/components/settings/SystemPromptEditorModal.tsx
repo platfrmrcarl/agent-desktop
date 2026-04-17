@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import Editor from '@monaco-editor/react'
+import { useMonacoFontSize } from '../../hooks/useMonacoFontSize'
 
 interface SystemPromptEditorModalProps {
   value: string
@@ -29,6 +30,8 @@ export function SystemPromptEditorModal({ value, onChange, onClose }: SystemProm
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [handleCancel])
+
+  const monacoFontSize = useMonacoFontSize(13)
 
   return (
     <div
@@ -69,7 +72,7 @@ export function SystemPromptEditorModal({ value, onChange, onClose }: SystemProm
             onChange={(v) => setDraft(v ?? '')}
             options={{
               minimap: { enabled: false },
-              fontSize: 13,
+              fontSize: monacoFontSize,
               wordWrap: 'on',
               scrollBeyondLastLine: false,
               lineNumbers: 'off',
