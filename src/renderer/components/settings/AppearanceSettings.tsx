@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import Editor from '@monaco-editor/react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { ThemeFile } from '../../../shared/types'
+import { applyFontScale, parseFontScale } from '../../utils/fontScale'
+import { useMonacoFontSize } from '../../hooks/useMonacoFontSize'
 
 const TEMPLATE_CSS = `/* My Custom Theme */
 :root {
@@ -43,7 +45,13 @@ export function AppearanceSettings() {
     loadSettings()
   }, [loadThemes, loadSettings])
 
-  const currentFontSize = settings.fontSize ?? '14'
+  const currentFontSize = settings.fontSize ?? '1'
+  const currentScale = parseFontScale(currentFontSize)
+
+  const [customInputValue, setCustomInputValue] = useState<string>(String(currentScale))
+  useEffect(() => {
+    setCustomInputValue(String(currentScale))
+  }, [currentScale])
   const windowTitle = settings.windowTitle ?? ''
   const showTitlebar = (settings.showTitlebar ?? 'true') === 'true'
   const alwaysVisible = (settings.panelButtonAlwaysVisible ?? 'false') === 'true'
@@ -56,8 +64,10 @@ export function AppearanceSettings() {
   const autoThemeNightTime = settings.autoTheme_nightTime ?? '21:00'
   const diffExpanded = (settings.diffExpandedByDefault ?? 'false') === 'true'
   useEffect(() => {
-    document.documentElement.style.fontSize = currentFontSize + 'px'
+    applyFontScale(currentFontSize)
   }, [currentFontSize])
+
+  const monacoFontSize = useMonacoFontSize(13)
 
   const handleSelectTheme = (theme: ThemeFile) => {
     if (autoThemeEnabled) {
@@ -159,28 +169,60 @@ export function AppearanceSettings() {
             value={windowTitle}
             onChange={(e) => setSetting('windowTitle', e.target.value)}
             placeholder="Agent Desktop"
-            className="w-48 bg-surface text-body border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+            className="w-48 bg-surface border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+            style={{ color: 'var(--color-text)' }}
             aria-label="Custom window title"
           />
         </div>
 
-        {/* Font Size */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-          <span className="text-sm text-body">Font Size</span>
+        {/* Font Scale */}
+        <div className="flex flex-col px-4 py-3 border-b border-deep gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-body">Font Scale</span>
+            <span className="text-xs text-muted">{currentScale.toFixed(2)}× · ~{Math.round(currentScale * 16)}px</span>
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {[
+              { value: '0.85', label: 'Small' },
+              { value: '1', label: 'Normal' },
+              { value: '1.25', label: 'Large' },
+              { value: '1.5', label: 'XL' },
+              { value: '2', label: 'XXL' },
+            ].map((preset) => {
+              const active = Math.abs(currentScale - parseFloat(preset.value)) < 0.01
+              return (
+                <button
+                  key={preset.value}
+                  onClick={() => setSetting('fontSize', preset.value)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors mobile:px-4 mobile:py-3 mobile:text-sm ${
+                    active ? 'bg-primary text-contrast' : 'bg-surface text-body'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              )
+            })}
+          </div>
           <div className="flex items-center gap-2">
+            <span className="text-xs text-muted">Custom</span>
             <input
               type="number"
-              min={8}
-              max={32}
-              value={currentFontSize}
+              min={0.5}
+              max={3}
+              step={0.05}
+              value={customInputValue}
               onChange={(e) => {
                 const v = e.target.value
-                if (v !== '' && Number(v) >= 8 && Number(v) <= 32) setSetting('fontSize', v)
+                setCustomInputValue(v)
+                if (v === '') return
+                const n = Number(v)
+                if (!isNaN(n) && n >= 0.5 && n <= 3) setSetting('fontSize', String(n))
               }}
-              className="w-16 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
-              aria-label="Font size in pixels"
+              className="w-20 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+              style={{ color: 'var(--color-text)' }}
+              aria-label="Custom font scale"
             />
-            <span className="text-xs text-muted">px</span>
+            <span className="text-xs text-muted">×</span>
           </div>
         </div>
 
@@ -242,7 +284,8 @@ export function AppearanceSettings() {
                 const v = e.target.value
                 if (v !== '' && Number(v) >= 0 && Number(v) <= 50) setSetting('panelButtonRadius', v)
               }}
-              className="w-16 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+              className="w-16 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+              style={{ color: 'var(--color-text)' }}
               aria-label="Panel button proximity radius"
             />
             <span className="text-xs text-muted">%</span>
@@ -337,7 +380,8 @@ export function AppearanceSettings() {
                         const v = e.target.value
                         if (v !== '' && Number(v) >= 0) setSetting('heatmap_min', v)
                       }}
-                      className="w-16 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+                      className="w-16 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+                      style={{ color: 'var(--color-text)' }}
                       aria-label="Heatmap minimum threshold"
                     />
                   </div>
@@ -354,7 +398,8 @@ export function AppearanceSettings() {
                         const v = e.target.value
                         if (v !== '' && Number(v) >= 1) setSetting('heatmap_max', v)
                       }}
-                      className="w-16 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+                      className="w-16 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+                      style={{ color: 'var(--color-text)' }}
                       aria-label="Heatmap maximum threshold"
                     />
                   </div>
@@ -411,7 +456,8 @@ export function AppearanceSettings() {
                   type="time"
                   value={autoThemeDayTime}
                   onChange={(e) => setSetting('autoTheme_dayTime', e.target.value)}
-                  className="bg-surface text-body border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+                  className="bg-surface border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+                  style={{ color: 'var(--color-text)' }}
                   aria-label="Day transition time"
                 />
               </div>
@@ -436,7 +482,8 @@ export function AppearanceSettings() {
                   type="time"
                   value={autoThemeNightTime}
                   onChange={(e) => setSetting('autoTheme_nightTime', e.target.value)}
-                  className="bg-surface text-body border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+                  className="bg-surface border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+                  style={{ color: 'var(--color-text)' }}
                   aria-label="Night transition time"
                 />
               </div>
@@ -491,7 +538,7 @@ export function AppearanceSettings() {
                   </span>
                   <div className="flex items-center gap-1">
                     {isActive && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-primary text-contrast">
+                      <span className="text-[0.625rem] px-1.5 py-0.5 rounded font-medium bg-primary text-contrast">
                         Active
                       </span>
                     )}
@@ -557,7 +604,8 @@ export function AppearanceSettings() {
                 Filename
               </label>
               <input
-                className="w-full max-w-xs bg-surface text-body border border-muted rounded px-3 py-2 text-sm outline-none focus:border-primary mobile:text-base"
+                className="w-full max-w-xs bg-surface border border-muted rounded px-3 py-2 text-sm outline-none focus:border-primary mobile:text-base"
+              style={{ color: 'var(--color-text)' }}
                 value={newFilename}
                 onChange={(e) => setNewFilename(e.target.value)}
                 placeholder="my-theme.css"
@@ -574,7 +622,7 @@ export function AppearanceSettings() {
               onChange={(val) => setCssContent(val ?? '')}
               options={{
                 minimap: { enabled: false },
-                fontSize: 13,
+                fontSize: monacoFontSize,
                 lineNumbers: 'on',
                 wordWrap: 'on',
                 scrollBeyondLastLine: false,

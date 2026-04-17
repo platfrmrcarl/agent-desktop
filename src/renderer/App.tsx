@@ -10,6 +10,7 @@ import { AuthGuard } from './components/auth/AuthGuard'
 import { MainLayout } from './layouts/MainLayout'
 import { SettingsPage } from './pages/SettingsPage'
 import { parseAccelerator, matchesEvent } from './utils/shortcutMatcher'
+import { applyFontScale } from './utils/fontScale'
 import { parseOverrides, resolveEffectiveSettings } from './utils/resolveAISettings'
 import { OverlayChat } from './components/overlay/OverlayChat'
 import { SchedulerPage } from './components/scheduler/SchedulerPage'
@@ -46,11 +47,9 @@ export default function App() {
       } else if (themes.length > 0) {
         settingsStore.applyTheme(themes[0])
       }
-      // Apply saved font size
+      // Apply saved font scale
       const { settings } = useSettingsStore.getState()
-      if (settings.fontSize) {
-        document.documentElement.style.fontSize = settings.fontSize + 'px'
-      }
+      applyFontScale(settings.fontSize)
     }
     init()
     useShortcutsStore.getState().loadShortcuts()
@@ -71,10 +70,19 @@ export default function App() {
         useSettingsStore.setState({ activeTheme: filename })
       }
     })
+    let lastFontSize = useSettingsStore.getState().settings.fontSize
+    const unsubFontScale = useSettingsStore.subscribe((state) => {
+      if (state.settings.fontSize !== lastFontSize) {
+        lastFontSize = state.settings.fontSize
+        applyFontScale(lastFontSize)
+      }
+    })
+
     return () => {
       unsubTray()
       unsubDeeplink()
       unsubAutoTheme()
+      unsubFontScale()
     }
   }, [])
 

@@ -56,7 +56,7 @@ export function FolderSettingsPopover({
         <label className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>
           Default Working Directory
         </label>
-        <p className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+        <p className="text-[0.6875rem]" style={{ color: 'var(--color-text-muted)' }}>
           New conversations in this folder will use this CWD.
         </p>
         <div className="flex gap-1.5">

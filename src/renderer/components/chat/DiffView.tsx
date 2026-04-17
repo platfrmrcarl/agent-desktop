@@ -41,7 +41,7 @@ export function DiffView({ oldStr, newStr }: DiffViewProps) {
         backgroundColor: 'color-mix(in srgb, var(--color-error) 6%, transparent)',
       }}>
         <div
-          className="px-2 py-1 text-[10px] font-semibold border-b border-deep"
+          className="px-2 py-1 text-[0.625rem] font-semibold border-b border-deep"
           style={{ color: 'var(--color-error)' }}
         >
           Before ({oldLines.length} {oldLines.length === 1 ? 'line' : 'lines'})
@@ -62,7 +62,7 @@ export function DiffView({ oldStr, newStr }: DiffViewProps) {
         backgroundColor: 'color-mix(in srgb, var(--color-success) 6%, transparent)',
       }}>
         <div
-          className="px-2 py-1 text-[10px] font-semibold border-b border-deep"
+          className="px-2 py-1 text-[0.625rem] font-semibold border-b border-deep"
           style={{ color: 'var(--color-success)' }}
         >
           After ({newLines.length} {newLines.length === 1 ? 'line' : 'lines'})

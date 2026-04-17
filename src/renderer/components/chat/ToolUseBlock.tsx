@@ -148,7 +148,7 @@ export function ToolUseBlock({ tool }: ToolUseBlockProps) {
             {hasDiff && (
               <button
                 onClick={() => setShowDiff((s) => !s)}
-                className="rounded transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[10px] mobile:px-3 mobile:py-2 mobile:text-xs"
+                className="rounded transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[0.625rem] mobile:px-3 mobile:py-2 mobile:text-xs"
                 style={{ color: 'var(--color-tool)' }}
                 aria-expanded={showDiff}
                 aria-label="Toggle diff view"
@@ -159,7 +159,7 @@ export function ToolUseBlock({ tool }: ToolUseBlockProps) {
             {hasInput && (
               <button
                 onClick={() => setShowInput((s) => !s)}
-                className="rounded transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[10px] mobile:px-3 mobile:py-2 mobile:text-xs"
+                className="rounded transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[0.625rem] mobile:px-3 mobile:py-2 mobile:text-xs"
                 style={{ color: 'var(--color-tool)' }}
                 aria-expanded={showInput}
                 aria-label="Toggle tool input"
@@ -170,7 +170,7 @@ export function ToolUseBlock({ tool }: ToolUseBlockProps) {
             {hasOutput && (
               <button
                 onClick={() => setShowOutput((s) => !s)}
-                className="rounded transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[10px] mobile:px-3 mobile:py-2 mobile:text-xs"
+                className="rounded transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[0.625rem] mobile:px-3 mobile:py-2 mobile:text-xs"
                 style={{ color: 'var(--color-tool)' }}
                 aria-expanded={showOutput}
                 aria-label="Toggle tool output"

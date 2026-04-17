@@ -189,7 +189,7 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
                       </code>
                       {v.source === 'custom' && (
                         <span
-                          className="text-[10px] uppercase px-1 py-0.5 rounded shrink-0"
+                          className="text-[0.625rem] uppercase px-1 py-0.5 rounded shrink-0"
                           style={{
                             backgroundColor: 'color-mix(in srgb, var(--color-accent, var(--color-primary)) 20%, transparent)',
                             color: 'var(--color-text)',

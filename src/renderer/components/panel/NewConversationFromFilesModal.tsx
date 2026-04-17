@@ -126,7 +126,7 @@ export function NewConversationFromFilesModal({ paths, onConfirm, onClose }: Pro
                     </span>
                   )}
                   {isRenamed && !isEditing && (
-                    <span className="text-[10px] px-1 py-0.5 rounded flex-shrink-0 bg-accent text-contrast">
+                    <span className="text-[0.625rem] px-1 py-0.5 rounded flex-shrink-0 bg-accent text-contrast">
                       renamed
                     </span>
                   )}

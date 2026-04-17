@@ -154,13 +154,13 @@ export function GitGraph({ cwd }: { cwd: string }) {
                   {badges.map((b, i) => (
                     <span
                       key={i}
-                      className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${refClasses(b.kind)}`}
+                      className={`text-[0.625rem] px-1.5 py-0.5 rounded border shrink-0 ${refClasses(b.kind)}`}
                     >
                       {b.label}
                     </span>
                   ))}
                   <span className="truncate flex-1 text-xs">{n.commit.subject}</span>
-                  <span className="font-mono text-[10px] opacity-60 shrink-0">{n.commit.shortSha}</span>
+                  <span className="font-mono text-[0.625rem] opacity-60 shrink-0">{n.commit.shortSha}</span>
                 </button>
               </li>
             )

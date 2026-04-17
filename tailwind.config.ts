@@ -25,9 +25,6 @@ const config: Config = {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
-      fontSize: {
-        base: ['14px', { lineHeight: '1.5' }],
-      },
       spacing: {
         '1u': '4px',
         '2u': '8px',

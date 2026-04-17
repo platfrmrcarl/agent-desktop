@@ -60,9 +60,10 @@
 
 @layer base {
   html {
-    font-size: 14px;
+    font-size: calc(var(--font-scale, 1) * 100%);
     line-height: 1.5;
     overflow: hidden;
+    color-scheme: dark;
   }
 
   body {
@@ -70,6 +71,18 @@
     font-family: 'Inter', system-ui, sans-serif;
     background-color: var(--color-bg);
     color: var(--color-text);
+  }
+
+  /* Form controls: force theme colors regardless of UA/forced-colors fallbacks.
+     Some Chromium builds (and some theme extensions) keep a light fieldtext on
+     inputs even with color-scheme declared; this base rule closes that gap. */
+  input, textarea, select {
+    color: var(--color-text);
+    background-color: transparent;
+  }
+  input::placeholder, textarea::placeholder {
+    color: var(--color-text-muted);
+    opacity: 1;
   }
 
   #root {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Editor from '@monaco-editor/react'
 import { useFileExplorerStore } from '../../stores/fileExplorerStore'
+import { useMonacoFontSize } from '../../hooks/useMonacoFontSize'
 import { HtmlPreview } from '../artifacts/HtmlPreview'
 import { MarkdownArtifact } from '../artifacts/MarkdownArtifact'
 import { MermaidBlock } from '../artifacts/MermaidBlock'
@@ -212,7 +213,7 @@ function ApplyThemeButton({ filename }: { filename: string }) {
   if (isActive) {
     return (
       <span
-        className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 bg-primary text-contrast"
+        className="text-[0.625rem] px-1.5 py-0.5 rounded flex-shrink-0 bg-primary text-contrast"
         aria-label="Active theme"
       >
         Active
@@ -223,7 +224,7 @@ function ApplyThemeButton({ filename }: { filename: string }) {
   return (
     <button
       onClick={handleApply}
-      className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 hover:opacity-80 transition-opacity bg-accent text-contrast"
+      className="text-[0.625rem] px-1.5 py-0.5 rounded flex-shrink-0 hover:opacity-80 transition-opacity bg-accent text-contrast"
       title={`Apply ${filename} as theme`}
       aria-label={`Apply ${filename} as theme`}
     >
@@ -487,6 +488,7 @@ function FileTreeNode({
 
 function MonacoFileEditor({ content, language }: { content: string; language: string | null }) {
   const { editorContent, setEditorContent, saveFile } = useFileExplorerStore()
+  const monacoFontSize = useMonacoFontSize(13)
 
   const handleMount = (editor: any, monaco: any) => {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveFile())
@@ -500,7 +502,7 @@ function MonacoFileEditor({ content, language }: { content: string; language: st
       value={editorContent ?? content}
       onChange={(val) => setEditorContent(val ?? '')}
       onMount={handleMount}
-      options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', scrollBeyondLastLine: false }}
+      options={{ minimap: { enabled: false }, fontSize: monacoFontSize, wordWrap: 'on', scrollBeyondLastLine: false }}
     />
   )
 }
@@ -552,7 +554,7 @@ function ViewerHeader({ filePath, isThemesCwd, jsEnabled, onToggleJs, onExpand, 
       {showJsToggle && (
         <button
           onClick={onToggleJs}
-          className={`text-[10px] font-bold px-1.5 py-0.5 rounded transition-opacity hover:opacity-80 ${
+          className={`text-[0.625rem] font-bold px-1.5 py-0.5 rounded transition-opacity hover:opacity-80 ${
             jsEnabled ? 'bg-warning text-contrast' : 'bg-muted text-contrast'
           }`}
           title={jsEnabled ? 'Disable JavaScript' : 'Enable JavaScript'}
@@ -566,7 +568,7 @@ function ViewerHeader({ filePath, isThemesCwd, jsEnabled, onToggleJs, onExpand, 
         <button
           onClick={onExportStl}
           disabled={exporting}
-          className="text-[10px] font-bold px-1.5 py-0.5 rounded transition-opacity hover:opacity-80 bg-tool text-contrast"
+          className="text-[0.625rem] font-bold px-1.5 py-0.5 rounded transition-opacity hover:opacity-80 bg-tool text-contrast"
           style={{ opacity: exporting ? 0.6 : 1 }}
           title="Export as STL"
           aria-label="Export as STL"

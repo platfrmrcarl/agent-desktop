@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react'
 import type { PiUIDialog, PiUIResponse } from '../../../shared/piUITypes'
 import { keyEventToTerminal } from '../../utils/keyToTerminal'
+import { pxToRem } from '../../utils/fontScale'
 
 interface ExtensionDialogProps {
   dialog: PiUIDialog
@@ -29,7 +30,7 @@ const cardStyle: CSSProperties = {
 const titleStyle: CSSProperties = {
   color: 'var(--color-text)',
   margin: '0 0 12px 0',
-  fontSize: 16,
+  fontSize: pxToRem(16),
   fontWeight: 600,
 }
 
@@ -38,7 +39,7 @@ const buttonBaseStyle: CSSProperties = {
   borderRadius: 4,
   border: 'none',
   cursor: 'pointer',
-  fontSize: 13,
+  fontSize: pxToRem(13),
   fontWeight: 500,
 }
 
@@ -61,7 +62,7 @@ const inputStyle: CSSProperties = {
   border: '1px solid var(--color-text-muted)',
   background: 'var(--color-base)',
   color: 'var(--color-text)',
-  fontSize: 13,
+  fontSize: pxToRem(13),
   boxSizing: 'border-box',
 }
 
@@ -115,7 +116,7 @@ function SelectBody({ dialog, onRespond }: { dialog: SelectDialog; onRespond: (r
     border: 'none',
     color: 'var(--color-text)',
     cursor: 'pointer',
-    fontSize: 13,
+    fontSize: pxToRem(13),
     borderRadius: 4,
   }
 
@@ -143,7 +144,7 @@ type ConfirmDialog = Extract<PiUIDialog, { method: 'confirm' }>
 function ConfirmBody({ dialog, onRespond }: { dialog: ConfirmDialog; onRespond: (r: PiUIResponse) => void }) {
   return (
     <>
-      <p style={{ color: 'var(--color-text)', margin: '0 0 12px 0', fontSize: 13 }}>
+      <p style={{ color: 'var(--color-text)', margin: '0 0 12px 0', fontSize: pxToRem(13) }}>
         {dialog.message}
       </p>
       <div style={buttonRowStyle}>
@@ -256,7 +257,7 @@ function CustomTUIBody({ dialog }: { dialog: CustomTuiDialog }) {
     <pre
       style={{
         fontFamily: 'var(--font-mono, monospace)',
-        fontSize: 13,
+        fontSize: pxToRem(13),
         lineHeight: 1.5,
         margin: 0,
         whiteSpace: 'pre-wrap',

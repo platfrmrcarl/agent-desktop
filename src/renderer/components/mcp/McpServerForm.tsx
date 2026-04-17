@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import type { McpServer, McpTransportType } from '../../../shared/types'
 import { useMcpStore } from '../../stores/mcpStore'
 import { parseMcpJson } from '../../utils/mcpUtils'
+import { pxToRem } from '../../utils/fontScale'
 
 interface McpServerFormProps {
   server?: McpServer | null
@@ -208,7 +209,7 @@ export function McpServerForm({ server, onClose }: McpServerFormProps) {
           <div className="flex flex-col gap-2">
             <textarea
               className={inputClass}
-              style={{ minHeight: '100px', fontFamily: 'monospace', fontSize: '12px' }}
+              style={{ minHeight: '100px', fontFamily: 'monospace', fontSize: pxToRem(12) }}
               value={jsonText}
               onChange={(e) => { setJsonText(e.target.value); setJsonError('') }}
               placeholder={'{\n  "mcpServers": {\n    "name": {\n      "command": "...",\n      "env": { "KEY": "VALUE" }\n    }\n  }\n}'}

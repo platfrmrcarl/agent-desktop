@@ -24,6 +24,7 @@ const DEFAULT_DARK_CSS = `/* Agent Desktop — Default Dark Theme */
 
 const DEFAULT_LIGHT_CSS = `/* Agent Desktop — Default Light Theme */
 :root {
+  color-scheme: light;
   --color-bg: #ffffff;
   --color-surface: #ffffff;
   --color-deep: #e5e7eb;

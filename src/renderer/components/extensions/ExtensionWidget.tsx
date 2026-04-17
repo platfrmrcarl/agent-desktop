@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { PiUIWidget } from '../../../shared/piUITypes'
+import { pxToRem } from '../../utils/fontScale'
 
 interface ExtensionWidgetProps {
   widget: PiUIWidget
@@ -11,7 +12,7 @@ const containerStyle: CSSProperties = {
   borderLeft: '4px solid var(--color-primary)',
   borderRadius: 4,
   padding: '6px 10px',
-  fontSize: 12,
+  fontSize: pxToRem(12),
   fontFamily: 'monospace',
 }
 

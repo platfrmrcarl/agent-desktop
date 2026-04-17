@@ -13,7 +13,7 @@ export function GitBranches({ cwd }: { cwd: string }) {
 
   return (
     <div className="text-xs">
-      <div className="px-3 py-1.5 opacity-70 uppercase text-[10px] tracking-wide">Locales</div>
+      <div className="px-3 py-1.5 opacity-70 uppercase text-[0.625rem] tracking-wide">Locales</div>
       <ul>
         {local.map((b) => (
           <li key={b.name}>
@@ -34,7 +34,7 @@ export function GitBranches({ cwd }: { cwd: string }) {
       </ul>
       {remote.length > 0 && (
         <>
-          <div className="px-3 py-1.5 mt-2 opacity-70 uppercase text-[10px] tracking-wide">Remotes</div>
+          <div className="px-3 py-1.5 mt-2 opacity-70 uppercase text-[0.625rem] tracking-wide">Remotes</div>
           <ul>
             {remote.map((b) => (
               <li key={b.name} className="px-3 py-1 opacity-70 truncate">{b.name}</li>

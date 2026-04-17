@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import type { PiUINotification } from '../../../shared/piUITypes'
+import { pxToRem } from '../../utils/fontScale'
 
 interface ExtensionToastProps {
   notifications: PiUINotification[]
@@ -23,7 +24,7 @@ const cardBaseStyle: CSSProperties = {
   color: 'var(--color-text)',
   borderRadius: 6,
   padding: '8px 12px',
-  fontSize: 13,
+  fontSize: pxToRem(13),
   maxWidth: 320,
   display: 'flex',
   alignItems: 'flex-start',
@@ -37,7 +38,7 @@ const closeButtonStyle: CSSProperties = {
   border: 'none',
   cursor: 'pointer',
   color: 'var(--color-text-muted)',
-  fontSize: 14,
+  fontSize: pxToRem(14),
   lineHeight: 1,
   padding: 0,
   flexShrink: 0,

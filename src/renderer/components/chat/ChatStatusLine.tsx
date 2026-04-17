@@ -75,7 +75,7 @@ export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChang
 
   return (
     <div
-      className="px-1 mt-1 flex items-center text-[10px] gap-1.5 mobile:gap-1 compact:overflow-x-clip"
+      className="px-1 mt-1 flex items-center text-[0.625rem] gap-1.5 mobile:gap-1 compact:overflow-x-clip"
       style={{ color: 'var(--color-text-muted)' }}
       aria-label="Chat status"
     >
@@ -276,7 +276,7 @@ export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChang
                     {col.selected && onKbAccessToggle && (
                       <button
                         onClick={() => onKbAccessToggle(col.name)}
-                        className="flex-shrink-0 rounded font-bold transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[9px] mobile:px-2.5 mobile:py-1.5 mobile:text-[11px]"
+                        className="flex-shrink-0 rounded font-bold transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[0.5625rem] mobile:px-2.5 mobile:py-1.5 mobile:text-[0.6875rem]"
                         style={{
                           backgroundColor: col.access === 'readwrite' ? 'var(--color-warning)' : 'var(--color-primary)',
                           color: 'var(--color-text-contrast)',

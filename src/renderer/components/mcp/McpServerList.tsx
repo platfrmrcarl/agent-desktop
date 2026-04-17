@@ -112,7 +112,7 @@ export function McpServerList() {
                       </span>
                       {isRemote && (
                         <span
-                          className={`text-[10px] font-bold px-1 py-0.5 rounded text-contrast ${badgeClass[transport] || 'bg-surface'}`}
+                          className={`text-[0.625rem] font-bold px-1 py-0.5 rounded text-contrast ${badgeClass[transport] || 'bg-surface'}`}
                         >
                           {transport.toUpperCase()}
                         </span>
@@ -177,7 +177,7 @@ export function McpServerList() {
                       </span>
                       <button
                         onClick={() => clearTestResult(server.id)}
-                        className="text-[10px] px-1.5 py-0.5 rounded transition-opacity hover:opacity-80 bg-surface text-muted"
+                        className="text-[0.625rem] px-1.5 py-0.5 rounded transition-opacity hover:opacity-80 bg-surface text-muted"
                         aria-label="Dismiss test result"
                       >
                         Dismiss
