@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import Editor from '@monaco-editor/react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { ThemeFile } from '../../../shared/types'
+import { applyFontScale, parseFontScale } from '../../utils/fontScale'
 
 const TEMPLATE_CSS = `/* My Custom Theme */
 :root {
@@ -43,7 +44,8 @@ export function AppearanceSettings() {
     loadSettings()
   }, [loadThemes, loadSettings])
 
-  const currentFontSize = settings.fontSize ?? '14'
+  const currentFontSize = settings.fontSize ?? '1'
+  const currentScale = parseFontScale(currentFontSize)
   const windowTitle = settings.windowTitle ?? ''
   const showTitlebar = (settings.showTitlebar ?? 'true') === 'true'
   const alwaysVisible = (settings.panelButtonAlwaysVisible ?? 'false') === 'true'
@@ -56,7 +58,7 @@ export function AppearanceSettings() {
   const autoThemeNightTime = settings.autoTheme_nightTime ?? '21:00'
   const diffExpanded = (settings.diffExpandedByDefault ?? 'false') === 'true'
   useEffect(() => {
-    document.documentElement.style.fontSize = currentFontSize + 'px'
+    applyFontScale(currentFontSize)
   }, [currentFontSize])
 
   const handleSelectTheme = (theme: ThemeFile) => {
@@ -164,23 +166,52 @@ export function AppearanceSettings() {
           />
         </div>
 
-        {/* Font Size */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-          <span className="text-sm text-body">Font Size</span>
+        {/* Font Scale */}
+        <div className="flex flex-col px-4 py-3 border-b border-deep gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-body">Font Scale</span>
+            <span className="text-xs text-muted">{currentScale.toFixed(2)}× · ~{Math.round(currentScale * 16)}px</span>
+          </div>
+          <div className="flex items-center gap-1 flex-wrap">
+            {[
+              { value: '0.85', label: 'Small' },
+              { value: '1', label: 'Normal' },
+              { value: '1.25', label: 'Large' },
+              { value: '1.5', label: 'XL' },
+              { value: '2', label: 'XXL' },
+            ].map((preset) => {
+              const active = Math.abs(currentScale - parseFloat(preset.value)) < 0.01
+              return (
+                <button
+                  key={preset.value}
+                  onClick={() => setSetting('fontSize', preset.value)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors mobile:px-4 mobile:py-3 mobile:text-sm ${
+                    active ? 'bg-primary text-contrast' : 'bg-surface text-body'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              )
+            })}
+          </div>
           <div className="flex items-center gap-2">
+            <span className="text-xs text-muted">Custom</span>
             <input
               type="number"
-              min={8}
-              max={32}
-              value={currentFontSize}
+              min={0.5}
+              max={3}
+              step={0.05}
+              value={currentScale}
               onChange={(e) => {
                 const v = e.target.value
-                if (v !== '' && Number(v) >= 8 && Number(v) <= 32) setSetting('fontSize', v)
+                if (v === '') return
+                const n = Number(v)
+                if (!isNaN(n) && n >= 0.5 && n <= 3) setSetting('fontSize', String(n))
               }}
-              className="w-16 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
-              aria-label="Font size in pixels"
+              className="w-20 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+              aria-label="Custom font scale"
             />
-            <span className="text-xs text-muted">px</span>
+            <span className="text-xs text-muted">×</span>
           </div>
         </div>
 
