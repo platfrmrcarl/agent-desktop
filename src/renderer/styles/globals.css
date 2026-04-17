@@ -73,6 +73,18 @@
     color: var(--color-text);
   }
 
+  /* Form controls: force theme colors regardless of UA/forced-colors fallbacks.
+     Some Chromium builds (and some theme extensions) keep a light fieldtext on
+     inputs even with color-scheme declared; this base rule closes that gap. */
+  input, textarea, select {
+    color: var(--color-text);
+    background-color: transparent;
+  }
+  input::placeholder, textarea::placeholder {
+    color: var(--color-text-muted);
+    opacity: 1;
+  }
+
   #root {
     width: 100%;
     height: 100%;
