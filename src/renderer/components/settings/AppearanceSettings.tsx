@@ -169,7 +169,8 @@ export function AppearanceSettings() {
             value={windowTitle}
             onChange={(e) => setSetting('windowTitle', e.target.value)}
             placeholder="Agent Desktop"
-            className="w-48 bg-surface text-body border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+            className="w-48 bg-surface border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+            style={{ color: 'var(--color-text)' }}
             aria-label="Custom window title"
           />
         </div>
@@ -217,7 +218,8 @@ export function AppearanceSettings() {
                 const n = Number(v)
                 if (!isNaN(n) && n >= 0.5 && n <= 3) setSetting('fontSize', String(n))
               }}
-              className="w-20 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+              className="w-20 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+              style={{ color: 'var(--color-text)' }}
               aria-label="Custom font scale"
             />
             <span className="text-xs text-muted">×</span>
@@ -282,7 +284,8 @@ export function AppearanceSettings() {
                 const v = e.target.value
                 if (v !== '' && Number(v) >= 0 && Number(v) <= 50) setSetting('panelButtonRadius', v)
               }}
-              className="w-16 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+              className="w-16 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+              style={{ color: 'var(--color-text)' }}
               aria-label="Panel button proximity radius"
             />
             <span className="text-xs text-muted">%</span>
@@ -377,7 +380,8 @@ export function AppearanceSettings() {
                         const v = e.target.value
                         if (v !== '' && Number(v) >= 0) setSetting('heatmap_min', v)
                       }}
-                      className="w-16 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+                      className="w-16 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+                      style={{ color: 'var(--color-text)' }}
                       aria-label="Heatmap minimum threshold"
                     />
                   </div>
@@ -394,7 +398,8 @@ export function AppearanceSettings() {
                         const v = e.target.value
                         if (v !== '' && Number(v) >= 1) setSetting('heatmap_max', v)
                       }}
-                      className="w-16 bg-surface text-body border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+                      className="w-16 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
+                      style={{ color: 'var(--color-text)' }}
                       aria-label="Heatmap maximum threshold"
                     />
                   </div>
@@ -451,7 +456,8 @@ export function AppearanceSettings() {
                   type="time"
                   value={autoThemeDayTime}
                   onChange={(e) => setSetting('autoTheme_dayTime', e.target.value)}
-                  className="bg-surface text-body border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+                  className="bg-surface border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+                  style={{ color: 'var(--color-text)' }}
                   aria-label="Day transition time"
                 />
               </div>
@@ -476,7 +482,8 @@ export function AppearanceSettings() {
                   type="time"
                   value={autoThemeNightTime}
                   onChange={(e) => setSetting('autoTheme_nightTime', e.target.value)}
-                  className="bg-surface text-body border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+                  className="bg-surface border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
+                  style={{ color: 'var(--color-text)' }}
                   aria-label="Night transition time"
                 />
               </div>
@@ -597,7 +604,8 @@ export function AppearanceSettings() {
                 Filename
               </label>
               <input
-                className="w-full max-w-xs bg-surface text-body border border-muted rounded px-3 py-2 text-sm outline-none focus:border-primary mobile:text-base"
+                className="w-full max-w-xs bg-surface border border-muted rounded px-3 py-2 text-sm outline-none focus:border-primary mobile:text-base"
+              style={{ color: 'var(--color-text)' }}
                 value={newFilename}
                 onChange={(e) => setNewFilename(e.target.value)}
                 placeholder="my-theme.css"
