@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest'
 import { parseFontScale, applyFontScale, pxToRem } from './fontScale'
 
@@ -64,5 +65,11 @@ describe('applyFontScale', () => {
   it('falls back to 1 when input is undefined', () => {
     applyFontScale(undefined)
     expect(document.documentElement.style.getPropertyValue('--font-scale')).toBe('1')
+  })
+
+  it('overwrites a previously set value', () => {
+    applyFontScale('1')
+    applyFontScale('1.5')
+    expect(document.documentElement.style.getPropertyValue('--font-scale')).toBe('1.5')
   })
 })
