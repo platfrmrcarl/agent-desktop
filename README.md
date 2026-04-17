@@ -55,6 +55,7 @@ I build this project primarily for my own use — the features I add are the one
 - Voice input via local whisper.cpp — audio processed locally, never sent to a server
 - Audio ducking — system volume auto-lowers during voice recording
 - Headless mode — notifications-only without overlay window
+- **Resume last conversation** *(new in v0.13.0)* — option to pick up the previous Quick Chat exchange instead of starting fresh, with a sidebar-opened variant
 
 ### Text-to-Speech
 - AI responses read aloud via configurable TTS providers
@@ -83,9 +84,36 @@ I build this project primarily for my own use — the features I add are the one
 - **Folder heatmap** — auto-color folders by conversation count (green → red), with relative and fixed modes
 - **Folder color tinting** — custom per-folder color picker with HSV canvas
 - **Default folder** — auto-created "Unsorted" folder; all new conversations auto-assigned
+- **Font scale accessibility** — scale factor presets (80% / 100% / 125% / 150%) + custom input, applied via `--font-scale` CSS variable on the root. Uses rem-based sizing so every component — Monaco editors included — scales consistently
 - Configurable keyboard shortcuts (app and global)
 - Configurable desktop notifications (hidden/unfocused/always trigger modes)
 - System tray with quick access, theme-aware icons
+
+### Git Panel *(new in v0.13.0)*
+Interactive Git visualizer in the right sidebar. Auto-refreshes after any Bash tool result that touches the repository (commit, branch, stash, etc.).
+
+- **Status** — staged/unstaged/untracked files at a glance
+- **Branches** — local/remote list with click-to-checkout and tracking info
+- **Stash** — save and pop stashes without leaving the app
+- **Graph** — SVG DAG of the commit history with theme-aware colors, track allocation, and click-to-select
+- **Log** — full commit message + author on hover
+- All git operations run via a hardened `runGit` spawn wrapper with timeout and env sanitization
+
+### Scheduled Task Prompt Variables *(new in v0.13.0)*
+Tokenize `{name}` and `{name:arg:arg}` placeholders inside a scheduled task's prompt. Variables resolve in parallel with per-variable timeout and passthrough-on-error.
+
+**Built-in variables:**
+- `{date}`, `{time}`, `{random:min:max}` — sync builtins
+- `{last_commit}` (accepts `git log` flags), `{file_contents:path}` — async builtins
+- `{task_name}`, `{task_run_count}`, `{last_run_at}`, `{previous_output}` — task-context builtins
+
+**Custom variables:** drop a `.ts` file in the variable resolver directory — JSDoc on the exported function is discovered and surfaced in the task form. Hot-reload with mtime-based cache invalidation and stale `.mjs` pruning.
+
+### Plan Approval *(new in v0.13.0)*
+`ExitPlanMode` now renders the proposed plan as markdown and requires explicit approval before execution. Rejection lets you supply feedback that is passed back to the agent as context for the next turn.
+
+### Dynamic Model List *(new in v0.13.0)*
+Claude model list fetched dynamically from the Anthropic `/v1/models` endpoint instead of a hardcoded enum — new models appear automatically without an app update.
 
 ### Global Shortcuts (Linux)
 - Quick Chat, Quick Voice, and Show App shortcuts
@@ -323,6 +351,66 @@ src/
 
 
 ## Changelog
+
+### v0.13.0
+
+**Git Panel**
+- Interactive Git visualizer in the right sidebar, with Status / Branches / Stash / Graph / Log sub-tabs
+- SVG commit graph with pure DAG layout + track allocation algorithm and theme-aware colors
+- Branches: local and remote list with click-to-checkout, tracking info, and fetch support
+- Stash: save and pop operations with safety checks
+- Commit rows: full commit message + author shown on hover
+- Live refresh: panel re-reads state after any Bash tool result touching the repo
+- Hardened `runGit` spawn wrapper with timeout and env sanitization
+- Parallel refresh with per-subtab error isolation via `gitPanelStore`
+- New `window.agent.git` preload namespace exposed through the bridge
+
+**Scheduled Task Prompt Variables**
+- Tokenizer for `{name}` and `{name:arg:arg}` placeholders inside task prompts
+- Orchestration layer: parallel resolution, per-variable timeout, passthrough-on-error, manual override
+- Built-in variables:
+  - Sync: `{date}`, `{time}`, `{random:min:max}`
+  - Async: `{last_commit}` (accepts `git log` flags), `{file_contents:path}`
+  - Task-context: `{task_name}`, `{task_run_count}`, `{last_run_at}`, `{previous_output}` (reads messages table)
+- Custom `.ts` loader with mtime-based cache, hot-reload, surfaced TS diagnostics, and stale `.mjs` pruning
+- JSDoc discovery: custom variable functions appear in the task form automatically
+- Variables resolved in `task.prompt` before sending to the LLM
+- `VariableFn` types published for custom function authors
+
+**Font Scale Accessibility**
+- Root font-size driven by `--font-scale` CSS variable; all components scale consistently via `rem`
+- UI: scale factor presets + custom input (accepts trailing decimal while typing)
+- New helpers: `parseFontScale`, `applyFontScale`, `pxToRem`
+- Reactive `useMonacoFontSize` hook wires Monaco editors to the global scale
+- Scale applied at boot via `applyFontScale` helper, with guards for non-DOM environments
+- Cross-component reactivity: components subscribe to scale changes
+
+**Plan Approval**
+- `ExitPlanMode` now requires explicit approval before execution
+- Plan rendered as markdown inline in chat
+- Reject-with-feedback: rejection text passed back as context for the next turn
+
+**Dynamic Model List**
+- Claude model list fetched from the Anthropic `/v1/models` endpoint on demand (no more hardcoded enum)
+
+**Quick Chat**
+- Resume-last-conversation option, with a sidebar-opened variant
+
+**Bug Fixes**
+- Settings inputs use inline color styling to bypass text-body rendering issue on web
+- Input/textarea/select force theme colors via base layer
+- `color-scheme` set on `:root` so form controls render with theme-aware UA styles
+- SQLite datetime strings treated as UTC in relative-time labels
+- `@shared` alias resolved in esbuild headless bundle
+- Variable resolver: async fs, surfaced TS transpile diagnostics, stable parallel resolution timing
+- Git graph: invisible edges fixed via inline stroke style, merge arrows added, ref classification via branches lookup
+
+**Internal**
+- Scheduled tasks execute their prompt through the variable resolver pipeline before dispatching
+- `.ts` variable functions compile via custom loader; diagnostics surfaced to UI
+- TypeScript promoted to runtime dependency (needed by variable loader at runtime)
+
+---
 
 ### v0.10.0
 
