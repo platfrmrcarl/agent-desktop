@@ -60,7 +60,7 @@
 
 @layer base {
   html {
-    font-size: 14px;
+    font-size: calc(var(--font-scale, 1) * 100%);
     line-height: 1.5;
     overflow: hidden;
   }
