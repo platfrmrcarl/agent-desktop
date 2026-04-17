@@ -36,7 +36,7 @@ interface OverrideFormFieldsProps {
 const FIELD_GROUPS = [
   { label: 'Model', keys: ['ai_sdkBackend', 'ai_model'] },
   { label: 'Limits', keys: ['ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd'] },
-  { label: 'Behavior', keys: ['ai_permissionMode', 'ai_skills', 'ai_skillsEnabled', 'hooks_sharedAcrossBackends'] },
+  { label: 'Behavior', keys: ['ai_permissionMode', 'ai_requirePlanApproval', 'ai_skills', 'ai_skillsEnabled', 'hooks_sharedAcrossBackends'] },
   { label: 'Prompts & Files', keys: ['ai_defaultSystemPrompt', 'files_excludePatterns'] },
   { label: 'Voice', keys: ['tts_responseMode', 'tts_summaryPrompt'] },
   { label: 'Integrations', keys: ['webhook_completionUrl'] },

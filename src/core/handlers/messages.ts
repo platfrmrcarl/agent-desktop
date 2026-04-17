@@ -344,7 +344,7 @@ function filterMcpServers(
 
 export function getAISettings(db: SqlJsAdapter, conversationId: number, opts?: { sessionsBase: string; knowledgesDir?: string; getSchedulerMcpConfig?: (id: number) => Record<string, unknown> | null }): AISettings {
   const sessionsBase = opts?.sessionsBase ?? ''
-  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'webhook_completionUrl']
+  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_requirePlanApproval', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'webhook_completionUrl']
   const rows = (db as any)
     .prepare(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`)
     .all(...keys) as { key: string; value: string }[]
@@ -455,6 +455,7 @@ export function getAISettings(db: SqlJsAdapter, conversationId: number, opts?: {
     cwd: getConversationCwd(db, conversationId, sessionsBase),
     tools,
     permissionMode: map['ai_permissionMode'] || 'bypassPermissions',
+    requirePlanApproval: (map['ai_requirePlanApproval'] ?? 'true') === 'true',
     mcpServers: filterMcpServers(mcpServers, map['ai_mcpDisabled']),
     cwdRestrictionEnabled: (map['hooks_cwdRestriction'] ?? 'true') === 'true',
     cwdWhitelist,

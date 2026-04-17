@@ -42,6 +42,7 @@ describe('seedDefaults', () => {
     expect(map.minimizeToTray).toBe('false')
     expect(map.ai_model).toBe('claude-sonnet-4-6')
     expect(map.ai_permissionMode).toBe('bypassPermissions')
+    expect(map.ai_requirePlanApproval).toBe('true')
     expect(map.ai_tools).toBe('preset:claude_code')
     expect(map.hooks_cwdRestriction).toBe('true')
     expect(map.ai_skillsEnabled).toBe('true')

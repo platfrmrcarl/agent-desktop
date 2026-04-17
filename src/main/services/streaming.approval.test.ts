@@ -267,6 +267,7 @@ describe('streaming approval', () => {
       const result = await capturedCanUseTool!('Bash', { command: 'ls' })
       expect(result).toEqual({ behavior: 'allow', updatedInput: { command: 'ls' } })
     })
+
   })
 
   describe('denyAllPending includes message', () => {

@@ -438,6 +438,7 @@ export function getAISettings(db: Database.Database, conversationId: number): AI
     cwd: getConversationCwd(db, conversationId),
     tools,
     permissionMode: map['ai_permissionMode'] || 'bypassPermissions',
+    requirePlanApproval: (map['ai_requirePlanApproval'] ?? 'true') === 'true',
     mcpServers: filterMcpServers(mcpServers, map['ai_mcpDisabled']),
     cwdRestrictionEnabled: (map['hooks_cwdRestriction'] ?? 'true') === 'true',
     cwdWhitelist,

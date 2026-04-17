@@ -11,6 +11,7 @@ export interface AIOverrides {
   ai_maxThinkingTokens?: string
   ai_maxBudgetUsd?: string
   ai_permissionMode?: string
+  ai_requirePlanApproval?: string  // 'true' | 'false' — when true, ExitPlanMode asks the user even in bypassPermissions
   ai_tools?: string
   ai_defaultSystemPrompt?: string
   ai_mcpDisabled?: string

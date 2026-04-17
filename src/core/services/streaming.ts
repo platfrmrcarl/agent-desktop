@@ -1,9 +1,9 @@
-import { randomUUID } from 'crypto'
 import { loadAgentSDK } from './anthropic'
 import { buildCwdRestrictionHooks } from './cwdHooks'
+import { createCanUseTool } from './canUseTool'
 import { findBinaryInPath } from '../utils/env'
 import { broadcast } from '../utils/broadcast'
-import type { ToolApprovalResponse, AskUserResponse, AskUserQuestion, ToolCall, CwdWhitelistEntry } from '../types'
+import type { ToolApprovalResponse, AskUserResponse, ToolCall, CwdWhitelistEntry } from '../types'
 
 // ─── Injectable dependencies (set by the adapter layer) ─────
 
@@ -69,7 +69,7 @@ export function setEnsureFreshToken(fn: EnsureFreshTokenFn): void { _ensureFresh
 export const abortControllers = new Map<number, AbortController>()
 
 // Deferred promise map for tool approval / ask-user responses from the renderer
-const pendingRequests = new Map<string, { resolve: (value: unknown) => void; conversationId?: number }>()
+const pendingRequests = new Map<string, { resolve: (value: unknown) => void; conversationId: string | number | null }>()
 
 export function respondToApproval(requestId: string, response: ToolApprovalResponse | AskUserResponse): void {
   const pending = pendingRequests.get(requestId)
@@ -136,6 +136,7 @@ export interface AISettings {
   cwd?: string
   tools?: { type: 'preset'; preset: string } | string[]
   permissionMode?: string
+  requirePlanApproval?: boolean
   mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> } | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }>
   cwdRestrictionEnabled?: boolean
   cwdWhitelist?: CwdWhitelistEntry[]
@@ -354,80 +355,23 @@ async function streamMessageOneShot(
       queryOptions.allowDangerouslySkipPermissions = true
     }
 
-    // Always set canUseTool — AskUserQuestion needs interactive handling in all modes
-    queryOptions.canUseTool = async (toolName: string, input: Record<string, unknown>) => {
-      // AskUserQuestion: always interactive, regardless of permission mode
-      if (toolName === 'AskUserQuestion') {
-        const requestId = randomUUID()
-        pendingApprovalCount++
-
-        try {
-          const questions = (input.questions ?? []) as AskUserQuestion[]
-          sendChunk('ask_user', undefined, {
-            requestId,
-            questions: JSON.stringify(questions),
-            ...convExtra,
-          })
-
-          const response = await new Promise<unknown>((resolve) => {
-            pendingRequests.set(requestId, { resolve, conversationId: convKey })
-          })
-
-          const askResponse = response as AskUserResponse
-          return {
-            behavior: 'allow' as const,
-            updatedInput: { ...input, answers: askResponse.answers },
-          }
-        } finally {
-          pendingApprovalCount--
-          if (pendingApprovalCount === 0) {
-            flushBuffer()
-          }
-        }
-      }
-
-      // Deny disabled skills (checked before bypass mode — even bypass can't override)
-      if (toolName === 'Skill' && aiSettings?.disabledSkills?.length) {
-        const skillName = (input.skill || input.name || '') as string
-        if (skillName && aiSettings.disabledSkills.includes(skillName)) {
-          return { behavior: 'deny' as const, message: `Skill "${skillName}" is disabled` }
-        }
-      }
-
-      // Bypass mode: auto-approve everything else immediately
-      if (permMode === 'bypassPermissions') {
-        return { behavior: 'allow' as const, updatedInput: input }
-      }
-
-      // Non-bypass: existing tool approval flow
-      const requestId = randomUUID()
-      pendingApprovalCount++
-
-      try {
-        sendChunk('tool_approval', undefined, {
-          requestId,
-          toolName,
-          toolInput: JSON.stringify(input),
-          ...convExtra,
-        })
-
-        const response = await new Promise<unknown>((resolve) => {
-          pendingRequests.set(requestId, { resolve, conversationId: convKey })
-        })
-
-        const approvalResponse = response as ToolApprovalResponse
-        if (approvalResponse.behavior === 'allow') {
-          return { behavior: 'allow' as const, updatedInput: input }
-        } else {
-          return { behavior: 'deny' as const, message: approvalResponse.message || 'User denied this action' }
-        }
-      } finally {
+    // Canonical canUseTool — extracted factory shared with sessionManager.
+    queryOptions.canUseTool = createCanUseTool({
+      aiSettings: {
+        requirePlanApproval: aiSettings?.requirePlanApproval,
+        disabledSkills: aiSettings?.disabledSkills,
+      },
+      permissionMode: permMode,
+      chunkConversationId: conversationId ?? null,
+      pendingRequestsKey: convKey,
+      pendingRequests,
+      sendChunk,
+      onApprovalStart: () => { pendingApprovalCount++ },
+      onApprovalEnd: () => {
         pendingApprovalCount--
-        if (pendingApprovalCount === 0) {
-          flushBuffer()
-        }
-      }
-    }
+        if (pendingApprovalCount === 0) flushBuffer()
+      },
+    })
 
     // CWD restriction hooks: runs independently of permission mode (even in bypass)
     // Uses the SDK hooks API — PreToolUse hook with 'deny' decision for out-of-CWD writes

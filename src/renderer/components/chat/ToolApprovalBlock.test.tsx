@@ -61,6 +61,67 @@ describe('ToolApprovalBlock', () => {
     expect(screen.queryByText('Deny')).not.toBeInTheDocument()
   })
 
+  it('renders the plan as Markdown for ExitPlanMode approvals', () => {
+    const approval: ToolApprovalPart = {
+      type: 'tool_approval',
+      requestId: 'req_plan',
+      toolName: 'ExitPlanMode',
+      toolInput: { plan: '# Heading\n\n- step one\n- step two' },
+    }
+    render(<ToolApprovalBlock approval={approval} />)
+    expect(screen.getByText(/Plan ready/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Heading' })).toBeInTheDocument()
+    expect(screen.getByText('step one')).toBeInTheDocument()
+    expect(screen.getByText('step two')).toBeInTheDocument()
+    expect(screen.queryByText(/^plan:/i)).not.toBeInTheDocument()
+  })
+
+  it('ExitPlanMode shows a feedback textarea and revise/approve buttons', () => {
+    const approval: ToolApprovalPart = {
+      type: 'tool_approval',
+      requestId: 'req_plan',
+      toolName: 'ExitPlanMode',
+      toolInput: { plan: 'Do X then Y' },
+    }
+    render(<ToolApprovalBlock approval={approval} />)
+    expect(screen.getByLabelText(/Feedback/i)).toBeInTheDocument()
+    expect(screen.getByText('Approve & proceed')).toBeInTheDocument()
+    expect(screen.getByText('Reject & revise')).toBeInTheDocument()
+  })
+
+  it('ExitPlanMode reject with feedback sends the message to the agent', () => {
+    const approval: ToolApprovalPart = {
+      type: 'tool_approval',
+      requestId: 'req_plan',
+      toolName: 'ExitPlanMode',
+      toolInput: { plan: 'Do X then Y' },
+    }
+    render(<ToolApprovalBlock approval={approval} />)
+    fireEvent.change(screen.getByLabelText(/Feedback/i), {
+      target: { value: 'Please add a rollback step' },
+    })
+    fireEvent.click(screen.getByText('Reject & revise'))
+    expect(window.agent.messages.respondToApproval).toHaveBeenCalledWith('req_plan', {
+      behavior: 'deny',
+      message: 'Please add a rollback step',
+    })
+  })
+
+  it('ExitPlanMode reject without feedback sends a default revise message', () => {
+    const approval: ToolApprovalPart = {
+      type: 'tool_approval',
+      requestId: 'req_plan',
+      toolName: 'ExitPlanMode',
+      toolInput: { plan: 'Do X then Y' },
+    }
+    render(<ToolApprovalBlock approval={approval} />)
+    fireEvent.click(screen.getByText('Reject & revise'))
+    expect(window.agent.messages.respondToApproval).toHaveBeenCalledWith('req_plan', {
+      behavior: 'deny',
+      message: 'User rejected the plan — please revise it.',
+    })
+  })
+
   it('truncates long input values', () => {
     const longValue = 'x'.repeat(300)
     const approval: ToolApprovalPart = {

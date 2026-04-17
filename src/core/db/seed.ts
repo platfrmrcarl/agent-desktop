@@ -50,6 +50,7 @@ function seedSettings(db: Database.Database): void {
     ['ai_maxBudgetUsd', '0'],
     ['ai_defaultSystemPrompt', ''],
     ['ai_permissionMode', 'bypassPermissions'],
+    ['ai_requirePlanApproval', 'true'],
     ['ai_tools', 'preset:claude_code'],
     ['whisper_binaryPath', 'whisper-cli'],
     ['whisper_modelPath', ''],
