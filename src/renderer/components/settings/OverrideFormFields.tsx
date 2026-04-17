@@ -50,7 +50,7 @@ function ToggleButton({ active, onClick }: { active: boolean; onClick: () => voi
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick() }}
-      className={`text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 transition-opacity
+      className={`text-[0.5625rem] px-1.5 py-0.5 rounded flex-shrink-0 transition-opacity
         ${active ? 'bg-primary text-contrast' : 'bg-base text-muted opacity-30 group-hover:opacity-80 focus:opacity-80'}`}
     >
       {active ? 'Override' : 'Inherited'}
@@ -76,7 +76,7 @@ function FieldCard({ label, active, onToggle, wide, extra, children }: {
     >
       <div className="flex items-center justify-between gap-1">
         <span
-          className="text-[11px] font-medium truncate"
+          className="text-[0.6875rem] font-medium truncate"
           style={{ color: active ? 'var(--color-text)' : 'var(--color-text-muted)' }}
         >
           {label}
@@ -93,7 +93,7 @@ function FieldCard({ label, active, onToggle, wide, extra, children }: {
 
 function InheritedText({ value, source }: { value: string; source: string }) {
   return (
-    <span className="text-[11px] truncate block" style={{ color: 'var(--color-text-muted)' }}>
+    <span className="text-[0.6875rem] truncate block" style={{ color: 'var(--color-text-muted)' }}>
       {value || '(default)'}
       <span className="opacity-40 ml-1">from {source}</span>
     </span>
@@ -103,7 +103,7 @@ function InheritedText({ value, source }: { value: string; source: string }) {
 function SectionHeader({ label }: { label: string }) {
   return (
     <span
-      className="text-[10px] font-semibold uppercase tracking-widest"
+      className="text-[0.625rem] font-semibold uppercase tracking-widest"
       style={{ color: 'var(--color-text-muted)', opacity: 0.5 }}
     >
       {label}
@@ -163,7 +163,7 @@ export function OverrideFormFields({
     const expandButton = active && isTextarea ? (
       <button
         onClick={() => setPromptEditorKey(def.key)}
-        className="text-[9px] hover:opacity-80"
+        className="text-[0.5625rem] hover:opacity-80"
         style={{ color: 'var(--color-text-muted)' }}
       >
         Expand ↗

@@ -48,7 +48,7 @@ function TaskItemBlock({ task }: { task: ToolPart }) {
           {hasOutput && (
             <button
               onClick={() => setShowOutput((s) => !s)}
-              className="ml-auto flex-shrink-0 rounded transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[10px] mobile:px-3 mobile:py-2 mobile:text-xs"
+              className="ml-auto flex-shrink-0 rounded transition-opacity hover:opacity-80 px-1.5 py-0.5 text-[0.625rem] mobile:px-3 mobile:py-2 mobile:text-xs"
               style={{ color: 'var(--color-tool)' }}
               aria-expanded={showOutput}
               aria-label="Toggle agent response"

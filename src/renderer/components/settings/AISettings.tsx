@@ -404,7 +404,7 @@ export function AISettings() {
               {customModels.map((m) => (
                 <span
                   key={m}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.625rem] font-mono"
                   style={{
                     backgroundColor: 'color-mix(in srgb, var(--color-text-muted) 15%, transparent)',
                     color: 'var(--color-text-muted)',

@@ -97,7 +97,7 @@ export function SlashCommandDropdown({ commands, filter, selectedIndex, onSelect
             )}
             {cmd.source !== 'builtin' && (
               <span
-                className="ml-auto text-[10px] px-1 rounded flex-shrink-0"
+                className="ml-auto text-[0.625rem] px-1 rounded flex-shrink-0"
                 style={{
                   backgroundColor: 'var(--color-bg)',
                   color: 'var(--color-text-muted)',

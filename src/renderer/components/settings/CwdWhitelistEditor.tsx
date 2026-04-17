@@ -41,7 +41,7 @@ export function CwdWhitelistEditor({ entries, onChange, disabled }: CwdWhitelist
             value={entry.access}
             onChange={(e) => handleAccessChange(index, e.target.value as 'read' | 'readwrite')}
             disabled={disabled}
-            className="px-1.5 py-0.5 rounded text-[11px] border border-[var(--color-text-muted)]/20 outline-none"
+            className="px-1.5 py-0.5 rounded text-[0.6875rem] border border-[var(--color-text-muted)]/20 outline-none"
             style={{
               backgroundColor: 'var(--color-bg)',
               color: disabled ? 'var(--color-text-muted)' : 'var(--color-text)',

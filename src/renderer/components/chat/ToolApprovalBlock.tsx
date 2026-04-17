@@ -76,7 +76,7 @@ export function ToolApprovalBlock({ approval }: ToolApprovalBlockProps) {
             <div className="mt-3">
               <label
                 htmlFor={`deny-reason-${approval.requestId}`}
-                className="block text-[11px] mb-1 font-sans"
+                className="block text-[0.6875rem] mb-1 font-sans"
                 style={{ color: 'var(--color-text-muted)' }}
               >
                 Feedback (optional — sent to the agent if you reject the plan):

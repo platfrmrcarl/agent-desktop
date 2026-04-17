@@ -531,7 +531,7 @@ export function AppearanceSettings() {
                   </span>
                   <div className="flex items-center gap-1">
                     {isActive && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-primary text-contrast">
+                      <span className="text-[0.625rem] px-1.5 py-0.5 rounded font-medium bg-primary text-contrast">
                         Active
                       </span>
                     )}

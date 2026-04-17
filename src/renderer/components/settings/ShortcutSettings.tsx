@@ -269,7 +269,7 @@ function ShortcutTable({
                 </span>
                 {warnSpecialKeys && hasSpecialKey(shortcut.keybinding) && (
                   <span
-                    className="text-[10px] leading-tight"
+                    className="text-[0.625rem] leading-tight"
                     style={{ color: 'var(--color-warning, #f59e0b)' }}
                   >
                     Special key — may not work with Hyprland

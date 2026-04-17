@@ -217,7 +217,7 @@ export function MessageBubble({ message, isLast, effectiveTtsResponseMode, effec
 
         {/* Timestamp */}
         <div
-          className="text-[10px] mt-2 select-none"
+          className="text-[0.625rem] mt-2 select-none"
           style={{ color: 'var(--color-text-muted)' }}
           title={parseDbTimestamp(message.created_at).toLocaleString()}
         >
@@ -232,7 +232,7 @@ export function MessageBubble({ message, isLast, effectiveTtsResponseMode, effec
           >
             <button
               onClick={handleCopy}
-              className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[10px] mobile:px-4 mobile:py-3 mobile:text-sm"
+              className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[0.625rem] mobile:px-4 mobile:py-3 mobile:text-sm"
               style={{ color: 'var(--color-text-muted)' }}
               title="Copy"
             >
@@ -241,7 +241,7 @@ export function MessageBubble({ message, isLast, effectiveTtsResponseMode, effec
             {showTtsButton && (
               <button
                 onClick={() => isSpeakingThis ? stopPlayback() : playMessage(message.id, isUser ? message.content : cleanContent, message.conversation_id)}
-                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[10px] mobile:px-4 mobile:py-3 mobile:text-sm"
+                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[0.625rem] mobile:px-4 mobile:py-3 mobile:text-sm"
                 style={{ color: isSpeakingThis ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
                 title={isSpeakingThis ? 'Stop TTS' : 'Play TTS'}
               >
@@ -251,7 +251,7 @@ export function MessageBubble({ message, isLast, effectiveTtsResponseMode, effec
             {isUser && onEdit && (
               <button
                 onClick={handleStartEdit}
-                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[10px] mobile:px-4 mobile:py-3 mobile:text-sm"
+                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[0.625rem] mobile:px-4 mobile:py-3 mobile:text-sm"
                 style={{ color: 'var(--color-text-muted)' }}
                 title="Edit"
               >
@@ -261,7 +261,7 @@ export function MessageBubble({ message, isLast, effectiveTtsResponseMode, effec
             {isUser && onEdit && (
               <button
                 onClick={() => onEdit(message.id, message.content)}
-                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[10px] mobile:px-4 mobile:py-3 mobile:text-sm"
+                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[0.625rem] mobile:px-4 mobile:py-3 mobile:text-sm"
                 style={{ color: 'var(--color-text-muted)' }}
                 title="Retry this message"
               >
@@ -271,7 +271,7 @@ export function MessageBubble({ message, isLast, effectiveTtsResponseMode, effec
             {isUser && (
               <button
                 onClick={() => setShowTaskForm(true)}
-                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[10px] mobile:px-4 mobile:py-3 mobile:text-sm"
+                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[0.625rem] mobile:px-4 mobile:py-3 mobile:text-sm"
                 style={{ color: 'var(--color-text-muted)' }}
                 title="Schedule as recurring task"
               >
@@ -281,7 +281,7 @@ export function MessageBubble({ message, isLast, effectiveTtsResponseMode, effec
             {!isUser && isLast && onRegenerate && (
               <button
                 onClick={onRegenerate}
-                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[10px] mobile:px-4 mobile:py-3 mobile:text-sm"
+                className="rounded hover:opacity-80 transition-opacity px-2 py-0.5 text-[0.625rem] mobile:px-4 mobile:py-3 mobile:text-sm"
                 style={{ color: 'var(--color-text-muted)' }}
                 title="Regenerate"
               >
@@ -354,7 +354,7 @@ export function MessageBubble({ message, isLast, effectiveTtsResponseMode, effec
 
       {copiedPos && (
         <div
-          className="fixed z-50 px-2 py-1 rounded shadow-lg text-[11px] font-medium pointer-events-none -translate-x-1/2 -translate-y-full"
+          className="fixed z-50 px-2 py-1 rounded shadow-lg text-[0.6875rem] font-medium pointer-events-none -translate-x-1/2 -translate-y-full"
           style={{
             left: copiedPos.x,
             top: copiedPos.y - 8,

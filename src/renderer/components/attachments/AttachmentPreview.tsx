@@ -39,7 +39,7 @@ export const AttachmentPreview = React.memo(function AttachmentPreview({ attachm
                 className="w-8 h-8 rounded object-cover flex-shrink-0"
               />
             ) : (
-              <div className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-[10px] font-bold uppercase bg-surface text-muted">
+              <div className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0 text-[0.625rem] font-bold uppercase bg-surface text-muted">
                 {ext || '?'}
               </div>
             )}
@@ -49,7 +49,7 @@ export const AttachmentPreview = React.memo(function AttachmentPreview({ attachm
             </div>
             <button
               onClick={() => onRemove(index)}
-              className="absolute -top-1 -right-1 rounded-full flex items-center justify-center leading-none bg-error text-contrast w-4 h-4 text-[10px] mobile:w-6 mobile:h-6 mobile:text-xs"
+              className="absolute -top-1 -right-1 rounded-full flex items-center justify-center leading-none bg-error text-contrast w-4 h-4 text-[0.625rem] mobile:w-6 mobile:h-6 mobile:text-xs"
             >
               x
             </button>

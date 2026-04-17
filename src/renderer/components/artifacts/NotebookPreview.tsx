@@ -402,7 +402,7 @@ function AddCellBar({
       <div className="flex gap-1 px-2">
         <button
           onClick={() => onAdd('code')}
-          className="text-[10px] px-2 py-0.5 rounded hover:opacity-80"
+          className="text-[0.625rem] px-2 py-0.5 rounded hover:opacity-80"
           style={{
             backgroundColor: 'var(--color-surface)',
             color: 'var(--color-primary)',
@@ -412,7 +412,7 @@ function AddCellBar({
         </button>
         <button
           onClick={() => onAdd('markdown')}
-          className="text-[10px] px-2 py-0.5 rounded hover:opacity-80"
+          className="text-[0.625rem] px-2 py-0.5 rounded hover:opacity-80"
           style={{
             backgroundColor: 'var(--color-surface)',
             color: 'var(--color-primary)',
