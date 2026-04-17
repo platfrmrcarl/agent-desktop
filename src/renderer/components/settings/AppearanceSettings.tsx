@@ -46,6 +46,11 @@ export function AppearanceSettings() {
 
   const currentFontSize = settings.fontSize ?? '1'
   const currentScale = parseFontScale(currentFontSize)
+
+  const [customInputValue, setCustomInputValue] = useState<string>(String(currentScale))
+  useEffect(() => {
+    setCustomInputValue(String(currentScale))
+  }, [currentScale])
   const windowTitle = settings.windowTitle ?? ''
   const showTitlebar = (settings.showTitlebar ?? 'true') === 'true'
   const alwaysVisible = (settings.panelButtonAlwaysVisible ?? 'false') === 'true'
@@ -201,9 +206,10 @@ export function AppearanceSettings() {
               min={0.5}
               max={3}
               step={0.05}
-              value={currentScale}
+              value={customInputValue}
               onChange={(e) => {
                 const v = e.target.value
+                setCustomInputValue(v)
                 if (v === '') return
                 const n = Number(v)
                 if (!isNaN(n) && n >= 0.5 && n <= 3) setSetting('fontSize', String(n))
