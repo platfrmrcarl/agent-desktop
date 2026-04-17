@@ -70,10 +70,19 @@ export default function App() {
         useSettingsStore.setState({ activeTheme: filename })
       }
     })
+    let lastFontSize = useSettingsStore.getState().settings.fontSize
+    const unsubFontScale = useSettingsStore.subscribe((state) => {
+      if (state.settings.fontSize !== lastFontSize) {
+        lastFontSize = state.settings.fontSize
+        applyFontScale(lastFontSize)
+      }
+    })
+
     return () => {
       unsubTray()
       unsubDeeplink()
       unsubAutoTheme()
+      unsubFontScale()
     }
   }, [])
 
