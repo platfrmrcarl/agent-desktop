@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useChatStore } from '../../stores/chatStore'
 import { playListeningSound, playProcessingSound } from '../../utils/notificationSound'
+import { applyFontScale } from '../../utils/fontScale'
 import { OverlayInput } from './OverlayInput'
 import { OverlayResponse } from './OverlayResponse'
 import { OverlayVoice } from './OverlayVoice'
@@ -43,9 +44,7 @@ export function OverlayChat({ voiceMode }: OverlayChatProps) {
       }
 
       const { settings } = useSettingsStore.getState()
-      if (settings.fontSize) {
-        document.documentElement.style.fontSize = settings.fontSize + 'px'
-      }
+      applyFontScale(settings.fontSize)
 
       const id = await window.agent.quickChat.getConversationId(voiceMode ? 'voice' : 'text')
       setConversationId(id)
