@@ -5,7 +5,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { promises as fsp } from 'fs'
 import { getMainWindow } from '../index'
-import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage } from './messages'
+import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage, compactConversation as compactConversationImpl } from './messages'
 import { streamMessage, injectApiKeyEnv, registerStreamWindow } from './streaming'
 import { broadcast } from '../utils/broadcast'
 import { speak as ttsSpeak } from './tts'
@@ -78,6 +78,16 @@ function createElectronContext(db: Database.Database): TaskRunContext {
     },
     onConversationsRefresh() {
       notifyRenderer('conversations:refresh', undefined)
+    },
+    clearConversation(conversationId: number) {
+      // Step back 1ms so the user message saved immediately after passes the strict `created_at > cleared_at` filter
+      const clearedAt = new Date(Date.now() - 1).toISOString()
+      db.prepare(
+        'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, updated_at = ? WHERE id = ?'
+      ).run(clearedAt, clearedAt, conversationId)
+    },
+    async compactConversation(conversationId: number) {
+      await compactConversationImpl(db, conversationId)
     },
   }
 }
