@@ -1,18 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ErrorBuffer } from '../services/errorBuffer'
 import { DispatchRegistry } from '../dispatch'
-
-vi.mock('../../main/services/bugReport', () => ({
-  sendBugReport: vi.fn(),
-}))
-vi.mock('../../main/services/logScrubber', () => ({
-  scrub: (s: string) => s.replace('/home/alice', '~'),
-}))
-
-import { sendBugReport } from '../../main/services/bugReport'
 import { registerBugReportHandlers } from './bugReport'
 
-const mockedSend = sendBugReport as unknown as ReturnType<typeof vi.fn>
+const mockedSend = vi.fn()
 
 describe('bugReport handlers', () => {
   beforeEach(() => {
@@ -32,6 +23,8 @@ describe('bugReport handlers', () => {
       mainBuffer: buf,
       getMetadata: async () => metaFixture(),
       getWebhookUrl: () => '',
+      sendBugReport: mockedSend,
+      scrub: (s: string) => s,
     })
     const result = await reg.get('bug:getMainErrors')!()
     expect(result).toHaveLength(1)
@@ -44,6 +37,8 @@ describe('bugReport handlers', () => {
       mainBuffer: buf,
       getMetadata: async () => metaFixture(),
       getWebhookUrl: () => '',
+      sendBugReport: mockedSend,
+      scrub: (s: string) => s,
     })
     const result = await reg.get('bug:getMainErrors')!()
     expect(result).toEqual([])
@@ -55,8 +50,11 @@ describe('bugReport handlers', () => {
       mainBuffer: new ErrorBuffer(),
       getMetadata: async () => metaFixture(),
       getWebhookUrl: () => '',
+      sendBugReport: mockedSend,
+      scrub: (s: string) => s.replace('/home/alice', '~'),
     })
-    const out = await reg.get('bug:scrub')!('/home/alice/x')
+    const handler = reg.get('bug:scrub')!
+    const out = await handler('/home/alice/x')
     expect(out).toBe('~/x')
   })
 
@@ -67,8 +65,11 @@ describe('bugReport handlers', () => {
       mainBuffer: new ErrorBuffer(),
       getMetadata: async () => metaFixture(),
       getWebhookUrl: () => 'https://x',
+      sendBugReport: mockedSend,
+      scrub: (s: string) => s,
     })
-    const res = await reg.get('bug:send')!({ description: 'd', logs: 'l' })
+    const handler = reg.get('bug:send')!
+    const res = await handler({ description: 'd', logs: 'l' })
     expect(res).toEqual({ ok: true })
     expect(mockedSend).toHaveBeenCalledWith(
       expect.objectContaining({ description: 'd', logs: 'l' }),
@@ -83,9 +84,31 @@ describe('bugReport handlers', () => {
       mainBuffer: new ErrorBuffer(),
       getMetadata: async () => metaFixture(),
       getWebhookUrl: () => 'https://x',
+      sendBugReport: mockedSend,
+      scrub: (s: string) => s,
     })
-    const res = await reg.get('bug:send')!({ description: 'd', logs: 'l' })
+    const handler = reg.get('bug:send')!
+    const res = await handler({ description: 'd', logs: 'l' })
     expect(res).toEqual({ ok: false, error: 'unknown' })
+  })
+
+  it('bug:send coerces non-object payload to empty fields', async () => {
+    const reg = new DispatchRegistry()
+    mockedSend.mockResolvedValueOnce({ ok: true })
+    registerBugReportHandlers(reg, {
+      mainBuffer: new ErrorBuffer(),
+      getMetadata: async () => metaFixture(),
+      getWebhookUrl: () => 'https://x',
+      sendBugReport: mockedSend,
+      scrub: (s: string) => s,
+    })
+    const handler = reg.get('bug:send')!
+    const res = await handler('not-an-object')
+    expect(res).toEqual({ ok: true })
+    expect(mockedSend).toHaveBeenCalledWith(
+      expect.objectContaining({ description: '', logs: '' }),
+      'https://x',
+    )
   })
 })
 

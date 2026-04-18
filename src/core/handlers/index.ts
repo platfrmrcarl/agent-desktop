@@ -21,7 +21,7 @@ import { registerTtsHandlers } from './tts'
 import { registerWhisperHandlers } from './whisper'
 import { registerSystemHandlers } from './system'
 import { registerGitHandlers } from './git'
-import { registerBugReportHandlers } from './bugReport'
+import { registerBugReportHandlers, type BugReportHandlerOptions } from './bugReport'
 
 export interface CoreHandlerOptions {
   broadcaster: Broadcaster
@@ -29,11 +29,7 @@ export interface CoreHandlerOptions {
   sessionsBase: string
   themesDir: string
   knowledgesDir: string
-  bugReport: {
-    mainBuffer: import('../services/errorBuffer').ErrorBuffer
-    getMetadata: () => Promise<import('../../main/services/bugReport').BugReportMetadata>
-    getWebhookUrl: () => string
-  }
+  bugReport: BugReportHandlerOptions
 }
 
 export function registerCoreHandlers(
