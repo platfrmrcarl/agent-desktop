@@ -67,19 +67,30 @@ export function GitGraph({ cwd }: { cwd: string }) {
   }
   if (!graph) return null
 
-  const svgWidth = LEFT_PAD * 2 + graph.columns * TRACK_WIDTH
+  let maxX = 0
+  for (const n of graph.nodes) if (n.x > maxX) maxX = n.x
+  for (const e of graph.edges) {
+    if (e.from.x > maxX) maxX = e.from.x
+    if (e.to.x > maxX) maxX = e.to.x
+  }
+  const visibleColumns = maxX + 1
+  const svgWidth = LEFT_PAD * 2 + visibleColumns * TRACK_WIDTH
   const svgHeight = graph.nodes.length * ROW_HEIGHT
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="relative" style={{ minHeight: svgHeight }}>
-        <svg
-          width={svgWidth}
-          height={svgHeight}
-          role="img"
-          aria-label={`Git graph, ${commits.length} commits`}
-          className="absolute left-0 top-0 pointer-events-none"
+    <div className="h-full overflow-y-auto">
+      <div className="flex" style={{ minHeight: svgHeight }}>
+        <div
+          className="shrink-0 overflow-x-auto"
+          style={{ width: 'clamp(60px, 30%, 240px)' }}
         >
+          <svg
+            width={svgWidth}
+            height={svgHeight}
+            role="img"
+            aria-label={`Git graph, ${commits.length} commits`}
+            className="block pointer-events-none"
+          >
           <defs>
             <marker
               id="arrow-merge"
@@ -128,9 +139,10 @@ export function GitGraph({ cwd }: { cwd: string }) {
               </g>
             )
           })}
-        </svg>
+          </svg>
+        </div>
 
-        <ul className="relative" style={{ paddingLeft: svgWidth }}>
+        <ul className="flex-1 min-w-0">
           {graph.nodes.map((n) => {
             const isSelected = selected === n.commit.sha
             const badges = n.commit.refs.map(r => classifyRef(r, remoteNames))
