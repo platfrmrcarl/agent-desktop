@@ -20,15 +20,14 @@ const api: AgentAPI = {
     logout: () => withTimeout(ipcRenderer.invoke('auth:logout')),
   },
   bugReport: {
-    getMainErrors: () => withTimeout(ipcRenderer.invoke('bug:getMainErrors')),
-    scrub: (text: string) => withTimeout(ipcRenderer.invoke('bug:scrub', text)),
+    getMainErrors: () => withTimeout(ipcRenderer.invoke('bug:getMainErrors'), 5000),
+    scrub: (text: string) => withTimeout(ipcRenderer.invoke('bug:scrub', text), 5000),
     send: (payload: { description: string; logs: string }) =>
       withTimeout(ipcRenderer.invoke('bug:send', payload), 15000),
     onOpenRequest: (cb: () => void) => {
-      const handler = () => cb()
-      ipcRenderer.on('bugReport:open', handler)
+      ipcRenderer.on('bugReport:open', cb)
       return () => {
-        ipcRenderer.removeListener('bugReport:open', handler)
+        ipcRenderer.removeListener('bugReport:open', cb)
       }
     },
   },
