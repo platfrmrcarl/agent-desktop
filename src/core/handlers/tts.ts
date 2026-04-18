@@ -9,6 +9,7 @@ import { findBinaryInPath } from '../utils/env'
 import { getSetting } from '../utils/db'
 import { validateString, validatePositiveInt } from '../utils/validate'
 import { HAIKU_MODEL } from '../types/constants'
+import { loadAgentSDK } from '../services/anthropic'
 
 // ─── Module state ───────────────────────────────────────────
 
@@ -412,8 +413,7 @@ async function generateSummary(
   }
 
   try {
-    // Dynamic import to avoid hard dependency
-    const { query } = await import('@anthropic-ai/claude-agent-sdk')
+    const { query } = await loadAgentSDK()
 
     let summary = ''
     const summaryModel = aiSettings.ttsSummaryModel || HAIKU_MODEL

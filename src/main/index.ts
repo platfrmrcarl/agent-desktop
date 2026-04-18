@@ -136,6 +136,15 @@ if (!gotLock) {
   })
 
   app.whenReady().then(async () => {
+    // Register the Claude Agent SDK with Core BEFORE any engine init.
+    // Core's anthropic.ts is now a registry-only module — entry points own SDK resolution.
+    // Function trick avoids esbuild bundling the SDK into asar (where node can't read it).
+    {
+      const { registerAgentSDK } = await import('../core/services/anthropic')
+      const sdk = await (Function('return import("@anthropic-ai/claude-agent-sdk")')() as Promise<typeof import('@anthropic-ai/claude-agent-sdk')>)
+      registerAgentSDK(sdk)
+    }
+
     registerPreviewProtocol()
     const errorBufferPath = join(app.getPath('userData'), 'error-buffer.json')
     await loadFromDisk(mainErrorBuffer, errorBufferPath)

@@ -7,7 +7,7 @@
 
 import { resolve, join } from 'path'
 import { homedir } from 'os'
-import { mkdirSync, appendFileSync, readFileSync, existsSync } from 'fs'
+import { mkdirSync, appendFileSync } from 'fs'
 import { spawn } from 'child_process'
 import { AgentEngine } from '../core'
 import type { Broadcaster } from '../core'
@@ -16,6 +16,7 @@ import type { TaskRunContext } from '../core/services/taskExecutor'
 import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage } from '../core/handlers/messages'
 import { streamMessage } from '../core/services/streaming'
 import { enrichHeadlessEnv, getSessionsBase, getKnowledgesDir } from './headlessEnv'
+import { loadAndRegisterSDK } from './loadSdk'
 
 const DEFAULT_DB_PATH = join(homedir(), '.config', 'agent-desktop', 'agent.db')
 const LOG_PATH = join(homedir(), '.config', 'agent-desktop', 'scheduler-headless.log')
@@ -177,14 +178,10 @@ async function runTask(taskId: number): Promise<void> {
 export async function main(args: string[]): Promise<void> {
   enrichHeadlessEnv()
 
-  // Resolve NODE_PATH so external packages (claude-agent-sdk) can be found
-  const nodePathFile = join(HEADLESS_DIR, 'node_path.txt')
-  if (existsSync(nodePathFile)) {
-    const extraNodePath = readFileSync(nodePathFile, 'utf-8').trim()
-    process.env.NODE_PATH = extraNodePath + (process.env.NODE_PATH ? `:${process.env.NODE_PATH}` : '')
-    // Force Node to re-evaluate module paths
-    require('module').Module._initPaths()
-  }
+  // Resolve and inject the Claude Agent SDK into Core. Uses node_path.txt
+  // for absolute-path resolution when running from outside the project tree
+  // (cron invocation of standalone taskRunner.js).
+  await loadAndRegisterSDK()
 
   if (args.includes('--tick')) {
     await runTick()

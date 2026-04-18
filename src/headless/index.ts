@@ -18,6 +18,7 @@ import { AgentEngine, noopHookRunner, noopPlatformIO, noopSystemUI } from '../co
 import type { Broadcaster } from '../core'
 import { addBroadcastHandler } from '../core/utils/broadcast'
 import { enrichHeadlessEnv } from './headlessEnv'
+import { loadAndRegisterSDK } from './loadSdk'
 
 // ─── CLI parsing ─────────────────────────────────────
 
@@ -75,6 +76,7 @@ if (isLongRunning) {
 
 async function runServices(): Promise<void> {
   enrichHeadlessEnv()
+  await loadAndRegisterSDK()
 
   const dbPath = process.env.AGENT_DB_PATH || DEFAULT_DB_PATH
   const themesDir = process.env.AGENT_THEMES_DIR || DEFAULT_THEMES_DIR

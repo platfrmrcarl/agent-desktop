@@ -7,6 +7,7 @@
 import { homedir } from 'os'
 import { join } from 'path'
 import { existsSync, readFileSync } from 'fs'
+import { execSync } from 'child_process'
 
 /**
  * Enrich process.env for headless execution (cron doesn't inherit user session env).
@@ -35,18 +36,67 @@ export function enrichHeadlessEnv(): void {
     }
   }
 
-  // PATH enrichment — ensure common node locations are available
-  const path = process.env.PATH || ''
-  const extraPaths = [
-    '/usr/local/bin',
-    '/usr/bin',
-    join(homedir(), '.nvm/versions/node') + '/*/bin', // not glob-resolved, just a hint
-    join(homedir(), '.local/bin'),
-  ].filter(p => !path.includes(p))
+  // PATH enrichment — cron strips PATH down to /usr/bin:/bin. Toolchain
+  // managers (mise, nvm, pyenv, cargo, nix) live elsewhere and MCP servers
+  // launched by the SDK CLI need them. Strategy: spawn a login shell to
+  // capture the user's real PATH; fall back to a hardcoded list if the shell
+  // call fails (no shell, not interactive, etc.).
+  const loginPath = readLoginShellPath()
+  const currentPath = process.env.PATH || ''
 
-  if (extraPaths.length > 0) {
-    process.env.PATH = [...extraPaths, path].join(':')
+  if (loginPath) {
+    // Merge: login shell PATH first (priority), then anything cron passed in
+    process.env.PATH = mergePathDedup(loginPath, currentPath)
+  } else {
+    // Hardcoded fallback — covers most install layouts even without a shell
+    const fallback = [
+      '/usr/local/bin',
+      '/usr/bin',
+      join(homedir(), '.local/bin'),
+      join(homedir(), '.local/share/mise/shims'),
+      join(homedir(), '.cargo/bin'),
+      join(homedir(), '.nix-profile/bin'),
+      join(homedir(), '.pyenv/shims'),
+    ]
+    process.env.PATH = mergePathDedup(fallback.join(':'), currentPath)
   }
+}
+
+function readLoginShellPath(): string | null {
+  try {
+    const shell = resolveUserShell()
+    const out = execSync(`${shell} -lc 'printf %s "$PATH"'`, {
+      encoding: 'utf-8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    return out || null
+  } catch {
+    return null
+  }
+}
+
+function resolveUserShell(): string {
+  if (process.env.SHELL && existsSync(process.env.SHELL)) return process.env.SHELL
+  try {
+    const uid = process.getuid?.()
+    if (uid !== undefined) {
+      const passwd = readFileSync('/etc/passwd', 'utf-8')
+      const line = passwd.split('\n').find(l => l.split(':')[2] === String(uid))
+      const shell = line?.split(':')[6]?.trim()
+      if (shell && existsSync(shell)) return shell
+    }
+  } catch { /* fall through */ }
+  return '/bin/sh'
+}
+
+function mergePathDedup(primary: string, secondary: string): string {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const p of [...primary.split(':'), ...secondary.split(':')]) {
+    if (p && !seen.has(p)) { seen.add(p); out.push(p) }
+  }
+  return out.join(':')
 }
 
 /** Get the sessions base directory (where task CWDs live) */

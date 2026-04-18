@@ -204,9 +204,11 @@ async function verifyPlatformScheduler(db: Database.Database): Promise<void> {
     const { app } = await import('electron')
     const isPackaged = app.isPackaged
 
+    // Source is the unified headless bundle (index.js); destination keeps
+    // the legacy filename (taskRunner.js) so existing cron entries still resolve.
     const scriptSource = isPackaged
       ? join(process.resourcesPath, 'headless', 'taskRunner.js')
-      : join(app.getAppPath(), 'out', 'headless', 'taskRunner.js')
+      : join(app.getAppPath(), 'out', 'headless', 'index.js')
     const wasmSource = isPackaged
       ? join(process.resourcesPath, 'sql-wasm.wasm')
       : join(app.getAppPath(), 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm')

@@ -82,6 +82,11 @@ export async function executeTask(
     // Force bypass for unattended execution
     aiSettings.permissionMode = 'bypassPermissions'
 
+    // Disable plan-approval gating: there is no UI to approve ExitPlanMode in cron;
+    // canUseTool would await a renderer response that never arrives, hanging the
+    // SDK CLI until it exits with code 1. (Regression introduced by 6d74c91.)
+    aiSettings.requirePlanApproval = false
+
     // Prevent recursive task creation: remove scheduler MCP from unattended execution
     delete aiSettings.mcpServers?.['agent_scheduler']
 
