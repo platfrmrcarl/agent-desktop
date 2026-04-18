@@ -12,6 +12,7 @@ import { ShortcutsService } from './services/shortcuts'
 import { ThemesService } from './services/themes'
 import { McpService } from './services/mcp'
 import { SchedulerService } from './services/scheduler'
+import { createWebPasswordService, type WebPasswordService } from './auth'
 import { DispatchRegistry } from './dispatch'
 import { registerCoreHandlers } from './handlers'
 import type { Broadcaster } from './ports/broadcaster'
@@ -78,6 +79,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   private _themes!: ThemesService
   private _mcp!: McpService
   private _scheduler!: SchedulerService
+  private _webPassword!: WebPasswordService
 
   private readonly dbPath: string
   private readonly wasmPath?: string
@@ -109,6 +111,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   get themes(): ThemesService { return this._themes }
   get mcp(): McpService { return this._mcp }
   get scheduler(): SchedulerService { return this._scheduler }
+  get webPassword(): WebPasswordService { return this._webPassword }
 
   async init(): Promise<void> {
     await initDatabase(this.dbPath, this.wasmPath)
@@ -122,6 +125,14 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
     this._themes = new ThemesService(this.themesDir)
     this._mcp = new McpService(db)
     this._scheduler = new SchedulerService(db)
+    this._webPassword = createWebPasswordService({
+      get: (k) => {
+        const all = this._settings.getAll()
+        return Object.prototype.hasOwnProperty.call(all, k) ? all[k] : undefined
+      },
+      set: (k, v) => this._settings.set(k, v),
+      delete: (k) => { this._settings.set(k, '') },
+    })
     registerCoreHandlers(this.dispatch, db, {
       broadcaster: this.broadcaster,
       hookRunner: this.hookRunner,
