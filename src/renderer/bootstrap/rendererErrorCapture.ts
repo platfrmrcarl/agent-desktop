@@ -1,6 +1,6 @@
-import { ErrorBuffer } from '../../core/services/errorBuffer'
+import { ErrorBuffer, INTERNAL_LOG_PREFIX } from '../../core/services/errorBuffer'
 
-export const INTERNAL_LOG_PREFIX = '[bug-report-internal]'
+export { INTERNAL_LOG_PREFIX }
 
 export const rendererErrorBuffer = new ErrorBuffer()
 
@@ -44,19 +44,23 @@ export function patchRendererConsoleError(buffer: ErrorBuffer): () => void {
 
 export function installGlobalErrorHandlers(buffer: ErrorBuffer): () => void {
   const onError = (ev: ErrorEvent): void => {
+    const isCrossOrigin = !ev.filename && ev.lineno === 0 && ev.colno === 0
+    const suffix = isCrossOrigin ? ' (cross-origin, details withheld by browser)' : ''
     buffer.push({
       timestamp: new Date().toISOString(),
       source: 'renderer',
       level: 'error',
-      message: `window.onerror: ${ev.message} @ ${ev.filename}:${ev.lineno}:${ev.colno}`,
+      message: `window.onerror: ${ev.message} @ ${ev.filename}:${ev.lineno}:${ev.colno}${suffix}`,
     })
   }
   const onRejection = (ev: PromiseRejectionEvent): void => {
     const reason = ev.reason
     const text =
-      reason instanceof Error
-        ? `${reason.name}: ${reason.message}\n${reason.stack ?? ''}`
-        : String(reason)
+      reason == null
+        ? '(no reason)'
+        : reason instanceof Error
+          ? `${reason.name}: ${reason.message}\n${reason.stack ?? ''}`
+          : String(reason)
     buffer.push({
       timestamp: new Date().toISOString(),
       source: 'renderer',

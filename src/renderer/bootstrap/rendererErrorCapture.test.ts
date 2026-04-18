@@ -66,4 +66,24 @@ describe('rendererErrorCapture', () => {
     expect(buf.getAll()[0].message).toContain('rej')
     restore()
   })
+
+  it('labels undefined/null rejection reason explicitly', () => {
+    const buf = new ErrorBuffer()
+    const restore = installGlobalErrorHandlers(buf)
+    const rejection = new Event('unhandledrejection') as PromiseRejectionEvent
+    Object.defineProperty(rejection, 'reason', { value: undefined })
+    window.dispatchEvent(rejection)
+    expect(buf.getAll()[0].message).toContain('(no reason)')
+    restore()
+  })
+
+  it('annotates cross-origin Script error.', () => {
+    const buf = new ErrorBuffer()
+    const restore = installGlobalErrorHandlers(buf)
+    window.dispatchEvent(
+      new ErrorEvent('error', { message: 'Script error.', filename: '', lineno: 0, colno: 0 }),
+    )
+    expect(buf.getAll()[0].message).toContain('(cross-origin, details withheld by browser)')
+    restore()
+  })
 })

@@ -8,6 +8,7 @@ export interface ErrorEntry {
 export const ERROR_BUFFER_MAX_COUNT = 50
 export const ERROR_BUFFER_MAX_CHARS = 10_000
 export const ERROR_BUFFER_TTL_MS = 60 * 60 * 1000
+export const INTERNAL_LOG_PREFIX = '[bug-report-internal]'
 
 type PushListener = () => void
 

@@ -1,7 +1,8 @@
 import { inspect } from 'util'
 import type { ErrorBuffer } from '../../core/services/errorBuffer'
+import { INTERNAL_LOG_PREFIX } from '../../core/services/errorBuffer'
 
-export const INTERNAL_LOG_PREFIX = '[bug-report-internal]'
+export { INTERNAL_LOG_PREFIX }
 
 function formatArgs(args: unknown[]): string {
   return args
