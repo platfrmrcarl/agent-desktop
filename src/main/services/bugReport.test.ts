@@ -41,32 +41,29 @@ describe('buildEmbed', () => {
     expect(embed.description).toBe('_No description provided_')
   })
 
-  it('splits long logs across multiple Logs fields', () => {
-    const longLog = 'x'.repeat(3000)
-    const embed = buildEmbed({ description: '', logs: longLog, metadata: defaultMeta() })
-    const logFields = embed.fields.filter((f) => f.name.startsWith('Logs'))
-    expect(logFields.length).toBeGreaterThan(1)
-    expect(logFields[0].name).toMatch(/Logs \(1\/\d+\)/)
+  it('references the attached log file when logs are present', () => {
+    const embed = buildEmbed({
+      description: 'crash',
+      logs: 'many lines of logs here',
+      metadata: defaultMeta(),
+    })
+    const logField = embed.fields.find((f) => f.name === 'Logs')
+    expect(logField).toBeDefined()
+    expect(logField!.value).toContain('logs.txt')
+    expect(logField!.value).toContain('23 chars')
   })
 
-  it('truncates embed when total exceeds 6000 chars', () => {
-    const huge = 'x'.repeat(10_000)
-    const embed = buildEmbed({ description: huge, logs: huge, metadata: defaultMeta() })
-    const total = JSON.stringify(embed).length
-    expect(total).toBeLessThanOrEqual(6200) // 6000 + JSON overhead tolerance
+  it('shows no-logs placeholder when logs are empty', () => {
+    const embed = buildEmbed({ description: 'crash', logs: '', metadata: defaultMeta() })
+    const logField = embed.fields.find((f) => f.name === 'Logs')
+    expect(logField!.value).toBe('_No logs captured_')
   })
 
-  it('applies correct truncated chunk count once on the surviving last field', () => {
-    const huge = 'x'.repeat(8000)
-    const embed = buildEmbed({ description: '', logs: huge, metadata: defaultMeta() })
-    const logFields = embed.fields.filter((f) => f.name.startsWith('Logs'))
-    const annotations = logFields.filter((f) => /chunk\(s\) omitted/.test(f.value))
-    // annotation is present on exactly one field, the last surviving one
-    expect(annotations.length).toBe(1)
-    expect(annotations[0]).toBe(logFields[logFields.length - 1])
-    const match = annotations[0].value.match(/\[truncated, (\d+) chunk\(s\) omitted\]/)
-    expect(match).not.toBeNull()
-    expect(Number(match![1])).toBeGreaterThan(0)
+  it('truncates description past 4000 chars with a marker', () => {
+    const huge = 'x'.repeat(5000)
+    const embed = buildEmbed({ description: huge, logs: 'l', metadata: defaultMeta() })
+    expect(embed.description.length).toBeLessThanOrEqual(4000)
+    expect(embed.description).toContain('[truncated]')
   })
 })
 
@@ -87,10 +84,10 @@ describe('sendBugReport', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('posts embed payload and returns ok on 204', async () => {
+  it('posts multipart/form-data with embed + log attachment and returns ok on 204', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
     const res = await sendBugReport(
-      { description: 'd', logs: 'l', metadata: defaultMeta() },
+      { description: 'd', logs: 'log content here', metadata: defaultMeta() },
       'https://discord.example/webhook',
     )
     expect(res).toEqual({ ok: true })
@@ -98,8 +95,27 @@ describe('sendBugReport', () => {
     const [url, init] = mockFetch.mock.calls[0]
     expect(url).toBe('https://discord.example/webhook')
     expect((init as RequestInit).method).toBe('POST')
-    const body = JSON.parse((init as { body: string }).body)
-    expect(body.embeds).toHaveLength(1)
+    const body = (init as RequestInit).body
+    expect(body).toBeInstanceOf(FormData)
+    const form = body as FormData
+    const payloadJson = form.get('payload_json') as string
+    expect(payloadJson).toBeTypeOf('string')
+    const parsed = JSON.parse(payloadJson)
+    expect(parsed.embeds).toHaveLength(1)
+    const file = form.get('files[0]') as File | Blob | null
+    expect(file).not.toBeNull()
+  })
+
+  it('omits the log attachment when logs are empty', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+    await sendBugReport(
+      { description: 'd', logs: '   ', metadata: defaultMeta() },
+      'https://x',
+    )
+    const [, init] = mockFetch.mock.calls[0]
+    const form = (init as RequestInit).body as FormData
+    expect(form.get('files[0]')).toBeNull()
+    expect(form.get('payload_json')).toBeTypeOf('string')
   })
 
   it('returns server_error on 5xx', async () => {
@@ -129,11 +145,11 @@ describe('sendBugReport', () => {
     expect(res).toEqual({ ok: false, error: 'server_error' })
   })
 
-  it('posts with Content-Type: application/json', async () => {
+  it('does not set Content-Type header (fetch sets multipart boundary itself)', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
     await sendBugReport({ description: 'd', logs: 'l', metadata: defaultMeta() }, 'https://x')
     const [, init] = mockFetch.mock.calls[0]
-    expect((init as RequestInit).headers).toMatchObject({ 'Content-Type': 'application/json' })
+    expect((init as RequestInit).headers).toBeUndefined()
   })
 
   it('returns timeout when fetch throws AbortError', async () => {

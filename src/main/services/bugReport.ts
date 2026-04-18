@@ -39,10 +39,8 @@ export interface DiscordEmbed {
 
 const RATE_LIMIT_MS = 30_000
 const FETCH_TIMEOUT_MS = 10_000
-const MAX_EMBED_TOTAL = 6000
-const MAX_FIELD_VALUE = 1024
 const MAX_DESCRIPTION = 4000
-const LOG_CODEFENCE_OVERHEAD = 10
+const LOG_FILE_NAME = 'logs.txt'
 
 let lastSentAtMs = 0
 
@@ -60,23 +58,6 @@ function truncate(text: string, max: number): string {
   return text.slice(0, max - suffix.length) + suffix
 }
 
-function splitLogs(logs: string): DiscordEmbedField[] {
-  if (!logs.trim()) {
-    return [{ name: 'Logs', value: '```\n<no logs captured>\n```', inline: false }]
-  }
-  const chunkSize = MAX_FIELD_VALUE - LOG_CODEFENCE_OVERHEAD
-  const chunks: string[] = []
-  for (let i = 0; i < logs.length; i += chunkSize) {
-    chunks.push(logs.slice(i, i + chunkSize))
-  }
-  const total = chunks.length
-  return chunks.map((c, i) => ({
-    name: total === 1 ? 'Logs' : `Logs (${i + 1}/${total})`,
-    value: '```\n' + c + '\n```',
-    inline: false,
-  }))
-}
-
 export function buildEmbed(payload: BugReportPayload): DiscordEmbed {
   const m = payload.metadata
   const metaFields: DiscordEmbedField[] = [
@@ -92,39 +73,23 @@ export function buildEmbed(payload: BugReportPayload): DiscordEmbed {
   const trimmed = payload.description.trim()
   const description = trimmed ? truncate(trimmed, MAX_DESCRIPTION) : '_No description provided_'
 
-  const originalLogFields = splitLogs(payload.logs)
-  let logFields = [...originalLogFields]
+  const hasLogs = payload.logs.trim().length > 0
+  const logField: DiscordEmbedField = hasLogs
+    ? {
+        name: 'Logs',
+        value: `See attached \`${LOG_FILE_NAME}\` (${payload.logs.length} chars)`,
+        inline: false,
+      }
+    : { name: 'Logs', value: '_No logs captured_', inline: false }
 
-  const timestamp = new Date().toISOString()
-  const reportId = randomUuid()
-  const makeEmbed = (fields: DiscordEmbedField[]): DiscordEmbed => ({
+  return {
     title: 'Bug Report',
     color: 15158332,
-    timestamp,
+    timestamp: new Date().toISOString(),
     description,
-    fields,
-    footer: { text: `Report ID: ${reportId}` },
-  })
-
-  let embed = makeEmbed([...metaFields, ...logFields])
-  while (JSON.stringify(embed).length > MAX_EMBED_TOTAL && logFields.length > 0) {
-    logFields = logFields.slice(0, -1)
-    embed = makeEmbed([...metaFields, ...logFields])
+    fields: [...metaFields, logField],
+    footer: { text: `Report ID: ${randomUuid()}` },
   }
-
-  const droppedCount = originalLogFields.length - logFields.length
-  if (droppedCount > 0 && logFields.length > 0) {
-    const lastIndex = logFields.length - 1
-    const last = { ...logFields[lastIndex] }
-    last.value = last.value.replace(
-      /\n```$/,
-      `\n[truncated, ${droppedCount} chunk(s) omitted]\n\`\`\``,
-    )
-    logFields = [...logFields.slice(0, -1), last]
-    embed = makeEmbed([...metaFields, ...logFields])
-  }
-
-  return embed
 }
 
 export async function sendBugReport(
@@ -140,16 +105,26 @@ export async function sendBugReport(
   }
 
   const embed = buildEmbed(payload)
-  const body = JSON.stringify({
-    username: 'Agent Desktop Bug Reporter',
-    embeds: [embed],
-  })
+  const form = new FormData()
+  form.append(
+    'payload_json',
+    JSON.stringify({
+      username: 'Agent Desktop Bug Reporter',
+      embeds: [embed],
+    }),
+  )
+
+  const hasLogs = payload.logs.trim().length > 0
+  if (hasLogs) {
+    form.append('files[0]', new Blob([payload.logs], { type: 'text/plain' }), LOG_FILE_NAME)
+  }
 
   try {
+    // net.fetch sets multipart/form-data Content-Type with boundary automatically
+    // when given a FormData body — don't set it manually.
     const res = await net.fetch(webhookUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
+      body: form,
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })
     if (res.ok) {
