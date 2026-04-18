@@ -342,6 +342,16 @@ function generateShim(token: string): string {
       onConversationUpdated: function(cb) { return subscribe('messages:conversationUpdated', cb); },
       onAutoThemeSwitch: function(cb) { return subscribe('theme:autoSwitch', cb); },
     },
+    bugReport: {
+      getMainErrors: function() { return Promise.resolve([]); },
+      scrub: function(text) { return Promise.resolve(text); },
+      send: noopAsync,
+      onOpenRequest: function() { return noop; },
+    },
+    models: {
+      list: function() { return invoke('models:list', []); },
+      refresh: function() { return invoke('models:refresh', []); },
+    },
     server: {
       start: noopAsync,
       stop: noopAsync,
@@ -1176,6 +1186,7 @@ function proxyToDev(
 
 export interface WebServerHandlerOptions {
   webPassword?: WebPasswordService
+  dispatch?: DispatchRegistry
 }
 
 export function registerHandlers(
@@ -1184,7 +1195,12 @@ export function registerHandlers(
 ): void {
   registrar.handle('server:start', async (_event, port?: unknown, userOptions?: unknown) => {
     const p = typeof port === 'number' && port > 0 ? port : 3484
-    const merged = { ...(userOptions as ServerStartOptions), webPassword: options?.webPassword } as ServerStartOptions
+    const fromUser = (userOptions as ServerStartOptions) || {}
+    const merged: ServerStartOptions = {
+      ...fromUser,
+      webPassword: options?.webPassword,
+      dispatch: fromUser.dispatch ?? options?.dispatch,
+    }
     return startServer(p, merged)
   })
 

@@ -67,7 +67,7 @@ export function bridgeDispatchToIpc(engine: AgentEngine, ipcMain: IpcMain): void
   }
 
   // 2. Register Category B services on engine.dispatch (makes them available to webServer/discord/headless)
-  webServerHandlers(engine.dispatch, { webPassword: engine.webPassword })
+  webServerHandlers(engine.dispatch, { webPassword: engine.webPassword, dispatch: engine.dispatch })
   discordHandlers(engine.dispatch, engine.dispatch)
 
   // Mirror Category B handlers that were just registered onto ipcMain
