@@ -4,6 +4,7 @@ import { execFileSync } from 'child_process'
 import * as fsSync from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import * as http from 'http'
 
 // Mock cert module — returns pre-generated test cert
 vi.mock('../../core/utils/cert', () => ({
@@ -14,6 +15,7 @@ vi.mock('../../core/utils/cert', () => ({
 import { startServer, stopServer, getServerStatus } from './webServer'
 import { DispatchRegistry } from '../../core/dispatch'
 import { ensureSelfSignedCert } from '../../core/utils/cert'
+import { createWebPasswordService } from '../../core/auth'
 
 // We need a free port for tests
 function getRandomPort(): number {
@@ -478,5 +480,109 @@ describe('webServer', () => {
       expect(result.result).toBe('pong')
       ws.close()
     })
+  })
+})
+
+// ─── Login gate integration tests ───────────────────────────────────────────
+
+function memSettingsForAuth() {
+  const s = new Map<string, string>()
+  return {
+    set: (k: string, v: string) => { v === '' ? s.delete(k) : s.set(k, v) },
+    get: (k: string) => s.get(k),
+    delete: (k: string) => { s.delete(k) },
+    getAll: () => Object.fromEntries(s),
+  }
+}
+
+function httpFetch(
+  port: number,
+  options: http.RequestOptions & { body?: string },
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  return new Promise((resolve, reject) => {
+    // Use a fresh agent with keepAlive disabled so each request opens a new TCP connection.
+    // This prevents ECONNRESET when the server is restarted between tests.
+    const agent = new http.Agent({ keepAlive: false })
+    const mergedHeaders = { Connection: 'close', ...(options.headers as Record<string, string> | undefined) }
+    const req = http.request({ hostname: '127.0.0.1', port, agent, ...options, headers: mergedHeaders }, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (c: Buffer) => chunks.push(c))
+      res.on('end', () => resolve({ status: res.statusCode || 0, headers: res.headers, body: Buffer.concat(chunks).toString('utf-8') }))
+    })
+    req.on('error', reject)
+    if (options.body) req.write(options.body)
+    req.end()
+  })
+}
+
+describe('webServer login gate', () => {
+  const port = 60484
+  let webPasswordSvc: ReturnType<typeof createWebPasswordService>
+
+  beforeEach(async () => {
+    // Force HTTP mode — override the mock to reject (simulates missing OpenSSL)
+    vi.mocked(ensureSelfSignedCert).mockRejectedValue(new Error('no cert for login-gate tests'))
+
+    webPasswordSvc = createWebPasswordService(memSettingsForAuth())
+    await webPasswordSvc.setPassword('integration test pw')
+    const dispatch = new DispatchRegistry()
+    await startServer(port, {
+      dispatch,
+      webPassword: webPasswordSvc,
+      shortCode: 'testshort',
+      sslDir: '/tmp/does-not-exist-intentionally',
+      rendererDir: __dirname,
+    })
+  })
+
+  afterEach(async () => {
+    await stopServer()
+  })
+
+  it('redirects to /login when no cookie is present', async () => {
+    const r = await httpFetch(port, { method: 'GET', path: '/' })
+    expect(r.status).toBe(302)
+    expect(r.headers.location).toBe('/login')
+  })
+
+  it('GET /login returns the login page', async () => {
+    const r = await httpFetch(port, { method: 'GET', path: '/login' })
+    expect(r.status).toBe(200)
+    expect(r.body).toContain('type="password"')
+  })
+
+  it('POST /login with wrong password returns 401', async () => {
+    const r = await httpFetch(port, {
+      method: 'POST', path: '/login',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'password=wrong',
+    })
+    expect(r.status).toBe(401)
+  })
+
+  it('POST /login with correct password sets cookie and redirects', async () => {
+    const r = await httpFetch(port, {
+      method: 'POST', path: '/login',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'password=integration%20test%20pw',
+    })
+    expect(r.status).toBe(302)
+    expect(r.headers['set-cookie']?.[0]).toMatch(/agent_session=/)
+  })
+
+  it('POST /login 6 times triggers rate limit 429', async () => {
+    for (let i = 0; i < 5; i++) {
+      await httpFetch(port, {
+        method: 'POST', path: '/login',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'password=wrong',
+      })
+    }
+    const r = await httpFetch(port, {
+      method: 'POST', path: '/login',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'password=wrong',
+    })
+    expect(r.status).toBe(429)
   })
 })
