@@ -60,6 +60,22 @@ describe('ErrorBuffer', () => {
     expect(buf.getAll()).toHaveLength(0)
   })
 
+  it('keeps entry exactly at TTL boundary', () => {
+    const buf = new ErrorBuffer()
+    vi.setSystemTime(new Date('2026-04-18T10:00:00.000Z'))
+    // Exactly 60 min ago — boundary kept
+    buf.push(entry({ timestamp: '2026-04-18T09:00:00.000Z', message: 'boundary' }))
+    expect(buf.getAll().map((e) => e.message)).toEqual(['boundary'])
+  })
+
+  it('evicts entry 1ms past TTL boundary', () => {
+    const buf = new ErrorBuffer()
+    vi.setSystemTime(new Date('2026-04-18T10:00:00.000Z'))
+    // 60 min + 1 ms ago — just past boundary, dropped
+    buf.push(entry({ timestamp: '2026-04-18T08:59:59.999Z', message: 'past' }))
+    expect(buf.getAll()).toEqual([])
+  })
+
   it('notifies onPush listeners', () => {
     const buf = new ErrorBuffer()
     const cb = vi.fn()

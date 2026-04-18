@@ -6,7 +6,7 @@ export interface ErrorEntry {
 }
 
 export const ERROR_BUFFER_MAX_COUNT = 50
-export const ERROR_BUFFER_MAX_BYTES = 10_000
+export const ERROR_BUFFER_MAX_CHARS = 10_000
 export const ERROR_BUFFER_TTL_MS = 60 * 60 * 1000
 
 type PushListener = () => void
@@ -53,7 +53,7 @@ export class ErrorBuffer {
       this.entries.shift()
     }
     let total = this.entries.reduce((n, e) => n + e.message.length, 0)
-    while (total > ERROR_BUFFER_MAX_BYTES && this.entries.length > 0) {
+    while (total > ERROR_BUFFER_MAX_CHARS && this.entries.length > 0) {
       total -= this.entries[0].message.length
       this.entries.shift()
     }
