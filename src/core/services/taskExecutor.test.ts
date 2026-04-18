@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { executeTask, type TaskRunContext, type StreamResult } from './taskExecutor'
 import type { SchedulerService } from './scheduler'
 import type { ScheduledTask } from '../types'
@@ -187,13 +187,7 @@ describe('executeTask', () => {
   })
 
   it('resolves variables in task.prompt before saving the user message', async () => {
-    const task = {
-      id: 1, name: 'DailyReport', prompt: 'Hello {task_name}!', conversation_id: 1,
-      enabled: true, interval_value: 1, interval_unit: 'hours',
-      schedule_time: null, catch_up: false, max_runs: null,
-      last_run_at: null, next_run_at: null, last_status: null,
-      last_error: null, run_count: 0, notify_desktop: false, notify_voice: false,
-    } as any
+    const task = makeTask({ name: 'DailyReport', prompt: 'Hello {task_name}!', conversation_id: 1 })
 
     await executeTask(scheduler as unknown as SchedulerService, ctx, task)
 
@@ -204,6 +198,10 @@ describe('executeTask', () => {
   })
 
   describe('pre_run_action', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
     it("does NOT call clearConversation or compactConversation when 'none'", async () => {
       scheduler.get.mockReturnValue(makeTask())
       await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'none' }))
@@ -255,7 +253,6 @@ describe('executeTask', () => {
       expect(ctx.clearConversation).toHaveBeenCalledWith(10)
       expect(ctx.streamMessage).toHaveBeenCalledOnce() // run still executed
       expect(warn).toHaveBeenCalled()
-      warn.mockRestore()
     })
   })
 })
