@@ -663,7 +663,7 @@ describe('SchedulerService — pre_run_action', () => {
     db = await createTestDb()
     service = new SchedulerService(db)
     // Seed a conversation so create() can attach to it
-    db.prepare("INSERT INTO conversations (id, title, updated_at) VALUES (1, 'Conv', datetime('now'))").run()
+    db.prepare("INSERT INTO conversations (id, title, folder_id, updated_at) VALUES (1, 'Conv', (SELECT id FROM folders WHERE is_default = 1), datetime('now'))").run()
   })
 
   it("defaults to 'none' when not provided on create", () => {

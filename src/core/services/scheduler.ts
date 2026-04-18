@@ -90,7 +90,7 @@ function rowToTask(row: Record<string, unknown>): ScheduledTask {
     run_count: (row.run_count as number) || 0,
     notify_desktop: Boolean(row.notify_desktop ?? 1),
     notify_voice: Boolean(row.notify_voice ?? 0),
-    pre_run_action: (row.pre_run_action as PreRunAction) || 'none',
+    pre_run_action: (row.pre_run_action as PreRunAction) ?? 'none',
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   }

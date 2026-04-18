@@ -206,7 +206,7 @@ export interface ScheduledTask {
 export interface CreateScheduledTask {
   name: string
   prompt: string
-  conversation_id?: number
+  conversation_id?: number          // omit to auto-create a new conversation
   interval_value: number
   interval_unit: IntervalUnit
   schedule_time?: string
