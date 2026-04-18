@@ -9,6 +9,7 @@ release/
 *.snap
 .env
 .env.local
+.env.production
 *.log
 scripts/.native-cache/
 présentation/
