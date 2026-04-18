@@ -243,5 +243,19 @@ describe('executeTask', () => {
       expect(ctx.clearConversation).not.toHaveBeenCalled()
       expect(callOrder.indexOf('compact')).toBeLessThan(callOrder.indexOf('saveUser'))
     })
+
+    it("falls back to clearConversation when compactConversation rejects, and still completes the run", async () => {
+      scheduler.get.mockReturnValue(makeTask())
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      ctx.compactConversation.mockRejectedValue(new Error('haiku down'))
+
+      await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'compact' }))
+
+      expect(ctx.compactConversation).toHaveBeenCalledOnce()
+      expect(ctx.clearConversation).toHaveBeenCalledWith(10)
+      expect(ctx.streamMessage).toHaveBeenCalledOnce() // run still executed
+      expect(warn).toHaveBeenCalled()
+      warn.mockRestore()
+    })
   })
 })
