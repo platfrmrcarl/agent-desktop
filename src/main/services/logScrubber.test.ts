@@ -6,6 +6,10 @@ describe('logScrubber', () => {
     expect(scrub('error at /home/alice/project/file.ts')).toBe('error at ~/project/file.ts')
   })
 
+  it('replaces macOS user paths with ~', () => {
+    expect(scrub('error at /Users/alice/project/file.ts')).toBe('error at ~/project/file.ts')
+  })
+
   it('replaces windows user paths with ~', () => {
     expect(scrub('error at C:\\Users\\Bob\\app.exe')).toBe('error at C:\\Users\\~\\app.exe')
   })
@@ -26,9 +30,22 @@ describe('logScrubber', () => {
     expect(scrub('slack xoxb-1234567890-abcdef')).toBe('slack <redacted-key>')
   })
 
+  it('does not match sk- prefixes shorter than 20 chars', () => {
+    expect(scrub('code sk-short123')).toBe('code sk-short123')
+  })
+
+  it('does not match Bearer tokens shorter than 20 chars', () => {
+    expect(scrub('Authorization: Bearer short')).toBe('Authorization: Bearer short')
+  })
+
   it('replaces bearer tokens', () => {
     expect(scrub('Authorization: Bearer abcdef1234567890abcdef12'))
       .toBe('Authorization: Bearer <redacted>')
+  })
+
+  it('redacts user:password in URL credentials', () => {
+    expect(scrub('connecting https://alice:s3cret@db.example.com/mydb'))
+      .toBe('connecting https://<redacted>@db.example.com/mydb')
   })
 
   it('applies multiple rules sequentially', () => {
