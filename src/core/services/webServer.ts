@@ -1167,10 +1167,18 @@ function proxyToDev(
 
 // ─── IPC handlers ───────────────────────────────────
 
-export function registerHandlers(registrar: HandleRegistrar): void {
-  registrar.handle('server:start', async (_event, port?: unknown, options?: unknown) => {
+export interface WebServerHandlerOptions {
+  webPassword?: WebPasswordService
+}
+
+export function registerHandlers(
+  registrar: HandleRegistrar,
+  options?: WebServerHandlerOptions,
+): void {
+  registrar.handle('server:start', async (_event, port?: unknown, userOptions?: unknown) => {
     const p = typeof port === 'number' && port > 0 ? port : 3484
-    return startServer(p, options as ServerStartOptions)
+    const merged = { ...(userOptions as ServerStartOptions), webPassword: options?.webPassword } as ServerStartOptions
+    return startServer(p, merged)
   })
 
   registrar.handle('server:stop', async () => {

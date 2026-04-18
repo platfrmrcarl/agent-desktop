@@ -122,6 +122,7 @@ async function runServices(): Promise<void> {
       dispatch,
       shortCode: serverShortCode,
       accessMode: serverAccessMode,
+      webPassword: engine.webPassword,
     })
     wsBroadcast = getWsBroadcaster() ?? null
 
