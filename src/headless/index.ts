@@ -32,6 +32,8 @@ const flags = {
   discord: args.includes('--discord'),
   tick: args.includes('--tick'),
   runTask: args.includes('--run-task'),
+  setPassword: args.includes('--set-password'),
+  clearPassword: args.includes('--clear-password'),
   port: getArgValue(args, '--port'),
   accessMode: getArgValue(args, '--access-mode') as 'lan' | 'all' | undefined,
 }
@@ -39,7 +41,7 @@ const flags = {
 // ─── Mode validation ─────────────────────────────────
 
 const isLongRunning = flags.server || flags.discord
-const isOneShot = flags.tick || flags.runTask
+const isOneShot = flags.tick || flags.runTask || flags.setPassword || flags.clearPassword
 
 function fatal(err: unknown): never {
   console.error('[headless] Fatal:', err)
@@ -61,6 +63,8 @@ const DEFAULT_SSL_DIR = join(homedir(), '.config', 'agent-desktop', 'ssl')
 
 if (isLongRunning) {
   runServices().catch(fatal)
+} else if (flags.setPassword || flags.clearPassword) {
+  runPasswordMode().catch(fatal)
 } else if (isOneShot) {
   import('./taskRunner').then(({ main }) => main(args)).catch(fatal)
 } else {
@@ -154,6 +158,44 @@ async function runServices(): Promise<void> {
 
   const running = [flags.server && 'server', flags.discord && 'discord'].filter(Boolean).join(' + ')
   console.log(`[headless] Running: ${running}. Press Ctrl+C to exit.`)
+}
+
+// ─── Password mode ────────────────────────────────────
+
+async function runPasswordMode(): Promise<void> {
+  const dbPath = process.env.AGENT_DB_PATH || DEFAULT_DB_PATH
+  const themesDir = process.env.AGENT_THEMES_DIR || DEFAULT_THEMES_DIR
+
+  const engine = new AgentEngine({
+    dbPath: resolve(dbPath),
+    themesDir: resolve(themesDir),
+    broadcaster: { broadcast: () => {} },
+    hookRunner: noopHookRunner,
+    platformIO: noopPlatformIO,
+    systemUI: noopSystemUI,
+  })
+  await engine.init()
+
+  try {
+    if (flags.clearPassword) {
+      await engine.webPassword.clearPassword()
+      console.log('Password cleared. Server reverted to token-based authentication.')
+    } else {
+      if (!process.stdin.isTTY) {
+        console.error('--set-password requires a TTY (interactive terminal).')
+        process.exit(1)
+      }
+      const { promptMasked, validatePair } = await import('./passwordPrompt')
+      const pwd = await promptMasked({ prompt: 'New password: ', stdin: process.stdin, stdout: process.stdout })
+      const confirm = await promptMasked({ prompt: 'Confirm: ', stdin: process.stdin, stdout: process.stdout })
+      const err = validatePair(pwd, confirm)
+      if (err) { console.error(err); process.exit(1) }
+      await engine.webPassword.setPassword(pwd)
+      console.log('Password set. Existing sessions invalidated.')
+    }
+  } finally {
+    await engine.shutdown()
+  }
 }
 
 // ─── Interactive mode ─────────────────────────────────
