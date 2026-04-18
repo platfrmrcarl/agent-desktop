@@ -1,4 +1,6 @@
 import { Component, type ReactNode } from 'react'
+import { useBugReportStore } from '../stores/bugReportStore'
+import { rendererErrorBuffer } from '../bootstrap/rendererErrorCapture'
 
 interface Props {
   fallback?: ReactNode
@@ -8,6 +10,30 @@ interface Props {
 interface State {
   hasError: boolean
   error: Error | null
+}
+
+function ReportCrashButton({ error }: { error: Error | null }): JSX.Element {
+  const open = useBugReportStore((s) => s.open)
+  const handleClick = (): void => {
+    if (error) {
+      rendererErrorBuffer.push({
+        timestamp: new Date().toISOString(),
+        source: 'renderer',
+        level: 'error',
+        message: `UI crash: ${error.message}\n${error.stack ?? ''}`,
+      })
+    }
+    open({ prefillDescription: error ? `UI crash: ${error.message}` : '' })
+  }
+  return (
+    <button
+      onClick={handleClick}
+      className="mt-2 px-4 py-2 text-xs rounded"
+      style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+    >
+      Signaler ce crash
+    </button>
+  )
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -40,6 +66,9 @@ export class ErrorBoundary extends Component<Props, State> {
             >
               Try again
             </button>
+            <div>
+              <ReportCrashButton error={this.state.error} />
+            </div>
           </div>
         </div>
       )
