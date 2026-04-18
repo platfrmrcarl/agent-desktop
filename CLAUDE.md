@@ -42,6 +42,7 @@
 - **`hooks_cwdWhitelist` cascade**: replace semantics (most specific level wins); empty whitelist = backward compat (reads unrestricted, writes restricted to CWD)
 - **NOT cascaded** (per-conversation only): `cwd`, `kb_enabled`, `cleared_at`
 - **NOT cascaded** (global only): `tts_summaryModel` — model selection for TTS summary generation; UI provides Haiku/Sonnet/Opus presets + Custom free text; backend defaults to Haiku if unset
+- **NOT cascaded** (global only): `server_passwordHash`, `server_sessionSecret`, `server_sessionDurationDays`, `server_rememberDurationDays` — server-scoped, not per-conversation
 - **Folder color**: nullable TEXT `#rrggbb` validated server-side; `null` = no tint; applied via `color-mix` like theme tinting
 - **Default folder**: `is_default = 1` on `folders`; auto-created at startup as "Unsorted" with `position = -1`; non-deletable, renamable; all new/imported conversations assigned to it; no `folder_id = NULL` in system
 - **Heatmap**: `heatmap_enabled`, `heatmap_mode` (`'relative'`|`'fixed'`), `heatmap_min`, `heatmap_max` stored as strings; color via `hsvToHex(120 * (1-t), 70, 80)` applied same way; manual color takes precedence
@@ -98,6 +99,16 @@
 - **Hook system messages**: `hook_response` output is JSON-parsed for `systemMessage` field — sent as `system_message` stream chunk with `hookName`/`hookEvent` metadata; non-JSON output silently ignored
 - **UserPromptSubmit hooks**: SDK does not yield `hook_response` for this event — executed app-side via `hookRunner.ts`; system messages saved as `<hook-system-message>content</hook-system-message>` tags prepended to assistant content; extracted and rendered with accent-styled boxes + `MarkdownRenderer` (not plain text)
 - **CWD whitelist read restriction**: only enforced when whitelist is non-empty; covers Read, Glob, Grep, Bash read commands (cat, head, tail, less, find, ls, tree, file, stat, wc, diff, strings, xxd)
+
+## Web Server Auth Gotchas
+- **Password opt-in**: `server_passwordHash` null = current behavior (URL token). Non-null = HTML login gate + cookie; WS cookie-authed at upgrade, no `{type:'auth'}` needed.
+- **Session revocation**: changing/clearing password rotates `server_sessionSecret` → all HMAC cookies invalidated (stateless, no session table).
+- **HTTP fallback + password**: cookies travel clear-text when OpenSSL unavailable. Warn the user; still works.
+- **Rate limit normalization**: `::ffff:` IPv6-mapped stripped (same as `isAllowedRemote`) or an attacker doubles the quota.
+- **Cookie validation MUST precede scrypt verify**: rate limit check runs first, before the expensive scrypt call.
+- **Settings `set(key, '')`**: deletes the row. Required for `clearPassword` to roundtrip through the `SettingsPort` adapter.
+- **WS channel blocker narrowed**: only `server:start|stop|getStatus` blocked via WS now (was `startsWith('server:')`). Password channels reachable via shim.
+- **PHC format is custom for scrypt**: `$scrypt$N=...,r=...,p=...$<salt>$<hash>` — parsed per-record so param bumps don't break verification of old hashes.
 
 ## Quick Chat & TTS Gotchas
 - **Shortcut re-toggle**: voice sends stop-recording, text hides; only creates new window if hidden/destroyed

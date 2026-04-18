@@ -22,6 +22,7 @@ import { registerWhisperHandlers } from './whisper'
 import { registerSystemHandlers } from './system'
 import { registerGitHandlers } from './git'
 import { registerBugReportHandlers, type BugReportHandlerOptions } from './bugReport'
+import { registerWebServerAuthHandlers } from './webServerAuth'
 
 export interface CoreHandlerOptions {
   broadcaster: Broadcaster
@@ -30,6 +31,7 @@ export interface CoreHandlerOptions {
   themesDir: string
   knowledgesDir: string
   bugReport: BugReportHandlerOptions
+  webPassword: import('../auth').WebPasswordService
 }
 
 export function registerCoreHandlers(
@@ -61,4 +63,5 @@ export function registerCoreHandlers(
   registerSystemHandlers(registrar, db)
   registerGitHandlers(registrar)
   registerBugReportHandlers(registrar, options.bugReport)
+  registerWebServerAuthHandlers(registrar, options.webPassword)
 }

@@ -84,6 +84,11 @@ const ALLOWED_SETTING_KEYS = new Set<string>([
   'server_autoStart',
   'server_shortCode',
   'server_accessMode',
+  // Web server password auth
+  'server_passwordHash',
+  'server_sessionSecret',
+  'server_sessionDurationDays',
+  'server_rememberDurationDays',
   // Discord bot
   'discord_enabled',
   'discord_botToken',
@@ -117,10 +122,14 @@ export class SettingsService {
 
   set(key: string, value: string): void {
     validateString(key, 'key', 200)
-    validateString(value, 'value', 10_000)
     if (!ALLOWED_SETTING_KEYS.has(key)) {
       throw new Error(`Unknown setting key: ${key}`)
     }
+    if (value === '') {
+      this.db.prepare('DELETE FROM settings WHERE key = ?').run(key)
+      return
+    }
+    validateString(value, 'value', 10_000)
     this.db.prepare(
       "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))"
     ).run(key, value)
