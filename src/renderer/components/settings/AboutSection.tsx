@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { SystemInfo, UpdateStatus } from '../../../shared/types'
+import { useBugReportStore } from '../../stores/bugReportStore'
 
 export function AboutSection() {
   const [info, setInfo] = useState<SystemInfo | null>(null)
@@ -37,6 +38,8 @@ export function AboutSection() {
     setInstalling(true)
     window.agent.updates.install()
   }
+
+  const openBugReport = useBugReportStore((s) => s.open)
 
   const handleOpenGitHub = () => {
     window.agent.system.openExternal('https://github.com/BaLaurent/agent-desktop')
@@ -101,6 +104,21 @@ export function AboutSection() {
           }}
         >
           View on GitHub
+        </button>
+      </div>
+
+      {/* Bug report */}
+      <div>
+        <button
+          onClick={() => openBugReport()}
+          className="px-4 py-2 rounded text-sm font-medium transition-opacity hover:opacity-80 mobile:py-3"
+          style={{
+            backgroundColor: 'var(--color-bg)',
+            color: 'var(--color-text)',
+            border: '1px solid var(--color-deep)',
+          }}
+        >
+          Signaler un bug
         </button>
       </div>
 
