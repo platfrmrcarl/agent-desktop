@@ -29,6 +29,10 @@ export interface TaskRunContext {
   /** Called when a task or conversation state changes — broadcast to renderer / logs */
   onTaskUpdate(task: ScheduledTask): void
   onConversationsRefresh(): void
+  /** Soft-clear the conversation history before the next run (equivalent to /clear). */
+  clearConversation(conversationId: number): void
+  /** Summarize and clear the conversation history before the next run (equivalent to /compact). */
+  compactConversation(conversationId: number): Promise<void>
   /** Read-only DB handle — used by variableResolver builtins (e.g., previous_output). */
   db: Database
 }
