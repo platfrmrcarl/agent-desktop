@@ -13,7 +13,8 @@ import { AgentEngine } from '../core'
 import type { Broadcaster } from '../core'
 import { executeTask } from '../core/services/taskExecutor'
 import type { TaskRunContext } from '../core/services/taskExecutor'
-import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage } from '../core/handlers/messages'
+import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage, compactConversation as compactConversationImpl } from '../core/handlers/messages'
+import type { MessagesHandlerOptions } from '../core/handlers/messages'
 import { streamMessage } from '../core/services/streaming'
 import { enrichHeadlessEnv, getSessionsBase, getKnowledgesDir } from './headlessEnv'
 import { loadAndRegisterSDK } from './loadSdk'
@@ -84,6 +85,21 @@ function createCoreContext(db: any): TaskRunContext {
       log(`[task] ${task.name} (id=${task.id}): ${task.last_status}`)
     },
     onConversationsRefresh() {},
+    clearConversation(conversationId: number) {
+      const clearedAt = new Date(Date.now() - 1).toISOString()
+      ;(db as any).prepare(
+        'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, updated_at = ? WHERE id = ?'
+      ).run(clearedAt, clearedAt, conversationId)
+    },
+    async compactConversation(conversationId: number) {
+      const compactOptions: MessagesHandlerOptions = {
+        broadcaster: silentBroadcaster,
+        hookRunner: { run: async () => ({ decision: 'allow' }) } as any,
+        sessionsBase,
+        onSessionInvalidate: () => { /* headless has no live sessions to invalidate */ },
+      }
+      await compactConversationImpl(db, conversationId, compactOptions)
+    },
   }
 }
 
