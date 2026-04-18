@@ -31,7 +31,7 @@ function ReportCrashButton({ error }: { error: Error | null }): JSX.Element {
       className="mt-2 px-4 py-2 text-xs rounded"
       style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
     >
-      Signaler ce crash
+      Report this crash
     </button>
   )
 }

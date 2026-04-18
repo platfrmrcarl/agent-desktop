@@ -118,7 +118,7 @@ export function AboutSection() {
             border: '1px solid var(--color-deep)',
           }}
         >
-          Signaler un bug
+          Report a bug
         </button>
       </div>
 

@@ -101,13 +101,13 @@ export function BugReportModal(): JSX.Element | null {
         }, 1000)
       } else if (result.error === 'rate_limited') {
         startCountdown(result.retryAfterMs)
-        setError('Merci de patienter avant un nouvel envoi.')
+        setError('Please wait before sending another report.')
       } else if (result.error === 'not_configured') {
-        setError('Fonctionnalité désactivée en développement.')
+        setError('Feature disabled in development.')
       } else if (result.error === 'timeout') {
-        setError('Délai dépassé, réessaye.')
+        setError('Request timed out, please try again.')
       } else {
-        setError('Impossible d\u2019envoyer le rapport. Réessaye plus tard.')
+        setError('Could not send the report. Please try again later.')
       }
     } finally {
       if (!signal?.aborted) setSending(false)
@@ -135,7 +135,7 @@ export function BugReportModal(): JSX.Element | null {
         style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)' }}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Signaler un bug</h2>
+          <h2 className="text-lg font-semibold">Report a bug</h2>
           <button
             onClick={close}
             className="text-sm"
@@ -147,12 +147,12 @@ export function BugReportModal(): JSX.Element | null {
         </div>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span style={{ color: 'var(--color-text-muted)' }}>Description (optionnelle)</span>
+          <span style={{ color: 'var(--color-text-muted)' }}>Description (optional)</span>
           <textarea
             data-testid="bug-description-textarea"
             className="rounded p-2 text-sm"
             rows={3}
-            placeholder="Que faisais-tu quand le bug est apparu ?"
+            placeholder="What were you doing when the bug appeared?"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             style={{
@@ -165,7 +165,7 @@ export function BugReportModal(): JSX.Element | null {
 
         <label className="flex flex-col gap-1 text-sm">
           <span className="flex items-center justify-between">
-            <span style={{ color: 'var(--color-text-muted)' }}>Logs à envoyer (éditables)</span>
+            <span style={{ color: 'var(--color-text-muted)' }}>Logs to send (editable)</span>
             <button
               type="button"
               onClick={() => void refreshLogs()}
@@ -190,7 +190,7 @@ export function BugReportModal(): JSX.Element | null {
         </label>
 
         <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-          Metadata auto-ajoutées : version, OS, session (X11/Wayland), backend AI, thème actif.
+          Auto-added metadata: version, OS, session (X11/Wayland), AI backend, active theme.
         </p>
 
         {error && (
@@ -206,7 +206,7 @@ export function BugReportModal(): JSX.Element | null {
             className="px-4 py-2 rounded text-sm"
             style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
           >
-            Annuler
+            Cancel
           </button>
           <button
             data-testid="bug-send-button"
@@ -216,10 +216,10 @@ export function BugReportModal(): JSX.Element | null {
             style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-contrast)' }}
           >
             {sending
-              ? 'Envoi\u2026'
+              ? 'Sending\u2026'
               : countdown > 0
-                ? `Réessaye dans ${countdown}s`
-                : 'Envoyer le rapport'}
+                ? `Try again in ${countdown}s`
+                : 'Send report'}
           </button>
         </div>
       </div>

@@ -78,7 +78,7 @@ function buildContextMenu(): Menu {
     },
     { type: 'separator' },
     {
-      label: 'Signaler un bug…',
+      label: 'Report a bug…',
       click: () => {
         const win = getWindowFn?.() ?? null
         if (isAlive(win)) {
