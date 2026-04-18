@@ -234,6 +234,13 @@ const api: AgentAPI = {
     start: (port?: number, options?: { shortCode?: string; accessMode?: string }) => withTimeout(ipcRenderer.invoke('server:start', port, options)),
     stop: () => withTimeout(ipcRenderer.invoke('server:stop')),
     getStatus: () => withTimeout(ipcRenderer.invoke('server:getStatus')),
+    setPassword: (plaintext: string) => withTimeout(ipcRenderer.invoke('server:setPassword', plaintext)),
+    clearPassword: () => withTimeout(ipcRenderer.invoke('server:clearPassword')),
+    isPasswordSet: () => withTimeout(ipcRenderer.invoke('server:isPasswordSet')),
+    getSessionDurationDays: () => withTimeout(ipcRenderer.invoke('server:getSessionDurationDays')),
+    setSessionDurationDays: (days: number) => withTimeout(ipcRenderer.invoke('server:setSessionDurationDays', days)),
+    getRememberDurationDays: () => withTimeout(ipcRenderer.invoke('server:getRememberDurationDays')),
+    setRememberDurationDays: (days: number) => withTimeout(ipcRenderer.invoke('server:setRememberDurationDays', days)),
   },
   discord: {
     connect: () => withTimeout(ipcRenderer.invoke('discord:connect')),

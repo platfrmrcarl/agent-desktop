@@ -346,6 +346,13 @@ function generateShim(token: string): string {
       start: noopAsync,
       stop: noopAsync,
       getStatus: function() { return Promise.resolve({ running: false, port: null, url: null, urlHostname: null, lanIp: null, hostname: null, token: null, shortCode: null, accessMode: null, clients: 0, firewallWarning: null }); },
+      setPassword: function(p) { return invoke('server:setPassword', [p]); },
+      clearPassword: function() { return invoke('server:clearPassword', []); },
+      isPasswordSet: function() { return invoke('server:isPasswordSet', []); },
+      getSessionDurationDays: function() { return invoke('server:getSessionDurationDays', []); },
+      setSessionDurationDays: function(d) { return invoke('server:setSessionDurationDays', [d]); },
+      getRememberDurationDays: function() { return invoke('server:getRememberDurationDays', []); },
+      setRememberDurationDays: function(d) { return invoke('server:setRememberDurationDays', [d]); },
     },
     discord: {
       connect: function() { return invoke('discord:connect', []); },
@@ -582,7 +589,7 @@ function handleWsMessage(ws: WebSocket, raw: string): void {
     // Block channels that are unsafe via WebSocket:
     // - server:* — web clients must not control the server itself
     // - openscad:exportStl — uses event.sender (null via WS → crash)
-    if (msg.channel.startsWith('server:') || msg.channel === 'openscad:exportStl') {
+    if (msg.channel === 'server:start' || msg.channel === 'server:stop' || msg.channel === 'server:getStatus' || msg.channel === 'openscad:exportStl') {
       safeSend(ws, JSON.stringify({ type: 'result', id: msg.id, error: `Channel not available via WebSocket: ${msg.channel}` }))
       return
     }

@@ -205,6 +205,13 @@ export interface AgentAPI {
     start(port?: number, options?: { shortCode?: string; accessMode?: string }): Promise<{ url: string; token: string }>
     stop(): Promise<void>
     getStatus(): Promise<{ running: boolean; port: number | null; url: string | null; urlHostname: string | null; lanIp: string | null; hostname: string | null; token: string | null; shortCode: string | null; accessMode: string | null; clients: number; firewallWarning: string | null }>
+    setPassword(plaintext: string): Promise<void>
+    clearPassword(): Promise<void>
+    isPasswordSet(): Promise<boolean>
+    getSessionDurationDays(): Promise<number>
+    setSessionDurationDays(days: number): Promise<void>
+    getRememberDurationDays(): Promise<number>
+    setRememberDurationDays(days: number): Promise<void>
   }
   discord: {
     connect(): Promise<void>
