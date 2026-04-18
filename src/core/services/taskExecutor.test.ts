@@ -22,6 +22,7 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     run_count: 0,
     notify_desktop: false,
     notify_voice: false,
+    pre_run_action: 'none',
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -60,6 +61,8 @@ function createMockCtx(): {
   notify: ReturnType<typeof vi.fn>
   onTaskUpdate: ReturnType<typeof vi.fn>
   onConversationsRefresh: ReturnType<typeof vi.fn>
+  clearConversation: ReturnType<typeof vi.fn>
+  compactConversation: ReturnType<typeof vi.fn>
   db: any
 } {
   return {
@@ -71,6 +74,8 @@ function createMockCtx(): {
     notify: vi.fn(async () => {}),
     onTaskUpdate: vi.fn(),
     onConversationsRefresh: vi.fn(),
+    clearConversation: vi.fn(),
+    compactConversation: vi.fn(async () => {}),
     db: {} as any,
   }
 }
