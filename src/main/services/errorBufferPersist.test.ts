@@ -96,5 +96,18 @@ describe('errorBufferPersist', () => {
       buf.push(entry)
       await expect(vi.advanceTimersByTimeAsync(2000)).resolves.not.toThrow()
     })
+
+    it('removes the .tmp file when rename fails after a successful write', async () => {
+      mockedWriteFile.mockResolvedValue(undefined)
+      mockedRename.mockRejectedValue(new Error('EXDEV cross-device'))
+      mockedUnlink.mockResolvedValue(undefined)
+      const buf = new ErrorBuffer()
+      attachPersistence(buf, '/fake/path.json')
+      buf.push(entry)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(mockedWriteFile).toHaveBeenCalledTimes(1)
+      expect(mockedRename).toHaveBeenCalledTimes(1)
+      expect(mockedUnlink).toHaveBeenCalledWith('/fake/path.json.tmp')
+    })
   })
 })

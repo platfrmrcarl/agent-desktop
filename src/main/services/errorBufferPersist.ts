@@ -28,9 +28,17 @@ export async function loadFromDisk(buffer: ErrorBuffer, path: string): Promise<v
 
 export function attachPersistence(buffer: ErrorBuffer, path: string): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null
+  let inFlight = false
+  let dirty = false
 
   const flush = async (): Promise<void> => {
     timer = null
+    if (inFlight) {
+      dirty = true
+      return
+    }
+    inFlight = true
+    dirty = false
     const tmp = `${path}.tmp`
     const payload = JSON.stringify(buffer.getAll())
     try {
@@ -38,6 +46,18 @@ export function attachPersistence(buffer: ErrorBuffer, path: string): () => void
       await rename(tmp, path)
     } catch (err) {
       console.warn('[bug-report-internal] flush failed:', err)
+      try {
+        await unlink(tmp)
+      } catch {
+        // ignore — tmp may not exist (writeFile failed) or unlink itself failed
+      }
+    } finally {
+      inFlight = false
+      if (dirty && timer === null) {
+        timer = setTimeout(() => {
+          void flush()
+        }, FLUSH_DEBOUNCE_MS)
+      }
     }
   }
 
