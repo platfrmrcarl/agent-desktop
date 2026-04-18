@@ -94,6 +94,7 @@ export function BugReportModal(): JSX.Element | null {
       if (signal?.aborted) return
       if (result.ok) {
         markSent()
+        rendererErrorBuffer.clear()
         if (successCloseTimerRef.current) clearTimeout(successCloseTimerRef.current)
         successCloseTimerRef.current = setTimeout(() => {
           successCloseTimerRef.current = null

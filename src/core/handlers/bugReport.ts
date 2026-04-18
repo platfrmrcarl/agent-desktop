@@ -41,7 +41,7 @@ export function registerBugReportHandlers(
     try {
       const { description, logs } = (payload ?? {}) as { description?: unknown; logs?: unknown }
       const metadata = await opts.getMetadata()
-      return await opts.sendBugReport(
+      const result = await opts.sendBugReport(
         {
           description: typeof description === 'string' ? description : '',
           logs: typeof logs === 'string' ? logs : '',
@@ -49,6 +49,16 @@ export function registerBugReportHandlers(
         },
         opts.getWebhookUrl(),
       )
+      // Clear the main buffer on success so the next report doesn't duplicate.
+      // Renderer clears its own buffer separately after it receives { ok: true }.
+      if (result.ok) {
+        try {
+          opts.mainBuffer.clear()
+        } catch (err) {
+          console.warn('[bug-report-internal] clear after send failed:', err)
+        }
+      }
+      return result
     } catch (err) {
       console.warn('[bug-report-internal] send failed:', err)
       return { ok: false, error: 'unknown' as const }
