@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { PasswordAuthSection } from './PasswordAuthSection'
 
 interface ServerStatus {
   running: boolean
@@ -228,6 +229,9 @@ export function WebServerSettings() {
         </div>
         <Toggle enabled={autoStart} onToggle={handleAutoStartToggle} label="Auto-start web server" />
       </div>
+
+      {/* Password authentication */}
+      <PasswordAuthSection accessMode={accessMode} />
 
       {/* Status section — only when running */}
       {status.running && (
