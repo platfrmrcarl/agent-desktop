@@ -177,6 +177,7 @@ export interface SlashCommand {
 
 export type IntervalUnit = 'minutes' | 'hours' | 'days'
 export type TaskStatus = 'success' | 'error' | 'running'
+export type PreRunAction = 'none' | 'clear' | 'compact'
 
 export interface ScheduledTask {
   id: number
@@ -197,6 +198,7 @@ export interface ScheduledTask {
   run_count: number
   notify_desktop: boolean
   notify_voice: boolean
+  pre_run_action: PreRunAction
   created_at: string
   updated_at: string
 }
@@ -204,7 +206,7 @@ export interface ScheduledTask {
 export interface CreateScheduledTask {
   name: string
   prompt: string
-  conversation_id?: number          // omit to auto-create a new conversation
+  conversation_id?: number
   interval_value: number
   interval_unit: IntervalUnit
   schedule_time?: string
@@ -212,6 +214,7 @@ export interface CreateScheduledTask {
   max_runs?: number | null
   notify_desktop?: boolean
   notify_voice?: boolean
+  pre_run_action?: PreRunAction
 }
 
 // ─── Jupyter Kernel Types ────────────────────────────────────
