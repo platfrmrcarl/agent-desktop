@@ -761,7 +761,7 @@ async function generateConversationTitle(
 
 // ─── Compact Conversation ─────────────────────────────────────
 
-async function compactConversation(
+export async function compactConversation(
   db: SqlJsAdapter,
   conversationId: number,
   options: MessagesHandlerOptions
