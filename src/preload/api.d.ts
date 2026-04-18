@@ -36,6 +36,18 @@ export interface AgentAPI {
     login(): Promise<AuthStatus>
     logout(): Promise<void>
   }
+  bugReport: {
+    getMainErrors(): Promise<
+      Array<{ timestamp: string; source: 'main' | 'renderer'; level: 'error'; message: string }>
+    >
+    scrub(text: string): Promise<string>
+    send(payload: { description: string; logs: string }): Promise<
+      | { ok: true }
+      | { ok: false; error: 'not_configured' | 'timeout' | 'invalid_webhook' | 'server_error' | 'unknown' }
+      | { ok: false; error: 'rate_limited'; retryAfterMs: number }
+    >
+    onOpenRequest(cb: () => void): () => void
+  }
   models: {
     list(): Promise<{ value: string; label: string }[]>
     refresh(): Promise<{ value: string; label: string }[]>

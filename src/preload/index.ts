@@ -19,6 +19,19 @@ const api: AgentAPI = {
     login: () => withTimeout(ipcRenderer.invoke('auth:login')),
     logout: () => withTimeout(ipcRenderer.invoke('auth:logout')),
   },
+  bugReport: {
+    getMainErrors: () => withTimeout(ipcRenderer.invoke('bug:getMainErrors')),
+    scrub: (text: string) => withTimeout(ipcRenderer.invoke('bug:scrub', text)),
+    send: (payload: { description: string; logs: string }) =>
+      withTimeout(ipcRenderer.invoke('bug:send', payload), 15000),
+    onOpenRequest: (cb: () => void) => {
+      const handler = () => cb()
+      ipcRenderer.on('bugReport:open', handler)
+      return () => {
+        ipcRenderer.removeListener('bugReport:open', handler)
+      }
+    },
+  },
   models: {
     list: () => withTimeout(ipcRenderer.invoke('models:list'), 15000),
     refresh: () => withTimeout(ipcRenderer.invoke('models:refresh'), 15000),
