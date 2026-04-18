@@ -62,6 +62,21 @@ export async function executeTask(
     // Load AI settings early — we need cwd for variable resolution
     const aiSettings = ctx.getAISettings(task.conversation_id)
 
+    // Pre-run context preparation (keep / clear / compact before this run's prompt is saved)
+    if (task.pre_run_action === 'clear') {
+      ctx.clearConversation(task.conversation_id)
+    } else if (task.pre_run_action === 'compact') {
+      try {
+        await ctx.compactConversation(task.conversation_id)
+      } catch (err) {
+        console.warn(
+          `[scheduler] Task "${task.name}" (id=${task.id}) compact failed, falling back to clear:`,
+          err instanceof Error ? err.message : String(err),
+        )
+        ctx.clearConversation(task.conversation_id)
+      }
+    }
+
     // Resolve variables in the prompt (built-ins + ~/.agent-desktop/functions/*.ts)
     const { resolved: resolvedPrompt, errors: resolverErrors } =
       await resolveVariablesWithReport(task.prompt, {

@@ -202,4 +202,28 @@ describe('executeTask', () => {
     expect(userCall).toBeDefined()
     expect(userCall[2]).toBe('Hello DailyReport!')
   })
+
+  describe('pre_run_action', () => {
+    it("does NOT call clearConversation or compactConversation when 'none'", async () => {
+      scheduler.get.mockReturnValue(makeTask())
+      await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'none' }))
+      expect(ctx.clearConversation).not.toHaveBeenCalled()
+      expect(ctx.compactConversation).not.toHaveBeenCalled()
+    })
+
+    it("calls clearConversation BEFORE saveMessage('user') when 'clear'", async () => {
+      scheduler.get.mockReturnValue(makeTask())
+      const callOrder: string[] = []
+      ctx.clearConversation.mockImplementation(() => { callOrder.push('clear') })
+      ctx.saveMessage.mockImplementation((_id: number, role: string) => {
+        if (role === 'user') callOrder.push('saveUser')
+      })
+
+      await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'clear' }))
+
+      expect(ctx.clearConversation).toHaveBeenCalledWith(10)
+      expect(ctx.compactConversation).not.toHaveBeenCalled()
+      expect(callOrder.indexOf('clear')).toBeLessThan(callOrder.indexOf('saveUser'))
+    })
+  })
 })
