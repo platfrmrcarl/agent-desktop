@@ -225,5 +225,23 @@ describe('executeTask', () => {
       expect(ctx.compactConversation).not.toHaveBeenCalled()
       expect(callOrder.indexOf('clear')).toBeLessThan(callOrder.indexOf('saveUser'))
     })
+
+    it("awaits compactConversation BEFORE saveMessage('user') when 'compact'", async () => {
+      scheduler.get.mockReturnValue(makeTask())
+      const callOrder: string[] = []
+      ctx.compactConversation.mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 5))
+        callOrder.push('compact')
+      })
+      ctx.saveMessage.mockImplementation((_id: number, role: string) => {
+        if (role === 'user') callOrder.push('saveUser')
+      })
+
+      await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'compact' }))
+
+      expect(ctx.compactConversation).toHaveBeenCalledWith(10)
+      expect(ctx.clearConversation).not.toHaveBeenCalled()
+      expect(callOrder.indexOf('compact')).toBeLessThan(callOrder.indexOf('saveUser'))
+    })
   })
 })
