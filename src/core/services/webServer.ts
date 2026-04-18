@@ -9,6 +9,8 @@ import type { DispatchRegistry } from '../dispatch'
 import type { HandleRegistrar } from '../dispatch'
 import { ensureSelfSignedCert } from '../utils/cert'
 import { WebSocketServer, WebSocket } from 'ws'
+import { createRateLimiter, type RateLimiter, type WebPasswordService } from '../auth'
+import { renderLoginPage } from './webServer/loginPage'
 
 // ─── State ───────────────────────────────────────────
 
@@ -21,6 +23,9 @@ let serverShortCode: string | null = null
 let serverAccessMode: 'lan' | 'all' = 'lan'
 let serverProtocol: 'https' | 'http' = 'https'
 const authenticatedClients = new Set<WebSocket>()
+let webPassword: WebPasswordService | null = null
+const rateLimiter: RateLimiter = createRateLimiter()
+const COOKIE_NAME = 'agent_session'
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 const clientAlive = new WeakMap<WebSocket, boolean>()
 const HEARTBEAT_INTERVAL = 30_000
@@ -493,6 +498,57 @@ function safeSend(ws: WebSocket, payload: string): void {
   }
 }
 
+// ─── Auth helpers ────────────────────────────────────
+
+function getCookieValue(cookieHeader: string | undefined, name: string): string | null {
+  if (!cookieHeader) return null
+  for (const part of cookieHeader.split(';')) {
+    const [k, ...rest] = part.trim().split('=')
+    if (k === name) return rest.join('=')
+  }
+  return null
+}
+
+async function readRequestBody(req: http.IncomingMessage, maxBytes = 4096): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let total = 0
+    req.on('data', (c: Buffer) => {
+      total += c.length
+      if (total > maxBytes) {
+        reject(new Error('body too large'))
+        req.destroy()
+        return
+      }
+      chunks.push(c)
+    })
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
+    req.on('error', reject)
+  })
+}
+
+function parseFormBody(body: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const part of body.split('&')) {
+    if (!part) continue
+    const [k, v = ''] = part.split('=')
+    try { out[decodeURIComponent(k.replace(/\+/g, ' '))] = decodeURIComponent(v.replace(/\+/g, ' ')) }
+    catch { /* skip malformed */ }
+  }
+  return out
+}
+
+function cookieIsValid(req: http.IncomingMessage): boolean {
+  if (!webPassword || !webPassword.isPasswordSet()) return true
+  const raw = getCookieValue(req.headers.cookie, COOKIE_NAME)
+  if (!raw) return false
+  return webPassword.validateCookie(raw)
+}
+
+function remoteIp(req: http.IncomingMessage): string {
+  return req.socket.remoteAddress || ''
+}
+
 // ─── WebSocket message handling ─────────────────────
 
 function handleWsMessage(ws: WebSocket, raw: string): void {
@@ -504,6 +560,10 @@ function handleWsMessage(ws: WebSocket, raw: string): void {
   }
 
   if (msg.type === 'auth') {
+    if (authenticatedClients.has(ws)) {
+      safeSend(ws, JSON.stringify({ type: 'auth_result', success: true }))
+      return
+    }
     if (msg.token === serverToken) {
       authenticatedClients.add(ws)
       safeSend(ws, JSON.stringify({ type: 'auth_result', success: true }))
@@ -587,6 +647,7 @@ export interface ServerStartOptions {
   sslDir?: string         // default: path.join(__dirname, '../../ssl')
   rendererDir?: string    // default: path.join(__dirname, '../renderer')
   dispatch?: DispatchRegistry
+  webPassword?: WebPasswordService
 }
 
 export async function startServer(port: number, options?: ServerStartOptions): Promise<{ url: string; token: string }> {
@@ -601,6 +662,7 @@ export async function startServer(port: number, options?: ServerStartOptions): P
 
   // Wire injectable deps into module-level state
   serverDispatch = options?.dispatch ?? null
+  webPassword = options?.webPassword ?? null
   rendererDir = options?.rendererDir ?? path.join(__dirname, '../renderer')
 
   // Try SSL, fall back to HTTP if OpenSSL is unavailable
@@ -627,7 +689,7 @@ export async function startServer(port: number, options?: ServerStartOptions): P
   const devUrl = process.env.ELECTRON_RENDERER_URL
 
   // Shared request handler — works identically for HTTP and HTTPS
-  const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse) => {
+  const requestHandler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     if (!isAllowedRemote(req.socket.remoteAddress)) {
       res.writeHead(403)
       res.end('Forbidden: LAN access only')
@@ -635,16 +697,12 @@ export async function startServer(port: number, options?: ServerStartOptions): P
     }
 
     res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204)
-      res.end()
-      return
-    }
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
 
     const url = new URL(req.url || '/', `http://localhost:${port}`)
+    const passwordSet = !!webPassword && webPassword.isPasswordSet()
 
     if (url.pathname === '/agent-ws-shim.js') {
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' })
@@ -652,39 +710,85 @@ export async function startServer(port: number, options?: ServerStartOptions): P
       return
     }
 
-    const shortMatch = url.pathname.match(/^\/s\/([a-zA-Z0-9]+)$/)
-    if (shortMatch) {
-      if (shortMatch[1] !== serverShortCode) {
-        res.writeHead(403)
-        res.end('Invalid short code')
+    if (url.pathname === '/login' && req.method === 'POST') {
+      const ip = remoteIp(req)
+      const rl = rateLimiter.check(ip)
+      if (!rl.allowed) {
+        res.writeHead(429, { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': String(rl.retryAfterSeconds ?? 60) })
+        res.end(renderLoginPage({ error: 'Too many attempts', retryAfter: rl.retryAfterSeconds }))
         return
       }
-      const tokenScript = `<script>window.__AGENT_TOKEN__=${JSON.stringify(serverToken)};</script>`
-      if (devUrl) {
-        proxyToDevWithTokenInjection(devUrl, req, res, shimScript, tokenScript)
-      } else {
-        serveStaticFileWithTokenInjection('/', res, shimScript, tokenScript)
+      let body = ''
+      try { body = await readRequestBody(req) } catch { res.writeHead(413); res.end(); return }
+      const form = parseFormBody(body)
+      const ok = webPassword ? await webPassword.verifyPassword(form.password || '') : false
+      rateLimiter.recordAttempt(ip, ok)
+      if (!ok) {
+        res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.end(renderLoginPage({ error: 'Invalid password' }))
+        return
       }
+      const cookie = webPassword!.issueCookie(form.remember === '1')
+      const days = form.remember === '1' ? webPassword!.getRememberDurationDays() : webPassword!.getSessionDurationDays()
+      const maxAge = days * 24 * 60 * 60
+      const secureFlag = serverProtocol === 'https' ? ' Secure;' : ''
+      res.writeHead(302, {
+        'Set-Cookie': `${COOKIE_NAME}=${cookie}; HttpOnly;${secureFlag} SameSite=Strict; Path=/; Max-Age=${maxAge}`,
+        Location: serverShortCode ? `/s/${serverShortCode}` : '/',
+      })
+      res.end()
       return
     }
 
-    if (devUrl) {
-      proxyToDev(devUrl, url.pathname, req, res, shimScript)
-    } else {
-      serveStaticFile(url.pathname, res, shimScript)
+    if (url.pathname === '/logout' && req.method === 'POST') {
+      res.writeHead(302, {
+        'Set-Cookie': `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
+        Location: '/login',
+      })
+      res.end()
+      return
     }
+
+    if (url.pathname === '/login') {
+      res.writeHead(passwordSet ? 200 : 404, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end(passwordSet ? renderLoginPage({}) : 'Not found')
+      return
+    }
+
+    if (passwordSet && !cookieIsValid(req)) {
+      res.writeHead(302, { Location: '/login' })
+      res.end()
+      return
+    }
+
+    const shortMatch = url.pathname.match(/^\/s\/([a-zA-Z0-9]+)$/)
+    if (shortMatch) {
+      if (shortMatch[1] !== serverShortCode) {
+        res.writeHead(403); res.end('Invalid short code'); return
+      }
+      const tokenScript = passwordSet ? '' : `<script>window.__AGENT_TOKEN__=${JSON.stringify(serverToken)};</script>`
+      if (devUrl) proxyToDevWithTokenInjection(devUrl, req, res, shimScript, tokenScript)
+      else serveStaticFileWithTokenInjection('/', res, shimScript, tokenScript)
+      return
+    }
+
+    if (devUrl) proxyToDev(devUrl, url.pathname, req, res, shimScript)
+    else serveStaticFile(url.pathname, res, shimScript)
   }
 
   // Shared upgrade handler — works identically for HTTP and HTTPS
   const upgradeHandler = (req: http.IncomingMessage, socket: import('stream').Duplex, head: Buffer) => {
-    if (!isAllowedRemote(req.socket.remoteAddress)) {
-      socket.destroy()
-      return
-    }
+    if (!isAllowedRemote(req.socket.remoteAddress)) { socket.destroy(); return }
+
+    const passwordSet = !!webPassword && webPassword.isPasswordSet()
+    if (passwordSet && !cookieIsValid(req)) { socket.destroy(); return }
 
     const url = new URL(req.url || '/', `http://localhost:${port}`)
     if (url.pathname === '/ws') {
       wss!.handleUpgrade(req, socket, head, (wsClient) => {
+        if (passwordSet) {
+          authenticatedClients.add(wsClient)
+        }
         wss!.emit('connection', wsClient, req)
       })
     } else if (devUrl) {
@@ -811,6 +915,7 @@ export async function startServer(port: number, options?: ServerStartOptions): P
 
 export async function stopServer(): Promise<void> {
   serverDispatch = null
+  webPassword = null
   rendererDir = ''
 
   if (heartbeatTimer) {
