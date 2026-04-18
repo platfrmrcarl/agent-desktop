@@ -12,15 +12,17 @@ function formatArgs(args: unknown[]): string {
 export function patchConsoleError(buffer: ErrorBuffer): () => void {
   const original = console.error
   console.error = ((...args: unknown[]) => {
+    const firstArg = args[0]
+    const isInternal =
+      typeof firstArg === 'string' && firstArg.startsWith(INTERNAL_LOG_PREFIX)
     try {
       original.apply(console, args)
-      const message = formatArgs(args)
-      if (message.startsWith(INTERNAL_LOG_PREFIX)) return
+      if (isInternal) return
       buffer.push({
         timestamp: new Date().toISOString(),
         source: 'main',
         level: 'error',
-        message,
+        message: formatArgs(args),
       })
     } catch {
       // swallow: we cannot log here without recursing

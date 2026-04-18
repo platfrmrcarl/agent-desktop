@@ -61,4 +61,27 @@ describe('mainErrorCapture', () => {
     console.error('after-restore')
     expect(buf.getAll()).toHaveLength(0)
   })
+
+  it('still calls the original for internal-prefixed messages (stderr preserved)', () => {
+    const buf = new ErrorBuffer()
+    const spy = vi.fn()
+    console.error = spy
+    const restore = patchConsoleError(buf)
+    console.error(`${INTERNAL_LOG_PREFIX} bookkeeping`)
+    expect(spy).toHaveBeenCalledWith(`${INTERNAL_LOG_PREFIX} bookkeeping`)
+    expect(buf.getAll()).toHaveLength(0)
+    restore()
+  })
+
+  it('does not false-positive-skip when INTERNAL_LOG_PREFIX appears deep in an Error stack', () => {
+    const buf = new ErrorBuffer()
+    console.error = vi.fn()
+    const restore = patchConsoleError(buf)
+    const err = new Error('something')
+    err.stack = `Error: something\n    at ${INTERNAL_LOG_PREFIX}:1:1`
+    console.error(err)
+    expect(buf.getAll()).toHaveLength(1)
+    expect(buf.getAll()[0].message).toContain('something')
+    restore()
+  })
 })
