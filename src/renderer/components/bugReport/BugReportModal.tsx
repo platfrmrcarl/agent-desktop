@@ -1,11 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useBugReportStore } from '../../stores/bugReportStore'
 import { rendererErrorBuffer } from '../../bootstrap/rendererErrorCapture'
-
-type SendResult =
-  | { ok: true }
-  | { ok: false; error: 'not_configured' | 'timeout' | 'invalid_webhook' | 'server_error' | 'unknown' }
-  | { ok: false; error: 'rate_limited'; retryAfterMs: number }
+import type { SendResult } from '../../main/services/bugReport'
 
 function formatEntry(e: {
   timestamp: string
@@ -28,32 +24,46 @@ export function BugReportModal(): JSX.Element | null {
   const [error, setError] = useState<string | null>(null)
   const [countdown, setCountdown] = useState(0)
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const sessionControllerRef = useRef<AbortController | null>(null)
+  const successCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
+    const controller = new AbortController()
+    sessionControllerRef.current = controller
     setDescription(prefillDescription)
     setError(null)
-    void refreshLogs()
+    void refreshLogs(controller.signal)
     return () => {
+      controller.abort()
+      sessionControllerRef.current = null
       if (countdownTimer.current) {
         clearInterval(countdownTimer.current)
         countdownTimer.current = null
+      }
+      if (successCloseTimerRef.current) {
+        clearTimeout(successCloseTimerRef.current)
+        successCloseTimerRef.current = null
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
-  async function refreshLogs(): Promise<void> {
+  async function refreshLogs(signal?: AbortSignal): Promise<void> {
+    const activeSignal = signal ?? sessionControllerRef.current?.signal
     try {
       const main = await window.agent.bugReport.getMainErrors()
+      if (activeSignal?.aborted) return
       const renderer = rendererErrorBuffer.getAll()
       const merged = [...main, ...renderer].sort((a, b) =>
         a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0,
       )
       const raw = merged.map(formatEntry).join('\n')
       const scrubbed = await window.agent.bugReport.scrub(raw)
+      if (activeSignal?.aborted) return
       setLogs(scrubbed)
     } catch {
+      if (activeSignal?.aborted) return
       setLogs('')
     }
   }
@@ -76,13 +86,19 @@ export function BugReportModal(): JSX.Element | null {
   }
 
   async function handleSend(): Promise<void> {
+    const signal = sessionControllerRef.current?.signal
     setSending(true)
     setError(null)
     try {
       const result = (await window.agent.bugReport.send({ description, logs })) as SendResult
+      if (signal?.aborted) return
       if (result.ok) {
         markSent()
-        setTimeout(() => close(), 1000)
+        if (successCloseTimerRef.current) clearTimeout(successCloseTimerRef.current)
+        successCloseTimerRef.current = setTimeout(() => {
+          successCloseTimerRef.current = null
+          close()
+        }, 1000)
       } else if (result.error === 'rate_limited') {
         startCountdown(result.retryAfterMs)
         setError('Merci de patienter avant un nouvel envoi.')
@@ -94,7 +110,7 @@ export function BugReportModal(): JSX.Element | null {
         setError('Impossible d\u2019envoyer le rapport. Réessaye plus tard.')
       }
     } finally {
-      setSending(false)
+      if (!signal?.aborted) setSending(false)
     }
   }
 

@@ -83,4 +83,23 @@ describe('BugReportModal', () => {
     fireEvent.click(screen.getByTestId('bug-cancel-button'))
     expect(useBugReportStore.getState().isOpen).toBe(false)
   })
+
+  it('does not set logs state when modal closes before getMainErrors resolves', async () => {
+    let resolveFn: (v: unknown) => void = () => {}
+    agentMock.bugReport.getMainErrors.mockImplementation(
+      () => new Promise((resolve) => { resolveFn = resolve }),
+    )
+    const { unmount } = render(<BugReportModal />)
+    // Close before the promise resolves
+    useBugReportStore.getState().close()
+    // Now resolve the promise with data
+    resolveFn([
+      { timestamp: '2026-04-18T10:00:00.000Z', source: 'main', level: 'error', message: 'late' },
+    ])
+    // Wait a tick to let any .then handlers fire
+    await new Promise((r) => setTimeout(r, 0))
+    // After close, modal is null — no textarea to query
+    expect(screen.queryByTestId('bug-logs-textarea')).toBeNull()
+    unmount()
+  })
 })
