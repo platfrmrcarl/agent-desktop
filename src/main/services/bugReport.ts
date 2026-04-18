@@ -51,9 +51,7 @@ export function resetRateLimitForTest(): void {
 }
 
 function randomUuid(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? (crypto as { randomUUID: () => string }).randomUUID()
-    : Math.random().toString(36).slice(2) + Date.now().toString(36)
+  return crypto.randomUUID()
 }
 
 function truncate(text: string, max: number): string {
@@ -91,30 +89,39 @@ export function buildEmbed(payload: BugReportPayload): DiscordEmbed {
     { name: 'Theme', value: m.theme, inline: true },
     { name: 'Web mode', value: m.webMode, inline: true },
   ]
-  const description = payload.description.trim()
-    ? truncate(payload.description, MAX_DESCRIPTION)
-    : '_No description provided_'
+  const trimmed = payload.description.trim()
+  const description = trimmed ? truncate(trimmed, MAX_DESCRIPTION) : '_No description provided_'
 
-  const logFields = splitLogs(payload.logs)
-  let fields = [...metaFields, ...logFields]
+  const originalLogFields = splitLogs(payload.logs)
+  let logFields = [...originalLogFields]
 
-  let embed: DiscordEmbed = {
+  const timestamp = new Date().toISOString()
+  const reportId = randomUuid()
+  const makeEmbed = (fields: DiscordEmbedField[]): DiscordEmbed => ({
     title: 'Bug Report',
     color: 15158332,
-    timestamp: new Date().toISOString(),
+    timestamp,
     description,
     fields,
-    footer: { text: `Report ID: ${randomUuid()}` },
+    footer: { text: `Report ID: ${reportId}` },
+  })
+
+  let embed = makeEmbed([...metaFields, ...logFields])
+  while (JSON.stringify(embed).length > MAX_EMBED_TOTAL && logFields.length > 0) {
+    logFields = logFields.slice(0, -1)
+    embed = makeEmbed([...metaFields, ...logFields])
   }
 
-  while (JSON.stringify(embed).length > MAX_EMBED_TOTAL && fields.length > metaFields.length) {
-    const dropped = fields.length - metaFields.length
-    fields = fields.slice(0, -1)
-    const last = fields[fields.length - 1]
-    if (last && last.name.startsWith('Logs')) {
-      last.value = last.value.replace(/\n```$/, `\n[truncated, ${dropped} chunk(s) omitted]\n\`\`\``)
-    }
-    embed = { ...embed, fields }
+  const droppedCount = originalLogFields.length - logFields.length
+  if (droppedCount > 0 && logFields.length > 0) {
+    const lastIndex = logFields.length - 1
+    const last = { ...logFields[lastIndex] }
+    last.value = last.value.replace(
+      /\n```$/,
+      `\n[truncated, ${droppedCount} chunk(s) omitted]\n\`\`\``,
+    )
+    logFields = [...logFields.slice(0, -1), last]
+    embed = makeEmbed([...metaFields, ...logFields])
   }
 
   return embed
@@ -149,7 +156,7 @@ export async function sendBugReport(
       lastSentAtMs = Date.now()
       return { ok: true }
     }
-    if (res.status >= 500) return { ok: false, error: 'server_error' }
+    if (res.status === 429 || res.status >= 500) return { ok: false, error: 'server_error' }
     if (res.status >= 400) return { ok: false, error: 'invalid_webhook' }
     return { ok: false, error: 'unknown' }
   } catch (err) {

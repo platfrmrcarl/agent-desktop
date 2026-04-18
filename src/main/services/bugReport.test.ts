@@ -55,6 +55,19 @@ describe('buildEmbed', () => {
     const total = JSON.stringify(embed).length
     expect(total).toBeLessThanOrEqual(6200) // 6000 + JSON overhead tolerance
   })
+
+  it('applies correct truncated chunk count once on the surviving last field', () => {
+    const huge = 'x'.repeat(8000)
+    const embed = buildEmbed({ description: '', logs: huge, metadata: defaultMeta() })
+    const logFields = embed.fields.filter((f) => f.name.startsWith('Logs'))
+    const annotations = logFields.filter((f) => /chunk\(s\) omitted/.test(f.value))
+    // annotation is present on exactly one field, the last surviving one
+    expect(annotations.length).toBe(1)
+    expect(annotations[0]).toBe(logFields[logFields.length - 1])
+    const match = annotations[0].value.match(/\[truncated, (\d+) chunk\(s\) omitted\]/)
+    expect(match).not.toBeNull()
+    expect(Number(match![1])).toBeGreaterThan(0)
+  })
 })
 
 describe('sendBugReport', () => {
@@ -105,6 +118,22 @@ describe('sendBugReport', () => {
       'https://x',
     )
     expect(res).toEqual({ ok: false, error: 'invalid_webhook' })
+  })
+
+  it('maps 429 to server_error (Discord rate-limiting, not bad URL)', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 429 } as Response)
+    const res = await sendBugReport(
+      { description: 'd', logs: 'l', metadata: defaultMeta() },
+      'https://x',
+    )
+    expect(res).toEqual({ ok: false, error: 'server_error' })
+  })
+
+  it('posts with Content-Type: application/json', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 204 } as Response)
+    await sendBugReport({ description: 'd', logs: 'l', metadata: defaultMeta() }, 'https://x')
+    const [, init] = mockFetch.mock.calls[0]
+    expect((init as RequestInit).headers).toMatchObject({ 'Content-Type': 'application/json' })
   })
 
   it('returns timeout when fetch throws AbortError', async () => {
