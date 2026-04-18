@@ -69,6 +69,13 @@ function generateShim(token: string): string {
   var pending = {};
   var listeners = {};
   var connected = false;
+  var sendQueue = [];
+
+  function flushQueue() {
+    while (sendQueue.length > 0 && connected && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(sendQueue.shift());
+    }
+  }
 
   function connect() {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -82,6 +89,7 @@ function generateShim(token: string): string {
       if (msg.type === 'auth_result') {
         connected = msg.success;
         if (!msg.success) console.error('[agent-ws] Auth failed:', msg.error);
+        else flushQueue();
         return;
       }
       if (msg.type === 'result') {
@@ -101,6 +109,7 @@ function generateShim(token: string): string {
     };
     ws.onclose = function() {
       connected = false;
+      sendQueue.length = 0;
       // Reject all pending
       Object.keys(pending).forEach(function(id) {
         pending[id].reject(new Error('WebSocket disconnected'));
@@ -114,9 +123,6 @@ function generateShim(token: string): string {
 
   function invoke(channel, args) {
     return new Promise(function(resolve, reject) {
-      if (!ws || ws.readyState !== WebSocket.OPEN || !connected) {
-        return reject(new Error('Not connected'));
-      }
       var id = String(++reqId);
       pending[id] = { resolve: resolve, reject: reject };
       // Encode special types that JSON cannot represent natively:
@@ -133,7 +139,14 @@ function generateShim(token: string): string {
         }
         return a;
       });
-      ws.send(JSON.stringify({ type: 'invoke', id: id, channel: channel, args: encodedArgs }));
+      var payload = JSON.stringify({ type: 'invoke', id: id, channel: channel, args: encodedArgs });
+      // Queue the message if WS isn't ready yet — flushed when auth_result success arrives,
+      // or rejected (from pending) when WS closes.
+      if (ws && ws.readyState === WebSocket.OPEN && connected) {
+        ws.send(payload);
+      } else {
+        sendQueue.push(payload);
+      }
     });
   }
 
