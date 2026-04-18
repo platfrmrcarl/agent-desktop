@@ -21,6 +21,7 @@ import { registerTtsHandlers } from './tts'
 import { registerWhisperHandlers } from './whisper'
 import { registerSystemHandlers } from './system'
 import { registerGitHandlers } from './git'
+import { registerBugReportHandlers, type BugReportHandlerOptions } from './bugReport'
 
 export interface CoreHandlerOptions {
   broadcaster: Broadcaster
@@ -28,6 +29,7 @@ export interface CoreHandlerOptions {
   sessionsBase: string
   themesDir: string
   knowledgesDir: string
+  bugReport: BugReportHandlerOptions
 }
 
 export function registerCoreHandlers(
@@ -58,4 +60,5 @@ export function registerCoreHandlers(
   registerWhisperHandlers(registrar, db)
   registerSystemHandlers(registrar, db)
   registerGitHandlers(registrar)
+  registerBugReportHandlers(registrar, options.bugReport)
 }

@@ -77,6 +77,26 @@ function buildContextMenu(): Menu {
       click: (): void => showOverlay('text'),
     },
     { type: 'separator' },
+    {
+      label: 'Report a bug…',
+      click: () => {
+        const win = getWindowFn?.() ?? null
+        if (isAlive(win)) {
+          win.show()
+          if (win.isMinimized()) win.restore()
+          win.focus()
+          win.webContents.send('bugReport:open')
+        } else {
+          ensureWindowFn?.()
+          const w = getWindowFn?.() ?? null
+          if (isAlive(w)) {
+            w.once('ready-to-show', () => w.webContents.send('bugReport:open'))
+            w.show()
+          }
+        }
+      },
+    },
+    { type: 'separator' },
   ]
 
   // Update menu items (only when callbacks are wired)

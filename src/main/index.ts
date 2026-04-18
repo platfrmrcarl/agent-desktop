@@ -1,4 +1,10 @@
 import './utils/coloredConsole'
+import { ErrorBuffer } from '../core/services/errorBuffer'
+import { patchConsoleError } from './bootstrap/mainErrorCapture'
+
+export const mainErrorBuffer = new ErrorBuffer()
+patchConsoleError(mainErrorBuffer)
+
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { AgentEngine } from '../core'
@@ -19,6 +25,10 @@ import { shutdownAllKernels } from './services/jupyter'
 import { shutdownAllSessions } from './services/sessionManager'
 import { stop as stopTts } from './services/tts'
 import { startServer, stopServer } from './services/webServer'
+import { loadFromDisk, attachPersistence } from './services/errorBufferPersist'
+import { sendBugReport } from './services/bugReport'
+import { scrub as scrubLog } from './services/logScrubber'
+import { registerBugReportHandlers } from '../core/handlers/bugReport'
 
 // Custom protocol — must be registered before app.ready
 registerPreviewScheme()
@@ -127,6 +137,9 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     registerPreviewProtocol()
+    const errorBufferPath = join(app.getPath('userData'), 'error-buffer.json')
+    await loadFromDisk(mainErrorBuffer, errorBufferPath)
+    attachPersistence(mainErrorBuffer, errorBufferPath)
     const dbPath = join(app.getPath('userData'), 'agent.db')
     const wasmPath = app.isPackaged ? join(process.resourcesPath, 'sql-wasm.wasm') : undefined
 
@@ -152,6 +165,44 @@ if (!gotLock) {
     })
     await engine.init()
     const db = engine.db as any
+
+    // Override the placeholder bug-report handlers that engine.init() registered
+    // (with undefined opts, because engine has no knowledge of bugReport) with
+    // real ones that have access to app-level state.
+    // MUST happen BEFORE bridgeDispatchToIpc, because the bridge captures
+    // handler references by value — any later re-registration on engine.dispatch
+    // would not propagate to ipcMain.
+    registerBugReportHandlers(engine.dispatch, {
+      mainBuffer: mainErrorBuffer,
+      getMetadata: async () => {
+        const aiBackendRow = db
+          .prepare("SELECT value FROM settings WHERE key = 'ai_sdkBackend'")
+          .get() as { value: string } | undefined
+        const themeRow = db
+          .prepare("SELECT value FROM settings WHERE key = 'activeTheme'")
+          .get() as { value: string } | undefined
+        return {
+          version: app.getVersion(),
+          platform: `${process.platform} (${process.arch})`,
+          session:
+            process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY
+              ? ('Wayland' as const)
+              : process.env.DISPLAY
+                ? ('X11' as const)
+                : ('unknown' as const),
+          electron: process.versions.electron ?? 'unknown',
+          node: process.versions.node ?? 'unknown',
+          aiBackend: aiBackendRow?.value ?? 'claude-agent-sdk',
+          theme: themeRow?.value ?? 'default',
+          webMode: process.env.AGENT_WEB_MODE ? ('yes' as const) : ('no' as const),
+        }
+      },
+      getWebhookUrl: () =>
+        (import.meta.env.MAIN_VITE_BUG_WEBHOOK_URL as string | undefined) ?? '',
+      sendBugReport,
+      scrub: scrubLog,
+    })
+
     bridgeDispatchToIpc(engine, ipcMain)
 
     cleanupPastedFiles().catch(() => {}) // fire-and-forget: remove stale paste temp files

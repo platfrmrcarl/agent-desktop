@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useUiStore } from './stores/uiStore'
 import { useSettingsStore } from './stores/settingsStore'
+import { useBugReportStore } from './stores/bugReportStore'
 import { useShortcutsStore } from './stores/shortcutsStore'
 import { useConversationsStore } from './stores/conversationsStore'
 import { useChatStore } from './stores/chatStore'
@@ -61,6 +62,9 @@ export default function App() {
     const unsubDeeplink = window.agent.events.onDeeplinkNavigate((id) => {
       useConversationsStore.getState().setActiveConversation(id)
     })
+    const unsubBugReport = window.agent.bugReport.onOpenRequest(() => {
+      useBugReportStore.getState().open()
+    })
     const unsubAutoTheme = window.agent.events.onAutoThemeSwitch((filename) => {
       const { themes } = useSettingsStore.getState()
       const theme = themes.find((t) => t.filename === filename)
@@ -81,6 +85,7 @@ export default function App() {
     return () => {
       unsubTray()
       unsubDeeplink()
+      unsubBugReport()
       unsubAutoTheme()
       unsubFontScale()
     }
