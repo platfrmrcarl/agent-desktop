@@ -165,8 +165,13 @@ if (!gotLock) {
     })
     await engine.init()
     const db = engine.db as any
-    bridgeDispatchToIpc(engine, ipcMain)
 
+    // Override the placeholder bug-report handlers that engine.init() registered
+    // (with undefined opts, because engine has no knowledge of bugReport) with
+    // real ones that have access to app-level state.
+    // MUST happen BEFORE bridgeDispatchToIpc, because the bridge captures
+    // handler references by value — any later re-registration on engine.dispatch
+    // would not propagate to ipcMain.
     registerBugReportHandlers(engine.dispatch, {
       mainBuffer: mainErrorBuffer,
       getMetadata: async () => {
@@ -197,6 +202,8 @@ if (!gotLock) {
       sendBugReport,
       scrub: scrubLog,
     })
+
+    bridgeDispatchToIpc(engine, ipcMain)
 
     cleanupPastedFiles().catch(() => {}) // fire-and-forget: remove stale paste temp files
     setupDeepLinks(app)
