@@ -654,3 +654,79 @@ describe('SchedulerService', () => {
     })
   })
 })
+
+describe('SchedulerService — pre_run_action', () => {
+  let db: Database.Database
+  let service: SchedulerService
+
+  beforeEach(async () => {
+    db = await createTestDb()
+    service = new SchedulerService(db)
+    // Seed a conversation so create() can attach to it
+    db.prepare("INSERT INTO conversations (id, title, updated_at) VALUES (1, 'Conv', datetime('now'))").run()
+  })
+
+  it("defaults to 'none' when not provided on create", () => {
+    const task = service.create({
+      name: 'T',
+      prompt: 'p',
+      conversation_id: 1,
+      interval_value: 1,
+      interval_unit: 'hours',
+    })
+    expect(task.pre_run_action).toBe('none')
+  })
+
+  it.each(['none', 'clear', 'compact'] as const)("persists '%s' on create", (action) => {
+    const task = service.create({
+      name: 'T',
+      prompt: 'p',
+      conversation_id: 1,
+      interval_value: 1,
+      interval_unit: 'hours',
+      pre_run_action: action,
+    })
+    expect(task.pre_run_action).toBe(action)
+  })
+
+  it('throws on invalid value at create time', () => {
+    expect(() =>
+      service.create({
+        name: 'T',
+        prompt: 'p',
+        conversation_id: 1,
+        interval_value: 1,
+        interval_unit: 'hours',
+        // @ts-expect-error — runtime validation test
+        pre_run_action: 'garbage',
+      }),
+    ).toThrow(/pre_run_action/)
+  })
+
+  it('updates pre_run_action and readback reflects it', () => {
+    const task = service.create({
+      name: 'T',
+      prompt: 'p',
+      conversation_id: 1,
+      interval_value: 1,
+      interval_unit: 'hours',
+    })
+    service.update(task.id, { pre_run_action: 'compact' })
+    const reloaded = service.get(task.id)
+    expect(reloaded?.pre_run_action).toBe('compact')
+  })
+
+  it('throws on invalid value at update time', () => {
+    const task = service.create({
+      name: 'T',
+      prompt: 'p',
+      conversation_id: 1,
+      interval_value: 1,
+      interval_unit: 'hours',
+    })
+    expect(() =>
+      // @ts-expect-error — runtime validation test
+      service.update(task.id, { pre_run_action: 'nope' }),
+    ).toThrow(/pre_run_action/)
+  })
+})
