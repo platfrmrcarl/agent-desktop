@@ -169,21 +169,29 @@ if (!gotLock) {
 
     registerBugReportHandlers(engine.dispatch, {
       mainBuffer: mainErrorBuffer,
-      getMetadata: async () => ({
-        version: app.getVersion(),
-        platform: `${process.platform} (${process.arch})`,
-        session:
-          process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY
-            ? ('Wayland' as const)
-            : process.env.DISPLAY
-              ? ('X11' as const)
-              : ('unknown' as const),
-        electron: process.versions.electron ?? 'unknown',
-        node: process.versions.node ?? 'unknown',
-        aiBackend: 'claude-agent-sdk',
-        theme: 'default',
-        webMode: process.env.AGENT_WEB_MODE ? ('yes' as const) : ('no' as const),
-      }),
+      getMetadata: async () => {
+        const aiBackendRow = db
+          .prepare("SELECT value FROM settings WHERE key = 'ai_sdkBackend'")
+          .get() as { value: string } | undefined
+        const themeRow = db
+          .prepare("SELECT value FROM settings WHERE key = 'activeTheme'")
+          .get() as { value: string } | undefined
+        return {
+          version: app.getVersion(),
+          platform: `${process.platform} (${process.arch})`,
+          session:
+            process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY
+              ? ('Wayland' as const)
+              : process.env.DISPLAY
+                ? ('X11' as const)
+                : ('unknown' as const),
+          electron: process.versions.electron ?? 'unknown',
+          node: process.versions.node ?? 'unknown',
+          aiBackend: aiBackendRow?.value ?? 'claude-agent-sdk',
+          theme: themeRow?.value ?? 'default',
+          webMode: process.env.AGENT_WEB_MODE ? ('yes' as const) : ('no' as const),
+        }
+      },
       getWebhookUrl: () =>
         (import.meta.env.MAIN_VITE_BUG_WEBHOOK_URL as string | undefined) ?? '',
       sendBugReport,
