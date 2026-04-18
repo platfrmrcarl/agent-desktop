@@ -9,7 +9,7 @@ import { resolve, join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, appendFileSync } from 'fs'
 import { spawn } from 'child_process'
-import { AgentEngine } from '../core'
+import { AgentEngine, noopHookRunner } from '../core'
 import type { Broadcaster } from '../core'
 import { executeTask } from '../core/services/taskExecutor'
 import type { TaskRunContext } from '../core/services/taskExecutor'
@@ -86,6 +86,7 @@ function createCoreContext(db: any): TaskRunContext {
     },
     onConversationsRefresh() {},
     clearConversation(conversationId: number) {
+      // Step back 1ms so the user message saved immediately after passes the strict `created_at > cleared_at` filter
       const clearedAt = new Date(Date.now() - 1).toISOString()
       ;(db as any).prepare(
         'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, updated_at = ? WHERE id = ?'
@@ -94,7 +95,7 @@ function createCoreContext(db: any): TaskRunContext {
     async compactConversation(conversationId: number) {
       const compactOptions: MessagesHandlerOptions = {
         broadcaster: silentBroadcaster,
-        hookRunner: { run: async () => ({ decision: 'allow' }) } as any,
+        hookRunner: noopHookRunner,
         sessionsBase,
         onSessionInvalidate: () => { /* headless has no live sessions to invalidate */ },
       }
