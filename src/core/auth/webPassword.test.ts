@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createWebPasswordService } from './webPassword'
 
 function makeInMemorySettings() {
@@ -82,5 +82,85 @@ describe('WebPasswordService — hash operations', () => {
     await svc.setPassword('password for format')
     const hash = settings.get('server_passwordHash')!
     expect(hash).toMatch(/^\$scrypt\$N=\d+,r=\d+,p=\d+\$[A-Za-z0-9+/=_-]+\$[A-Za-z0-9+/=_-]+$/)
+  })
+})
+
+describe('WebPasswordService — cookies', () => {
+  let settings: ReturnType<typeof makeInMemorySettings>
+  beforeEach(() => { settings = makeInMemorySettings() })
+
+  it('issueCookie returns a non-empty string', async () => {
+    const svc = createWebPasswordService(settings)
+    await svc.setPassword('cookie test password')
+    const c = svc.issueCookie(false)
+    expect(typeof c).toBe('string')
+    expect(c.length).toBeGreaterThan(0)
+  })
+
+  it('validateCookie returns true for a freshly issued cookie', async () => {
+    const svc = createWebPasswordService(settings)
+    await svc.setPassword('cookie test password')
+    const c = svc.issueCookie(false)
+    expect(svc.validateCookie(c)).toBe(true)
+  })
+
+  it('validateCookie returns false for a bit-flipped cookie', async () => {
+    const svc = createWebPasswordService(settings)
+    await svc.setPassword('cookie test password')
+    const c = svc.issueCookie(false)
+    const tampered = c.slice(0, -1) + (c.at(-1) === 'A' ? 'B' : 'A')
+    expect(svc.validateCookie(tampered)).toBe(false)
+  })
+
+  it('validateCookie returns false for garbage input', async () => {
+    const svc = createWebPasswordService(settings)
+    await svc.setPassword('cookie test password')
+    expect(svc.validateCookie('not-even-base64')).toBe(false)
+    expect(svc.validateCookie('')).toBe(false)
+  })
+
+  it('validateCookie returns false for an expired cookie', async () => {
+    vi.useFakeTimers({ now: 1_000_000_000_000 })
+    try {
+      const svc = createWebPasswordService(settings)
+      await svc.setPassword('cookie test password')
+      svc.setSessionDurationDays(1)
+      const c = svc.issueCookie(false)
+      vi.advanceTimersByTime(2 * 24 * 60 * 60 * 1000)
+      expect(svc.validateCookie(c)).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rememberMe=true uses rememberDurationDays', async () => {
+    vi.useFakeTimers({ now: 1_000_000_000_000 })
+    try {
+      const svc = createWebPasswordService(settings)
+      await svc.setPassword('cookie test password')
+      svc.setSessionDurationDays(1)
+      svc.setRememberDurationDays(30)
+      const c = svc.issueCookie(true)
+      vi.advanceTimersByTime(2 * 24 * 60 * 60 * 1000)
+      expect(svc.validateCookie(c)).toBe(true)
+      vi.advanceTimersByTime(29 * 24 * 60 * 60 * 1000)
+      expect(svc.validateCookie(c)).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cookie issued before sessionSecret rotation is invalid after rotation', async () => {
+    const svc = createWebPasswordService(settings)
+    await svc.setPassword('first password here')
+    const c = svc.issueCookie(false)
+    expect(svc.validateCookie(c)).toBe(true)
+    await svc.setPassword('second password now')
+    expect(svc.validateCookie(c)).toBe(false)
+  })
+
+  it('validateCookie returns false when no password is set', () => {
+    const svc = createWebPasswordService(settings)
+    expect(svc.validateCookie('anything.anything')).toBe(false)
   })
 })

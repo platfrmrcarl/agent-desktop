@@ -90,11 +90,35 @@ export function createWebPasswordService(settings: SettingsPort): WebPasswordSer
       return !!settings.get('server_passwordHash')
     },
 
-    issueCookie(_rememberMe: boolean): string {
-      throw new Error('not implemented yet')
+    issueCookie(rememberMe: boolean): string {
+      const secret = settings.get('server_sessionSecret')
+      if (!secret) throw new Error('Cannot issue cookie: password not set')
+      const days = rememberMe ? getDurationDays('server_rememberDurationDays', 30) : getDurationDays('server_sessionDurationDays', 7)
+      const expiresAt = Date.now() + days * 24 * 60 * 60 * 1000
+      const payload = String(expiresAt)
+      const mac = createHmac('sha256', Buffer.from(secret, 'hex')).update(payload).digest('hex')
+      return b64urlEncode(Buffer.from(`${payload}.${mac}`, 'utf-8'))
     },
-    validateCookie(_cookieValue: string): boolean {
-      throw new Error('not implemented yet')
+
+    validateCookie(cookieValue: string): boolean {
+      const secret = settings.get('server_sessionSecret')
+      if (!secret || !cookieValue) return false
+      let decoded: string
+      try { decoded = b64urlDecode(cookieValue).toString('utf-8') }
+      catch { return false }
+      const dot = decoded.indexOf('.')
+      if (dot <= 0 || dot === decoded.length - 1) return false
+      const payload = decoded.slice(0, dot)
+      const macHex = decoded.slice(dot + 1)
+      const expected = createHmac('sha256', Buffer.from(secret, 'hex')).update(payload).digest()
+      let provided: Buffer
+      try { provided = Buffer.from(macHex, 'hex') }
+      catch { return false }
+      if (provided.length !== expected.length) return false
+      if (!timingSafeEqual(provided, expected)) return false
+      const expiresAt = parseInt(payload, 10)
+      if (!Number.isFinite(expiresAt)) return false
+      return expiresAt > Date.now()
     },
     getSessionDurationDays(): number { return getDurationDays('server_sessionDurationDays', 7) },
     setSessionDurationDays(days: number): void { settings.set('server_sessionDurationDays', String(days)) },
