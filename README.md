@@ -1,6 +1,5 @@
 # Agent Desktop
-
-Open-source desktop client for Claude AI — Linux, macOS, and Windows.
+A desktop client for every LLM, built for agents. Claude by default — any model via a custom base URL. Plan mode approvals, MCP servers, a real git panel, a scheduler with variables, voice, Jupyter — wired straight to your filesystem, or headless in a Docker sandbox if that's your vibe. 
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/0599fa5f-3470-4ed3-a1b8-5dd983c4a0af" />
 
