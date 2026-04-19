@@ -9,11 +9,12 @@ import { resolve, join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, appendFileSync } from 'fs'
 import { spawn } from 'child_process'
-import { AgentEngine } from '../core'
+import { AgentEngine, noopHookRunner } from '../core'
 import type { Broadcaster } from '../core'
 import { executeTask } from '../core/services/taskExecutor'
 import type { TaskRunContext } from '../core/services/taskExecutor'
-import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage } from '../core/handlers/messages'
+import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage, compactConversation as compactConversationImpl } from '../core/handlers/messages'
+import type { MessagesHandlerOptions } from '../core/handlers/messages'
 import { streamMessage } from '../core/services/streaming'
 import { enrichHeadlessEnv, getSessionsBase, getKnowledgesDir } from './headlessEnv'
 import { loadAndRegisterSDK } from './loadSdk'
@@ -84,6 +85,22 @@ function createCoreContext(db: any): TaskRunContext {
       log(`[task] ${task.name} (id=${task.id}): ${task.last_status}`)
     },
     onConversationsRefresh() {},
+    clearConversation(conversationId: number) {
+      // Step back 1ms so the user message saved immediately after passes the strict `created_at > cleared_at` filter
+      const clearedAt = new Date(Date.now() - 1).toISOString()
+      ;(db as any).prepare(
+        'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, updated_at = ? WHERE id = ?'
+      ).run(clearedAt, clearedAt, conversationId)
+    },
+    async compactConversation(conversationId: number) {
+      const compactOptions: MessagesHandlerOptions = {
+        broadcaster: silentBroadcaster,
+        hookRunner: noopHookRunner,
+        sessionsBase,
+        onSessionInvalidate: () => { /* headless has no live sessions to invalidate */ },
+      }
+      await compactConversationImpl(db, conversationId, compactOptions)
+    },
   }
 }
 

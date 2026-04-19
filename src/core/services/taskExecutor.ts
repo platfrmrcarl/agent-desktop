@@ -29,6 +29,10 @@ export interface TaskRunContext {
   /** Called when a task or conversation state changes — broadcast to renderer / logs */
   onTaskUpdate(task: ScheduledTask): void
   onConversationsRefresh(): void
+  /** Soft-clear the conversation history before the next run (equivalent to /clear). */
+  clearConversation(conversationId: number): void
+  /** Summarize and clear the conversation history before the next run (equivalent to /compact). */
+  compactConversation(conversationId: number): Promise<void>
   /** Read-only DB handle — used by variableResolver builtins (e.g., previous_output). */
   db: Database
 }
@@ -57,6 +61,21 @@ export async function executeTask(
 
     // Load AI settings early — we need cwd for variable resolution
     const aiSettings = ctx.getAISettings(task.conversation_id)
+
+    // Pre-run context preparation (keep / clear / compact before this run's prompt is saved)
+    if (task.pre_run_action === 'clear') {
+      ctx.clearConversation(task.conversation_id)
+    } else if (task.pre_run_action === 'compact') {
+      try {
+        await ctx.compactConversation(task.conversation_id)
+      } catch (err) {
+        console.warn(
+          `[scheduler] Task "${task.name}" (id=${task.id}) compact failed, falling back to clear:`,
+          err instanceof Error ? err.message : String(err),
+        )
+        ctx.clearConversation(task.conversation_id)
+      }
+    }
 
     // Resolve variables in the prompt (built-ins + ~/.agent-desktop/functions/*.ts)
     const { resolved: resolvedPrompt, errors: resolverErrors } =

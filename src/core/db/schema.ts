@@ -112,6 +112,7 @@ const TABLES = [
     one_shot INTEGER DEFAULT 0,
     notify_desktop INTEGER DEFAULT 1,
     notify_voice INTEGER DEFAULT 0,
+    pre_run_action TEXT NOT NULL DEFAULT 'none',
     created_at DATETIME DEFAULT (datetime('now')),
     updated_at DATETIME DEFAULT (datetime('now')),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
@@ -213,6 +214,15 @@ function runMigrations(db: Database.Database): void {
       // Backfill: convert one_shot=1 rows to max_runs=1
       db.exec('UPDATE scheduled_tasks SET max_runs = 1 WHERE one_shot = 1')
     } catch (e) { console.warn('[migration] scheduled_tasks.max_runs:', e) }
+  }
+
+  // Add pre_run_action column to scheduled_tasks (conversation preparation before each run)
+  if (!schedCols.some((c) => c.name === 'pre_run_action')) {
+    try {
+      db.exec("ALTER TABLE scheduled_tasks ADD COLUMN pre_run_action TEXT NOT NULL DEFAULT 'none'")
+    } catch (e) {
+      console.warn('[migration] scheduled_tasks.pre_run_action:', e)
+    }
   }
 
   // Add is_default column to folders (marks the auto-created default folder)

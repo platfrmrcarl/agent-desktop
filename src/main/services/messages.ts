@@ -732,7 +732,7 @@ async function generateConversationTitle(
   }
 }
 
-async function compactConversation(
+export async function compactConversation(
   db: Database.Database,
   conversationId: number
 ): Promise<{ summary: string; clearedAt: string }> {

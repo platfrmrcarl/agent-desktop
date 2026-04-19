@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { executeTask, type TaskRunContext, type StreamResult } from './taskExecutor'
 import type { SchedulerService } from './scheduler'
 import type { ScheduledTask } from '../types'
@@ -22,6 +22,7 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     run_count: 0,
     notify_desktop: false,
     notify_voice: false,
+    pre_run_action: 'none',
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -60,6 +61,8 @@ function createMockCtx(): {
   notify: ReturnType<typeof vi.fn>
   onTaskUpdate: ReturnType<typeof vi.fn>
   onConversationsRefresh: ReturnType<typeof vi.fn>
+  clearConversation: ReturnType<typeof vi.fn>
+  compactConversation: ReturnType<typeof vi.fn>
   db: any
 } {
   return {
@@ -71,6 +74,8 @@ function createMockCtx(): {
     notify: vi.fn(async () => {}),
     onTaskUpdate: vi.fn(),
     onConversationsRefresh: vi.fn(),
+    clearConversation: vi.fn(),
+    compactConversation: vi.fn(async () => {}),
     db: {} as any,
   }
 }
@@ -182,13 +187,7 @@ describe('executeTask', () => {
   })
 
   it('resolves variables in task.prompt before saving the user message', async () => {
-    const task = {
-      id: 1, name: 'DailyReport', prompt: 'Hello {task_name}!', conversation_id: 1,
-      enabled: true, interval_value: 1, interval_unit: 'hours',
-      schedule_time: null, catch_up: false, max_runs: null,
-      last_run_at: null, next_run_at: null, last_status: null,
-      last_error: null, run_count: 0, notify_desktop: false, notify_voice: false,
-    } as any
+    const task = makeTask({ name: 'DailyReport', prompt: 'Hello {task_name}!', conversation_id: 1 })
 
     await executeTask(scheduler as unknown as SchedulerService, ctx, task)
 
@@ -196,5 +195,64 @@ describe('executeTask', () => {
     const userCall = calls.find((c: any) => c[1] === 'user')
     expect(userCall).toBeDefined()
     expect(userCall[2]).toBe('Hello DailyReport!')
+  })
+
+  describe('pre_run_action', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it("does NOT call clearConversation or compactConversation when 'none'", async () => {
+      scheduler.get.mockReturnValue(makeTask())
+      await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'none' }))
+      expect(ctx.clearConversation).not.toHaveBeenCalled()
+      expect(ctx.compactConversation).not.toHaveBeenCalled()
+    })
+
+    it("calls clearConversation BEFORE saveMessage('user') when 'clear'", async () => {
+      scheduler.get.mockReturnValue(makeTask())
+      const callOrder: string[] = []
+      ctx.clearConversation.mockImplementation(() => { callOrder.push('clear') })
+      ctx.saveMessage.mockImplementation((_id: number, role: string) => {
+        if (role === 'user') callOrder.push('saveUser')
+      })
+
+      await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'clear' }))
+
+      expect(ctx.clearConversation).toHaveBeenCalledWith(10)
+      expect(ctx.compactConversation).not.toHaveBeenCalled()
+      expect(callOrder.indexOf('clear')).toBeLessThan(callOrder.indexOf('saveUser'))
+    })
+
+    it("awaits compactConversation BEFORE saveMessage('user') when 'compact'", async () => {
+      scheduler.get.mockReturnValue(makeTask())
+      const callOrder: string[] = []
+      ctx.compactConversation.mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 5))
+        callOrder.push('compact')
+      })
+      ctx.saveMessage.mockImplementation((_id: number, role: string) => {
+        if (role === 'user') callOrder.push('saveUser')
+      })
+
+      await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'compact' }))
+
+      expect(ctx.compactConversation).toHaveBeenCalledWith(10)
+      expect(ctx.clearConversation).not.toHaveBeenCalled()
+      expect(callOrder.indexOf('compact')).toBeLessThan(callOrder.indexOf('saveUser'))
+    })
+
+    it("falls back to clearConversation when compactConversation rejects, and still completes the run", async () => {
+      scheduler.get.mockReturnValue(makeTask())
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      ctx.compactConversation.mockRejectedValue(new Error('haiku down'))
+
+      await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'compact' }))
+
+      expect(ctx.compactConversation).toHaveBeenCalledOnce()
+      expect(ctx.clearConversation).toHaveBeenCalledWith(10)
+      expect(ctx.streamMessage).toHaveBeenCalledOnce() // run still executed
+      expect(warn).toHaveBeenCalled()
+    })
   })
 })

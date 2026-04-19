@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { ScheduledTask, CreateScheduledTask, IntervalUnit, VariableInfo } from '../../../shared/types'
+import type { ScheduledTask, CreateScheduledTask, IntervalUnit, VariableInfo, PreRunAction } from '../../../shared/types'
 import { useConversationsStore } from '../../stores/conversationsStore'
 
 interface Props {
@@ -31,6 +31,7 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
     task?.max_runs != null && task.max_runs > 1 ? task.max_runs : 5
   )
   const [notifyVoice, setNotifyVoice] = useState(task?.notify_voice || false)
+  const [preRunAction, setPreRunAction] = useState<PreRunAction>(task?.pre_run_action ?? 'none')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [variables, setVariables] = useState<VariableInfo[]>([])
@@ -73,6 +74,7 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
         max_runs: maxRunsMode === 'unlimited' ? null : maxRunsMode === 'once' ? 1 : maxRunsValue,
         notify_desktop: notifyDesktop,
         notify_voice: notifyVoice,
+        pre_run_action: preRunAction,
       })
       onClose()
     } catch (err) {
@@ -351,6 +353,34 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
                       }}
                     />
                   )}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Pre-run context action */}
+          <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
+              Before each run
+            </label>
+            <div className="flex flex-col gap-1.5">
+              {([
+                { value: 'none' as const, label: 'Keep context', hint: 'Default — previous history is visible to the AI.' },
+                { value: 'clear' as const, label: 'Clear context', hint: 'Resets the conversation history before the prompt. Zero LLM cost.' },
+                { value: 'compact' as const, label: 'Compact (summarize, then clear)', hint: 'Summarizes previous history with Haiku, then clears. Falls back to plain clear if the summary fails.' },
+              ]).map(({ value, label, hint }) => (
+                <label key={value} className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="preRunAction"
+                    checked={preRunAction === value}
+                    onChange={() => setPreRunAction(value)}
+                    className="accent-[var(--color-primary)] mt-1"
+                  />
+                  <span className="flex flex-col">
+                    <span className="text-sm" style={{ color: 'var(--color-text)' }}>{label}</span>
+                    <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{hint}</span>
+                  </span>
                 </label>
               ))}
             </div>
