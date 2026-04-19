@@ -13,7 +13,7 @@ describe('bugReport handlers', () => {
   it('bug:getMainErrors returns buffer contents', async () => {
     const buf = new ErrorBuffer()
     buf.push({
-      timestamp: '2026-04-18T10:00:00.000Z',
+      timestamp: new Date().toISOString(),
       source: 'main',
       level: 'error',
       message: 'boom',
