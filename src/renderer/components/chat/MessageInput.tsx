@@ -74,6 +74,18 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(
     const slashSkillsModeRef = useRef<string | undefined>(undefined)
     const slashDisabledSkillsRef = useRef<string | undefined>(undefined)
 
+    // Invalidate slash-command cache when macros are added/edited/deleted
+    useEffect(() => {
+      function onMacrosChanged() {
+        slashCwdRef.current = null
+        slashSkillsModeRef.current = undefined
+        slashDisabledSkillsRef.current = undefined
+        setSlashCommands([])
+      }
+      window.addEventListener('macros-changed', onMacrosChanged)
+      return () => window.removeEventListener('macros-changed', onMacrosChanged)
+    }, [])
+
     async function loadCommands() {
       const disabledKey = disabledSkills ? JSON.stringify(disabledSkills) : undefined
       // Cache: only refetch if CWD, skillsMode, or disabledSkills changed

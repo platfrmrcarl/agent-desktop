@@ -12,6 +12,7 @@ import type {
   ThemeFile,
   KeyboardShortcut,
   SlashCommand,
+  Macro,
   StreamChunk,
   Attachment,
   AuthStatus,
@@ -148,6 +149,9 @@ export interface AgentAPI {
   }
   macros: {
     load(name: string): Promise<string[] | null>
+    list(): Promise<Macro[]>
+    save(name: string, description: string, messages: string[], oldName?: string): Promise<void>
+    delete(name: string): Promise<void>
   }
   quickChat: {
     getConversationId(mode?: 'text' | 'voice'): Promise<number>

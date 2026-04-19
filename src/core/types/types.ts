@@ -173,6 +173,12 @@ export interface SlashCommand {
   source: 'builtin' | 'user' | 'project' | 'skill' | 'macro' | 'extension'
 }
 
+export interface Macro {
+  name: string
+  description: string
+  messages: string[]
+}
+
 // ─── Scheduled Tasks ─────────────────────────────────────────
 
 export type IntervalUnit = 'minutes' | 'hours' | 'days'

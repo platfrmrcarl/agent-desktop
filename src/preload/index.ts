@@ -162,6 +162,10 @@ const api: AgentAPI = {
   },
   macros: {
     load: (name: string) => withTimeout(ipcRenderer.invoke('macros:load', name)),
+    list: () => withTimeout(ipcRenderer.invoke('macros:list')),
+    save: (name: string, description: string, messages: string[], oldName?: string) =>
+      withTimeout(ipcRenderer.invoke('macros:save', name, description, messages, oldName)),
+    delete: (name: string) => withTimeout(ipcRenderer.invoke('macros:delete', name)),
   },
   quickChat: {
     getConversationId: (mode?: string) => withTimeout(ipcRenderer.invoke('quickChat:getConversationId', mode)),

@@ -14,6 +14,7 @@ import { QuickChatSettings } from '../components/settings/QuickChatSettings'
 import { OpenSCADSettings } from '../components/settings/OpenSCADSettings'
 import { WebServerSettings } from '../components/settings/WebServerSettings'
 import { DiscordSettings } from '../components/settings/DiscordSettings'
+import { MacrosSettings } from '../components/settings/MacrosSettings'
 import { useMobileMode, useCompactMode } from '../hooks/useMobileMode'
 
 interface SettingsPageProps {
@@ -31,6 +32,7 @@ const categories = [
   'OpenSCAD',
   'MCP Servers',
   'Allowed Tools',
+  'Macros',
   'Knowledge Base',
   'Web Server',
   'Discord',
@@ -51,6 +53,7 @@ const categoryComponents: Record<Category, React.FC | null> = {
   'OpenSCAD': OpenSCADSettings,
   'MCP Servers': McpServerList,
   'Allowed Tools': ToolList,
+  Macros: MacrosSettings,
   'Knowledge Base': KnowledgeManager,
   'Web Server': WebServerSettings,
   'Discord': DiscordSettings,

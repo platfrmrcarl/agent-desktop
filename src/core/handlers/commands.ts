@@ -25,7 +25,9 @@ const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/
 const DESCRIPTION_RE = /^description:\s*(.+)$/m
 const NAME_RE = /^name:\s*(.+)$/m
 
-const MACROS_DIR = expandTilde('~/.agent-desktop/macros')
+function getMacrosDir(): string {
+  return expandTilde('~/.agent-desktop/macros')
+}
 
 function extractDescription(frontmatter: string): string {
   const lineMatch = frontmatter.match(DESCRIPTION_RE)
@@ -101,10 +103,39 @@ interface MacroFile {
   messages: string[]
 }
 
+interface MacroFull {
+  name: string
+  description: string
+  messages: string[]
+}
+
+// Strict name: letters, digits, dash, underscore. Forbids ".", "/", "..".
+const MACRO_NAME_RE = /^[a-zA-Z0-9_-]+$/
+
+function validateMacroName(name: unknown): name is string {
+  return typeof name === 'string' && MACRO_NAME_RE.test(name) && name.length > 0 && name.length <= 64
+}
+
+const MACRO_DESCRIPTION_MAX = 500
+const MACRO_MESSAGE_MAX = 20_000
+const MACRO_MESSAGES_MAX = 100
+
+function validateMacroPayload(payload: unknown): payload is MacroFile {
+  if (!payload || typeof payload !== 'object') return false
+  const p = payload as Record<string, unknown>
+  if (p.description !== undefined) {
+    if (typeof p.description !== 'string') return false
+    if (p.description.length > MACRO_DESCRIPTION_MAX) return false
+  }
+  if (!Array.isArray(p.messages)) return false
+  if (p.messages.length === 0 || p.messages.length > MACRO_MESSAGES_MAX) return false
+  return p.messages.every((m) => typeof m === 'string' && m.length > 0 && m.length <= MACRO_MESSAGE_MAX)
+}
+
 async function scanMacrosDir(): Promise<SlashCommand[]> {
   let entries: string[]
   try {
-    entries = await fs.readdir(MACROS_DIR)
+    entries = await fs.readdir(getMacrosDir())
   } catch {
     return []
   }
@@ -114,7 +145,7 @@ async function scanMacrosDir(): Promise<SlashCommand[]> {
     if (!entry.endsWith('.json')) continue
     const name = entry.slice(0, -5)
     try {
-      const raw = await fs.readFile(path.join(MACROS_DIR, entry), 'utf-8')
+      const raw = await fs.readFile(path.join(getMacrosDir(), entry), 'utf-8')
       const parsed = JSON.parse(raw) as MacroFile
       if (Array.isArray(parsed.messages) && parsed.messages.length > 0) {
         macros.push({ name, description: parsed.description || '', source: 'macro' })
@@ -126,9 +157,41 @@ async function scanMacrosDir(): Promise<SlashCommand[]> {
   return macros
 }
 
-async function loadMacro(name: string): Promise<string[] | null> {
+async function listMacrosFull(): Promise<MacroFull[]> {
+  let entries: string[]
   try {
-    const filePath = path.join(MACROS_DIR, `${name}.json`)
+    entries = await fs.readdir(getMacrosDir())
+  } catch {
+    return []
+  }
+
+  const macros: MacroFull[] = []
+  for (const entry of entries) {
+    if (!entry.endsWith('.json')) continue
+    const name = entry.slice(0, -5)
+    if (!validateMacroName(name)) continue
+    try {
+      const raw = await fs.readFile(path.join(getMacrosDir(), entry), 'utf-8')
+      const parsed = JSON.parse(raw) as MacroFile
+      if (Array.isArray(parsed.messages) && parsed.messages.every((m) => typeof m === 'string') && parsed.messages.length > 0) {
+        macros.push({
+          name,
+          description: typeof parsed.description === 'string' ? parsed.description : '',
+          messages: parsed.messages,
+        })
+      }
+    } catch {
+      // Invalid JSON or unreadable
+    }
+  }
+  macros.sort((a, b) => a.name.localeCompare(b.name))
+  return macros
+}
+
+async function loadMacro(name: string): Promise<string[] | null> {
+  if (!validateMacroName(name)) return null
+  try {
+    const filePath = path.join(getMacrosDir(), `${name}.json`)
     const raw = await fs.readFile(filePath, 'utf-8')
     const parsed = JSON.parse(raw) as MacroFile
     if (Array.isArray(parsed.messages) && parsed.messages.every((m) => typeof m === 'string') && parsed.messages.length > 0) {
@@ -138,6 +201,60 @@ async function loadMacro(name: string): Promise<string[] | null> {
     // File not found or invalid
   }
   return null
+}
+
+async function saveMacro(name: string, description: string, messages: string[], oldName?: string): Promise<void> {
+  if (!validateMacroName(name)) {
+    throw new Error('Invalid macro name (use letters, digits, dash, underscore)')
+  }
+  if (!validateMacroPayload({ description, messages })) {
+    throw new Error('Invalid macro content (messages must be a non-empty array of non-empty strings)')
+  }
+  await fs.mkdir(getMacrosDir(), { recursive: true })
+
+  const payload: MacroFile = { description, messages }
+  const serialized = JSON.stringify(payload, null, 2)
+  const target = path.join(getMacrosDir(), `${name}.json`)
+
+  // If this is a rename (oldName !== name), refuse to silently overwrite an unrelated macro
+  if (oldName && oldName !== name) {
+    try {
+      await fs.access(target)
+      throw new Error(`A macro named "${name}" already exists`)
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException
+      if (e.code !== 'ENOENT') throw err
+      // ENOENT is the happy path — the target slot is free
+    }
+  }
+
+  // Atomic write: write to .tmp then rename
+  const tmp = `${target}.tmp`
+  await fs.writeFile(tmp, serialized, 'utf-8')
+  await fs.rename(tmp, target)
+
+  // If renaming, drop the old file (only after the new one is safely on disk)
+  if (oldName && oldName !== name && validateMacroName(oldName)) {
+    const oldPath = path.join(getMacrosDir(), `${oldName}.json`)
+    try {
+      await fs.unlink(oldPath)
+    } catch {
+      // Old file already gone — not fatal
+    }
+  }
+}
+
+async function deleteMacro(name: string): Promise<void> {
+  if (!validateMacroName(name)) {
+    throw new Error('Invalid macro name')
+  }
+  const target = path.join(getMacrosDir(), `${name}.json`)
+  try {
+    await fs.unlink(target)
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException
+    if (e.code !== 'ENOENT') throw err
+  }
 }
 
 async function scanSkillsDir(dir: string): Promise<SlashCommand[]> {
@@ -227,5 +344,24 @@ export function registerCommandsHandlers(registrar: HandleRegistrar, db: SqlJsAd
   registrar.handle('macros:load', async (_event, name: unknown) => {
     if (typeof name !== 'string') return null
     return loadMacro(name)
+  })
+
+  registrar.handle('macros:list', async () => {
+    return listMacrosFull()
+  })
+
+  registrar.handle('macros:save', async (_event, name: unknown, description: unknown, messages: unknown, oldName?: unknown) => {
+    if (typeof name !== 'string') throw new Error('name must be a string')
+    if (typeof description !== 'string') throw new Error('description must be a string')
+    if (!Array.isArray(messages)) throw new Error('messages must be an array')
+    const msgs = messages as unknown[]
+    if (!msgs.every((m) => typeof m === 'string')) throw new Error('all messages must be strings')
+    const old = typeof oldName === 'string' ? oldName : undefined
+    await saveMacro(name, description, msgs as string[], old)
+  })
+
+  registrar.handle('macros:delete', async (_event, name: unknown) => {
+    if (typeof name !== 'string') throw new Error('name must be a string')
+    await deleteMacro(name)
   })
 }

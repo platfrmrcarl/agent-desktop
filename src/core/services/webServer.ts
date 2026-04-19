@@ -266,6 +266,9 @@ function generateShim(token: string): string {
     },
     macros: {
       load: function(name) { return invoke('macros:load', [name]); },
+      list: function() { return invoke('macros:list', []); },
+      save: function(name, description, messages, oldName) { return invoke('macros:save', [name, description, messages, oldName]); },
+      delete: function(name) { return invoke('macros:delete', [name]); },
     },
     quickChat: {
       getConversationId: function(m) { return invoke('quickChat:getConversationId', [m]); },
