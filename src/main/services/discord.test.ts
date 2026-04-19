@@ -755,6 +755,59 @@ describe('Discord service', () => {
       expect(mockReply).toHaveBeenCalledWith('Active conversation for this channel set to: Open')
     })
 
+    it('allows everyone when whitelist contains wildcard "*"', async () => {
+      dispatch = createDispatch({
+        'settings:get': async () => ({
+          discord_botToken: 'tok',
+          discord_userWhitelist: '["*"]',
+        }),
+        'conversations:get': async (id: number) => ({ id, title: 'Open' }),
+      })
+      await startBot({ dispatch, token: 'tok' })
+
+      const handler = eventHandlers.get('interactionCreate')
+      const mockReply = vi.fn()
+      const mockInteraction = {
+        isAutocomplete: () => false,
+        isChatInputCommand: () => true,
+        commandName: 'set-conversation',
+        channelId: 'channel-wild',
+        user: { id: 'random-person' },
+        options: { getString: vi.fn(() => '1') },
+        reply: mockReply,
+      }
+
+      await handler!(mockInteraction)
+      expect(mockReply).toHaveBeenCalledWith('Active conversation for this channel set to: Open')
+    })
+
+    it('refuses everyone when whitelist JSON is malformed (fail-closed)', async () => {
+      dispatch = createDispatch({
+        'settings:get': async () => ({
+          discord_botToken: 'tok',
+          discord_userWhitelist: '["unterminated',
+        }),
+      })
+      await startBot({ dispatch, token: 'tok' })
+
+      const handler = eventHandlers.get('interactionCreate')
+      const mockReply = vi.fn()
+      const mockInteraction = {
+        isAutocomplete: () => false,
+        isChatInputCommand: () => true,
+        commandName: 'set-conversation',
+        user: { id: 'anyone' },
+        options: { getString: vi.fn(() => '1') },
+        reply: mockReply,
+      }
+
+      await handler!(mockInteraction)
+      expect(mockReply).toHaveBeenCalledWith({
+        content: 'You are not authorized to use this bot.',
+        flags: 64,
+      })
+    })
+
     it('returns empty autocomplete for blocked users', async () => {
       dispatch = createDispatch({
         'settings:get': async () => ({

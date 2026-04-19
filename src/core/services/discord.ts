@@ -187,15 +187,16 @@ async function handleFolderAutocomplete(interaction: AutocompleteInteraction): P
 // ─── Whitelist check ────────────────────────────────
 
 async function isUserAllowed(userId: string): Promise<boolean> {
+  const settings = (await botDispatch!.get('settings:get')!()) as Record<string, string>
+  const raw = settings.discord_userWhitelist
+  if (!raw) return true // no whitelist configured = everyone allowed
   try {
-    const settings = (await botDispatch!.get('settings:get')!()) as Record<string, string>
-    const raw = settings.discord_userWhitelist
-    if (!raw) return true // no whitelist = everyone allowed
     const whitelist = JSON.parse(raw) as string[]
     if (whitelist.length === 0) return true
+    if (whitelist.includes('*')) return true // explicit wildcard = everyone allowed
     return whitelist.includes(userId)
   } catch {
-    return true // on parse error, fail open
+    return false // malformed whitelist = fail closed, refuse everyone
   }
 }
 
