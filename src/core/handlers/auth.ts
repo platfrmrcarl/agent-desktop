@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { execSync } from 'child_process'
 import type { HandleRegistrar } from '../dispatch'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import type { AuthStatus, AuthDiagnostics } from '../types/types'
@@ -11,7 +12,21 @@ function getCredentialsPath(): string {
 }
 
 function credentialsAvailable(credentialsPath: string): boolean {
-  return fs.existsSync(credentialsPath)
+  if (fs.existsSync(credentialsPath)) return true
+
+  if (process.platform === 'darwin') {
+    try {
+      const username = process.env.USER || os.userInfo().username
+      execSync(`security find-generic-password -a "${username}" -s "Claude Code-credentials"`, {
+        stdio: 'ignore',
+      })
+      return true
+    } catch {
+      // Not in keychain either — fall through to false
+    }
+  }
+
+  return false
 }
 
 function getUserInfoFromCredentials(credentialsPath: string): { email: string; name: string } {
@@ -69,7 +84,10 @@ async function getStatus(db: SqlJsAdapter): Promise<AuthStatus> {
   const credentialsPath = getCredentialsPath()
 
   if (!credentialsAvailable(credentialsPath)) {
-    const hint = `Credentials not found at ${credentialsPath}. Run \`claude login\` in your terminal first.`
+    const hint =
+      process.platform === 'darwin'
+        ? 'Run `claude login` in your terminal first.'
+        : `Credentials not found at ${credentialsPath}. Run \`claude login\` in your terminal first.`
     const diagnostics = runDiagnostics('Credentials file not found')
     return {
       authenticated: false,
