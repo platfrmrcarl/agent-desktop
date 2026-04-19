@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { ScheduledTask, CreateScheduledTask, IntervalUnit, VariableInfo, PreRunAction } from '../../../shared/types'
 import { useConversationsStore } from '../../stores/conversationsStore'
+import { RadioGroup } from '../shared/RadioGroup'
 
 interface Props {
   task?: ScheduledTask | null
@@ -320,10 +321,10 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
           )}
 
           {/* Execution limit */}
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
+          <fieldset className="border-0 p-0 m-0">
+            <legend className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
               Execution limit
-            </label>
+            </legend>
             <div className="flex flex-col gap-1.5">
               {([
                 { value: 'unlimited' as const, label: 'Unlimited' },
@@ -356,35 +357,20 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
                 </label>
               ))}
             </div>
-          </div>
+          </fieldset>
 
           {/* Pre-run context action */}
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
-              Before each run
-            </label>
-            <div className="flex flex-col gap-1.5">
-              {([
-                { value: 'none' as const, label: 'Keep context', hint: 'Default — previous history is visible to the AI.' },
-                { value: 'clear' as const, label: 'Clear context', hint: 'Resets the conversation history before the prompt. Zero LLM cost.' },
-                { value: 'compact' as const, label: 'Compact (summarize, then clear)', hint: 'Summarizes previous history with Haiku, then clears. Falls back to plain clear if the summary fails.' },
-              ]).map(({ value, label, hint }) => (
-                <label key={value} className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="preRunAction"
-                    checked={preRunAction === value}
-                    onChange={() => setPreRunAction(value)}
-                    className="accent-[var(--color-primary)] mt-1"
-                  />
-                  <span className="flex flex-col">
-                    <span className="text-sm" style={{ color: 'var(--color-text)' }}>{label}</span>
-                    <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{hint}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
+          <RadioGroup<PreRunAction>
+            legend="Before each run"
+            name="preRunAction"
+            value={preRunAction}
+            onChange={setPreRunAction}
+            options={[
+              { value: 'none', label: 'Keep context', hint: 'Default — previous history is visible to the AI.' },
+              { value: 'clear', label: 'Clear context', hint: 'Resets the conversation history before the prompt. Zero LLM cost.' },
+              { value: 'compact', label: 'Compact (summarize, then clear)', hint: 'Summarizes previous history with Haiku, then clears. Falls back to plain clear if the summary fails.' },
+            ]}
+          />
 
           {/* Toggles */}
           <div className="space-y-2">
