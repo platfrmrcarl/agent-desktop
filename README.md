@@ -4,173 +4,61 @@ Open-source desktop client for Claude AI — Linux, macOS, and Windows.
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/0599fa5f-3470-4ed3-a1b8-5dd983c4a0af" />
 
+> **Full documentation lives on the [Agent Desktop Wiki](https://agent-desktop.wiki)** — features, headless server, architecture, changelog, and guides.
+
 ## Community
 
-I build this project primarily for my own use — the features I add are the ones I need day to day. That said, feature requests are welcome! If there's something you'd like to see, drop a message on Discord and I'll consider it.
+I build this project primarily for my own use — the features I add are the ones I need day to day. Feature requests are welcome on Discord.
 
 [![Discord](https://discord.com/api/guilds/1441514110893424735/widget.png?style=banner4)](https://discord.gg/qfeDTu65SX)
 
+## Highlights
 
-## Features
+- **Chat** — streaming, markdown, syntax highlighting, message queue, conversation fork, `/compact`, `/clear`
+- **Auth** — OAuth via Claude subscription or your own Anthropic API key
+- **Backends** — Claude Agent SDK (default) or PI Coding Agent *(experimental)*
+- **Files** — built-in explorer, Monaco code viewer, Mermaid, OpenSCAD 3D, Jupyter notebooks
+- **Knowledge base** — attach files/folders as conversation context
+- **Quick Chat** — global overlay with text + voice (local whisper.cpp)
+- **TTS** — Piper, edge-tts, or spd-say with summary modes
+- **Scheduled tasks** — recurring agent runs with prompt variables
+- **MCP** — stdio, HTTP, and SSE Model Context Protocol servers
+- **Themes** — full CSS custom property editor, day/night auto-switch, folder color tinting
+- **Git panel** — status, branches, stash, DAG graph, log
+- **Headless mode** — runs as a web server and/or Discord bot without Electron
+- **Auto-update** — built-in, via electron-updater + GitHub Releases
 
-### Chat & Conversations
-- Streaming responses with markdown rendering and syntax-highlighted code blocks
-- Conversations organized in folders with drag-and-drop, search, and export/import
-- **Message queue** — send messages while the AI is streaming; queued messages auto-send when the response finishes, with drag reorder, edit, and delete
-- **Conversation fork** — right-click any message → "Fork from here" to branch into a new conversation
-- `/compact` command — AI-powered context summarization that compresses long conversations while preserving key context
-- `/clear` command — set an AI context boundary while preserving visible history
-- **Multi-select** — Ctrl/Shift-click to select multiple conversations for bulk move or delete
-- Right-click context menu on messages (copy, edit, retry, fork, TTS)
-- Retry button on user messages (hover or context menu)
-- Slash command autocomplete with fuzzy matching
-- Configurable max turns (including unlimited)
-- Native SDK session resume — faster conversation continuity without re-sending full history
-
-### Authentication
-- **OAuth** — use your existing Claude subscription via `claude login`
-- **API key** — bring your own Anthropic API key with custom base URL and model selection
-
-### AI Backend
-- **Claude Agent SDK** (default) — full-featured backend with session resume, tools, and MCP support
-- **PI Coding Agent** *(experimental)* — alternative backend via the PI Coding Agent SDK; selectable per-conversation, per-folder, or globally in settings. Not yet fully integration-tested — expect rough edges
-  - For sub-agent support, [`pi-subagents`](https://www.npmjs.com/package/pi-subagents) is a tested and working extension (other extensions may work too)
-
-### File Explorer & Viewers
-- Built-in file explorer with context menu (open, rename, duplicate, move to trash, open in terminal)
-- Code viewer (Monaco), HTML sandbox, Markdown preview, Mermaid diagrams, SVG renderer
-- **3D model preview** — OpenSCAD files rendered with Three.js, with STL export
-- **Jupyter notebook** — `.ipynb` preview with live kernel execution and inline cell editing (Colab-style)
-- Image preview (base64 data URL), fullscreen preview modal
-- `@mention` autocomplete with VS Code-style fuzzy matching and configurable exclude patterns
-
-### Knowledge Base
-- Attach files and folders as context for conversations
-- Read-only and read-write collection modes
-- 500KB cumulative size guard with per-conversation selection
-
-### Quick Chat
-- Global overlay (configurable shortcut) for quick agent interactions from anywhere on the desktop
-- Text and voice modes with separate conversation tracking
-- Voice input via local whisper.cpp — audio processed locally, never sent to a server
-- Audio ducking — system volume auto-lowers during voice recording
-- Headless mode — notifications-only without overlay window
-- **Resume last conversation** *(new in v0.13.0)* — option to pick up the previous Quick Chat exchange instead of starting fresh, with a sidebar-opened variant
-
-### Text-to-Speech
-- AI responses read aloud via configurable TTS providers
-- **Providers**: Piper (HTTP), edge-tts (CLI), spd-say (system speech-dispatcher)
-- **Response modes**: full, summary, auto (full if short, summary if long), off
-- **Configurable summary model** — choose Haiku, Sonnet, or Opus for TTS summaries
-- Per-stream audio ducking — other audio lowers while TTS plays
-- Per-conversation TTS settings via AI overrides cascade
-
-### Scheduled Tasks
-- Recurring task execution on conversations
-- Schedule agent actions to run automatically on a configurable interval
-- Built-in MCP bridge — AI can create, list, and cancel scheduled tasks directly
-
-### Tools & Extensions
-- **MCP servers** — connect stdio, HTTP, or SSE Model Context Protocol tools
-- **Setting Sources** — granular control over user/project/local settings discovery (CLAUDE.md, commands, hooks, skills)
-- **UserPromptSubmit hooks** — run custom hooks before each message, with markdown-rendered system messages
-- **CWD whitelist** — configurable directory access with per-entry read/readwrite permissions
-- Per-skill enable/disable and per-conversation MCP server selection
-- Configurable permission modes and allowed tools
-
-### Customization
-- Built-in dark/light themes with full CSS custom property editor
-- Custom theme creation and import from `~/.agent-desktop/themes/`
-- **Folder heatmap** — auto-color folders by conversation count (green → red), with relative and fixed modes
-- **Folder color tinting** — custom per-folder color picker with HSV canvas
-- **Default folder** — auto-created "Unsorted" folder; all new conversations auto-assigned
-- **Font scale accessibility** — scale factor presets (80% / 100% / 125% / 150%) + custom input, applied via `--font-scale` CSS variable on the root. Uses rem-based sizing so every component — Monaco editors included — scales consistently
-- Configurable keyboard shortcuts (app and global)
-- Configurable desktop notifications (hidden/unfocused/always trigger modes)
-- System tray with quick access, theme-aware icons
-
-### Git Panel *(new in v0.13.0)*
-Interactive Git visualizer in the right sidebar. Auto-refreshes after any Bash tool result that touches the repository (commit, branch, stash, etc.).
-
-- **Status** — staged/unstaged/untracked files at a glance
-- **Branches** — local/remote list with click-to-checkout and tracking info
-- **Stash** — save and pop stashes without leaving the app
-- **Graph** — SVG DAG of the commit history with theme-aware colors, track allocation, and click-to-select
-- **Log** — full commit message + author on hover
-- All git operations run via a hardened `runGit` spawn wrapper with timeout and env sanitization
-
-### Scheduled Task Prompt Variables *(new in v0.13.0)*
-Tokenize `{name}` and `{name:arg:arg}` placeholders inside a scheduled task's prompt. Variables resolve in parallel with per-variable timeout and passthrough-on-error.
-
-**Built-in variables:**
-- `{date}`, `{time}`, `{random:min:max}` — sync builtins
-- `{last_commit}` (accepts `git log` flags), `{file_contents:path}` — async builtins
-- `{task_name}`, `{task_run_count}`, `{last_run_at}`, `{previous_output}` — task-context builtins
-
-**Custom variables:** drop a `.ts` file in the variable resolver directory — JSDoc on the exported function is discovered and surfaced in the task form. Hot-reload with mtime-based cache invalidation and stale `.mjs` pruning.
-
-### Plan Approval *(new in v0.13.0)*
-`ExitPlanMode` now renders the proposed plan as markdown and requires explicit approval before execution. Rejection lets you supply feedback that is passed back to the agent as context for the next turn.
-
-### Dynamic Model List *(new in v0.13.0)*
-Claude model list fetched dynamically from the Anthropic `/v1/models` endpoint instead of a hardcoded enum — new models appear automatically without an app update.
-
-### Global Shortcuts (Linux)
-- Quick Chat, Quick Voice, and Show App shortcuts
-- **X11**: native Electron `globalShortcut`
-- **Wayland**: XDG Desktop Portal integration, with Hyprland-specific FIFO dispatch
-- Supported compositors: KDE Plasma 5.27+, Hyprland, GNOME 47+
-
-### Auto-Update
-- Built-in update system via electron-updater with GitHub Releases
-- Checks on startup (10s delay) then every 4 hours; opt-in download, installs on restart
-- **AppImage** (Linux): in-app silent download and install
-- **deb** (Linux): redirects to GitHub releases page (no delta updates)
-- **macOS**: downloads a zip in the background, replaces the `.app` bundle and restarts
-- **Windows** (NSIS installer): in-app silent download and install via NSIS
+See the [wiki](https://agent-desktop.wiki) for the full feature list and configuration guides.
 
 ## Installation
 
 ### Prerequisites
 
-**Option A — OAuth (Claude subscription):**
-- An active Claude subscription
-- The [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
-- Run `claude login` in your terminal before first launch
-
-**Option B — API key:**
-- An Anthropic API key
-- Configure it in Settings > AI > API Key after launch
+- **OAuth**: an active Claude subscription + the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`), then run `claude login`
+- **API key**: an Anthropic API key, configured in Settings > AI
 
 ### Linux
 
 Download from the [Releases](https://github.com/BaLaurent/agent-desktop/releases) page.
 
-**AppImage:**
 ```bash
+# AppImage
 chmod +x Agent-Desktop-*.AppImage
 ./Agent-Desktop-*.AppImage
-```
 
-**Debian / Ubuntu:**
-```bash
+# Debian / Ubuntu
 sudo dpkg -i agent-desktop_*.deb
 ```
 
 ### macOS (Apple Silicon)
 
-1. Download the `.dmg` from the [Releases](https://github.com/BaLaurent/agent-desktop/releases) page
-2. Open the `.dmg` and drag **Agent Desktop** to your Applications folder
-3. On first launch: right-click the app → **Open** (required for unsigned apps)
+Download the `.dmg` from [Releases](https://github.com/BaLaurent/agent-desktop/releases), drag to Applications, then right-click → **Open** on first launch (unsigned app).
 
 ### Windows
 
-Download from the [Releases](https://github.com/BaLaurent/agent-desktop/releases) page.
+Download from [Releases](https://github.com/BaLaurent/agent-desktop/releases) — NSIS installer or portable `.exe`.
 
-- **Installer** (`Agent Desktop Setup *.exe`): NSIS installer with custom install directory
-- **Portable** (`Agent Desktop *.exe`): no installation needed
-
-## Development Setup
+## Development
 
 ```bash
 git clone https://github.com/BaLaurent/agent-desktop.git
@@ -179,482 +67,16 @@ npm install
 npm run dev
 ```
 
-### Build
-
 ```bash
 npm run build        # compile TypeScript (output: out/)
-npm run dist:linux   # package AppImage + deb (output: release/)
-npm run dist:mac     # package .dmg for macOS arm64 (output: release/)
-npm run dist:win     # package .exe installer + portable for Windows x64 (output: release/)
+npm run dist:linux   # AppImage + deb
+npm run dist:mac     # .dmg (arm64)
+npm run dist:win     # NSIS + portable
+npm test             # main + renderer
 ```
 
-### Testing
-
-```bash
-npm test             # run all tests (main + renderer)
-npm run test:main    # main process tests only
-npm run test:renderer # renderer tests only
-```
-
-## Headless Server (no Electron)
-
-Agent Desktop can run as a headless web server and/or Discord bot without Electron. This is useful for remote access, servers, Raspberry Pi, WSL, or any machine without a display.
-
-### Prerequisites
-
-- **Node.js 18+**
-- **Claude authentication** — run `claude login` via the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), or configure an API key in the database
-- **OpenSSL** *(recommended)* — enables HTTPS. Without it, the server falls back to plain HTTP
-
-<details>
-<summary><strong>Installing OpenSSL</strong></summary>
-
-**Linux (Debian/Ubuntu):**
-```bash
-sudo apt install openssl
-```
-
-**macOS:**
-```bash
-brew install openssl
-```
-
-**Windows:**
-```powershell
-# Via winget (Windows 10+)
-winget install ShiningLight.OpenSSL
-
-# Via Chocolatey
-choco install openssl
-
-# Or download the installer:
-# https://slproweb.com/products/Win32OpenSSL.html
-```
-</details>
-
-### Quick Start (from source)
-
-```bash
-git clone https://github.com/BaLaurent/agent-desktop.git
-cd agent-desktop
-npm install
-npm run build            # compile TypeScript
-npm run build:headless   # bundle headless entry point
-node out/headless/index.js --server
-```
-
-### Standalone Package (deployable)
-
-Build a self-contained distribution that runs on any Node 18+ machine:
-
-```bash
-npm run dist:headless    # outputs dist-headless/
-```
-
-Deploy it anywhere:
-
-```bash
-cd dist-headless
-npm install              # installs only the Claude Agent SDK
-node index.js --server   # start web server (default port 3484)
-```
-
-### Usage
-
-```bash
-# Web server only
-node index.js --server
-
-# Discord bot only
-node index.js --discord
-
-# Both
-node index.js --server --discord
-
-# Custom port + LAN-wide access
-node index.js --server --port 8080 --access-mode all
-
-# Run scheduled tasks (one-shot)
-node index.js --tick
-```
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AGENT_DB_PATH` | `~/.config/agent-desktop/agent.db` | SQLite database path |
-| `AGENT_THEMES_DIR` | `~/.agent-desktop/themes` | Themes directory |
-| `DISCORD_TOKEN` | — | Discord bot token (required for `--discord`) |
-
-### HTTPS vs HTTP
-
-The server generates a self-signed SSL certificate on first run (requires OpenSSL). If OpenSSL is not installed, it falls back to plain HTTP with a warning:
-
-```
-[webServer] SSL unavailable — falling back to HTTP (less secure)
-[webServer] Listening on http://192.168.1.42:3484/s/abc123 (HTTP — install OpenSSL for HTTPS)
-```
-
-HTTPS is recommended for LAN access — browsers block certain features (clipboard, notifications, service workers) on insecure origins.
-
-### Windows Notes
-
-- Use PowerShell or Command Prompt (not Git Bash) for best compatibility
-- OpenSSL is not bundled with Windows — install it separately (see above)
-- Ensure `openssl` is in your `PATH` after installation
-- Node.js installer: https://nodejs.org/
-
-### macOS Notes
-
-- OpenSSL ships with macOS but may be outdated — `brew install openssl` for a recent version
-- You may need to allow network access in System Settings > Privacy & Security > Firewall
-
-### Linux Notes
-
-- Most distributions include OpenSSL by default
-- If using a firewall (`ufw`, `iptables`), open the server port: `sudo ufw allow 3484`
-
-## Technology Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Framework | Electron 33 |
-| Frontend | React 18, TypeScript |
-| State | Zustand |
-| Styling | Tailwind CSS, CSS custom properties |
-| Database | SQLite (sql.js, WASM) |
-| AI | @anthropic-ai/claude-agent-sdk, PI Coding Agent SDK *(experimental)* |
-| MCP | @modelcontextprotocol/sdk |
-| Markdown | react-markdown, remark-gfm |
-| Diagrams | Mermaid |
-| 3D | Three.js, @react-three/fiber, @react-three/drei |
-| Code Editor | Monaco Editor |
-| Jupyter | jupyter_client + ipykernel (local kernel) |
-| Voice | whisper.cpp (local) |
-| Build | electron-vite, electron-builder |
-
-## Architecture
-
-```
-src/
-  main/         Electron main process — SQLite, IPC services, tray, shortcuts, auto-update
-  preload/      contextBridge IPC glue (api.d.ts defines the contract)
-  renderer/     React + Zustand + Tailwind — components, stores, pages
-  shared/       TypeScript types and constants shared between main and renderer
-```
-
-- **IPC pattern**: each service exports `registerHandlers(ipcMain, db)`
-- **State**: Zustand stores per domain (auth, chat, conversations, settings, etc.)
-- **Theming**: CSS custom properties in theme files, mapped through Tailwind config
-- **Database**: SQLite WAL mode at `~/.config/agent-desktop/agent.db`
-- **AI settings cascade**: Conversation > Folder > Global (with JSON overrides)
-
-
-## Changelog
-
-### v0.13.0
-
-**Git Panel**
-- Interactive Git visualizer in the right sidebar, with Status / Branches / Stash / Graph / Log sub-tabs
-- SVG commit graph with pure DAG layout + track allocation algorithm and theme-aware colors
-- Branches: local and remote list with click-to-checkout, tracking info, and fetch support
-- Stash: save and pop operations with safety checks
-- Commit rows: full commit message + author shown on hover
-- Live refresh: panel re-reads state after any Bash tool result touching the repo
-- Hardened `runGit` spawn wrapper with timeout and env sanitization
-- Parallel refresh with per-subtab error isolation via `gitPanelStore`
-- New `window.agent.git` preload namespace exposed through the bridge
-
-**Scheduled Task Prompt Variables**
-- Tokenizer for `{name}` and `{name:arg:arg}` placeholders inside task prompts
-- Orchestration layer: parallel resolution, per-variable timeout, passthrough-on-error, manual override
-- Built-in variables:
-  - Sync: `{date}`, `{time}`, `{random:min:max}`
-  - Async: `{last_commit}` (accepts `git log` flags), `{file_contents:path}`
-  - Task-context: `{task_name}`, `{task_run_count}`, `{last_run_at}`, `{previous_output}` (reads messages table)
-- Custom `.ts` loader with mtime-based cache, hot-reload, surfaced TS diagnostics, and stale `.mjs` pruning
-- JSDoc discovery: custom variable functions appear in the task form automatically
-- Variables resolved in `task.prompt` before sending to the LLM
-- `VariableFn` types published for custom function authors
-
-**Font Scale Accessibility**
-- Root font-size driven by `--font-scale` CSS variable; all components scale consistently via `rem`
-- UI: scale factor presets + custom input (accepts trailing decimal while typing)
-- New helpers: `parseFontScale`, `applyFontScale`, `pxToRem`
-- Reactive `useMonacoFontSize` hook wires Monaco editors to the global scale
-- Scale applied at boot via `applyFontScale` helper, with guards for non-DOM environments
-- Cross-component reactivity: components subscribe to scale changes
-
-**Plan Approval**
-- `ExitPlanMode` now requires explicit approval before execution
-- Plan rendered as markdown inline in chat
-- Reject-with-feedback: rejection text passed back as context for the next turn
-
-**Dynamic Model List**
-- Claude model list fetched from the Anthropic `/v1/models` endpoint on demand (no more hardcoded enum)
-
-**Quick Chat**
-- Resume-last-conversation option, with a sidebar-opened variant
-
-**Bug Fixes**
-- Settings inputs use inline color styling to bypass text-body rendering issue on web
-- Input/textarea/select force theme colors via base layer
-- `color-scheme` set on `:root` so form controls render with theme-aware UA styles
-- SQLite datetime strings treated as UTC in relative-time labels
-- `@shared` alias resolved in esbuild headless bundle
-- Variable resolver: async fs, surfaced TS transpile diagnostics, stable parallel resolution timing
-- Git graph: invisible edges fixed via inline stroke style, merge arrows added, ref classification via branches lookup
-
-**Internal**
-- Scheduled tasks execute their prompt through the variable resolver pipeline before dispatching
-- `.ts` variable functions compile via custom loader; diagnostics surfaced to UI
-- TypeScript promoted to runtime dependency (needed by variable loader at runtime)
-
----
-
-### v0.10.0
-
-**Conversation & Folder Sorting**
-- Configurable sort criteria: title, date, message count — ascending or descending
-- Default sort preferences in General Settings
-- Per-folder sort override via folder context menu
-- Sort dropdown in sidebar header for quick access
-
-**Custom Model Persistence**
-- Custom model names are now saved for easy reselection across sessions
-
-**Move-to-Folder Modal**
-- Folder move action replaced with a centered modal instead of a nested submenu
-
-**Window Title**
-- Customizable window title from Appearance settings
-
-**Colored Console Output**
-- Terminal logs now use colored output for better readability
-
-**Scheduler as PI Tool**
-- Scheduler injected as a PI tool instead of MCP for PI SDK backend
-
-**Bug Fixes**
-- WebSocket disconnect handling hardened with heartbeat mechanism
-- Hook system message tags stripped before auto-title generation
-- Sort settings added to allowed keys whitelist
-- Added `ajv` dependency and `mariozechner` to bundled files
-
----
-
-### v0.9.3
-
-**Diff View**
-- Side-by-side diff view for Edit tool with character-level highlighting (jsdiff)
-- Collapsible Diff button in ToolUseBlock, `diffExpandedByDefault` toggle in Appearance settings
-- Support for PI SDK edit tool normalization in diff view
-
-**PI Coding Agent**
-- Headless TUI bridge for extension `custom()` dialogs — ANSI-to-HTML rendering with keyboard relay
-- Terminal dimensions provided in mock TUI for Editor component
-- Wider custom TUI dialog with fit-content width (90vw cap) and overflow handling
-
-**Chat & UX**
-- "Copy Selection" context menu option when text is selected, "Copy Message" for full message
-- Floating "Copied!" tooltip at cursor position on copy
-- Auto-expand parent folder and ancestor chain when a conversation becomes active
-- Accordion folder navigation — opening one folder closes siblings at the same level
-
-**File Explorer**
-- Multi-select trash: context menu now trashes all selected files, label shows count
-
-**MCP & Settings**
-- "Paste JSON" button in MCP server form for quick config import (supports wrapped and flat formats)
-- Agent display name improvements in chat bubbles
-
----
-
-### v0.9.2
-
-**Discord Integration**
-- Connect a Discord bot to forward messages to any conversation
-- Slash commands: `/set-conversation`, `/get-messages`, `/check-conversation`, `/new-conversation`, `/clear`, `/compact`
-- Autocomplete for conversations and folders, user whitelist, auto-start on launch
-- Long responses automatically split into multiple Discord messages
-
-**Cross-Device Streaming Sync**
-- Streaming responses now sync in real time across all connected devices (web server clients)
-- Partial content recovery on reconnect — no message lost if the connection drops mid-stream
-
-**Agent Identity**
-- Configure agent name, personality, and language per conversation, folder, or globally
-- Injected into the system prompt via the settings cascade
-- Agent name displayed in chat bubbles instead of the generic "Claude" label
-
-**Scheduler Improvements**
-- Tasks can now be linked to a specific conversation
-- Improved task management UI
-
-**HTTPS Web Server**
-- Web server now runs over HTTPS with auto-generated self-signed certificates
-- HTTP requests automatically redirected to HTTPS
-- Fixed base64 encoding stack overflow on large audio buffers
-
-**Bug Fixes**
-- Web server `server_enabled` setting now syncs correctly on auto-start
-
----
-
-### v0.9.1
-
-**PI Extension UI**
-- Full extension UI support for the PI Coding Agent backend: dialogs (select, confirm, input, editor), widgets, and toasts
-- Extension UI events bridged from backend to renderer via IPC
-- Extension slash commands discovered and exposed in autocomplete regardless of active backend
-
-**Auto Day/Night Theme**
-- Automatically switch between two configured themes at sunrise/sunset
-- Configurable from the Appearance settings
-
-**Conversation Color**
-- Assign a custom color to any conversation via the color picker
-- Color applied as tinting in the sidebar and context menus
-
-**Macros**
-- Define reusable text macros as JSON, invokable via slash commands
-- Full slash command integration with autocomplete
-
-**Code Block Language Detection**
-- Unlabeled code blocks now auto-detect their language for syntax highlighting
-
-**Queue Improvements**
-- Inline edit queued messages directly by clicking on them
-- Queue auto-pauses while editing
-
-**Input**
-- Message bar auto-focuses on any keystroke when no other input has focus
-
-**Performance**
-- Reduced renderer re-renders for smoother UI during streaming
-- Improved backend I/O throughput
-
-**Bug Fixes**
-- Volume ducking now reliably restores after TTS playback in all code paths
-- PI backend: commands now read from `Extension.commands` Map correctly
-- Session invalidation: in-memory session cleared when DB resets `sdk_session_id`
-- Spacing between extension widgets and the chat bar
-
----
-
-### v0.9.0
-
-**PI Coding Agent Backend**
-- Alternative AI backend alongside the default Claude Agent SDK
-- Per-backend hook isolation — hooks run independently for each backend
-- Claude-only settings hidden when PI backend is active
-- Auth check bypassed when PI backend is active (no Claude login required)
-
-**Syntax Highlighting**
-- Code blocks in chat now rendered with full syntax highlighting
-- Language auto-detected for unlabeled fences
-
-**Automatic Stream Retry**
-- SDK errors trigger automatic retry with exponential backoff
-- Errors delivered as stream chunks for consistent UX
-
-**Settings Redesign**
-- Settings popovers rebuilt with a shared shell, grouped cards, and a 3-column grid layout
-- Shared hook configuration surfaced across both Claude and PI settings
-
-**Short URLs & Network Restriction**
-- Web server now exposes short URLs for quick access
-- Option to restrict network access to local connections only
-
-**Keyboard Navigation in Context Menus**
-- Arrow keys, Enter, and Escape navigate context menus
-
-**Lifecycle**
-- Existing app instances killed at startup to prevent conflicts
-- Zombie process prevention and D-Bus leak fixes on shutdown
-
-**License**
-- Project re-licensed from GPL-3.0 to AGPL-3.0
-
----
-
-### v0.8.0
-
-**Message Queue**
-- Queue messages while the AI is still streaming — they auto-send when the current response finishes
-- Drag-to-reorder queued messages, inline edit, delete
-- Random 1–5s delay between queued messages to avoid rate limiting
-- Queue auto-pauses on stop, regenerate, edit, compact, and clear
-
-**Conversation Fork**
-- Right-click any message → "Fork from here" to create a new conversation branching from that point
-- Copies all settings, overrides, and messages up to the fork point
-- Respects `/clear` boundaries and preserves compact summaries
-
-**`/compact` Command**
-- AI-powered context summarization — compresses the entire conversation into a summary
-- Summary injected as context for the AI on subsequent messages
-- Configurable summary model (defaults to Haiku)
-
-**SDK Native Session Resume**
-- Conversations reuse the SDK session for faster continuity — only the last message is sent instead of full history
-- Auto-fallback to full history if session is invalid (fork, regenerate, edit, compact, clear all reset the session)
-- Transparent retry on session corruption
-
-**Default Folder System**
-- Auto-created "Unsorted" folder replaces the old Unfiled section
-- All new and imported conversations are auto-assigned to the default folder
-- Default folder is protected from deletion; deleting other folders reparents their conversations to it
-
-**Folder Heatmap & Color Tinting**
-- Folders auto-colored by conversation count: green (few) → red (many)
-- Two modes: relative (scales to max folder) and fixed (manual min/max thresholds)
-- Custom per-folder color via HSV canvas picker, overrides heatmap
-- Color applied via `color-mix` tinting on folder background
-
-**Multi-Select Conversations**
-- Ctrl/Cmd-click to toggle individual selection, Shift-click for range select
-- Bulk actions: move to folder, delete
-- Batch operations wrapped in DB transactions for consistency
-
-**Message UI Improvements**
-- Right-click context menu on all messages (copy, edit, retry, schedule, fork, TTS)
-- Hover retry button on user messages
-- Adjacent sub-agent (Task) tool blocks grouped into collapsible sections
-- Inline edit with dynamic textarea sizing
-
-**UserPromptSubmit Hooks**
-- Custom hooks run before each message is sent to the AI
-- Hook output rendered as accent-styled system message blocks with full markdown support
-- Persisted in message content as `<hook-system-message>` tags
-
-**CWD Whitelist**
-- Configurable directory access with per-entry read or readwrite permissions
-- Knowledge folders auto-merged into the whitelist
-- Cascades through the settings hierarchy (conversation > folder > global)
-- UI editor in AI settings panels at all levels
-
-**TTS Summary Model**
-- Choose which Claude model generates TTS summaries: Haiku, Sonnet, or Opus
-- Global-only setting (not cascaded per-conversation)
-- Defaults to Haiku if not configured
-
-**File Explorer**
-- "Open in Terminal" action in context menu for files and directories
-
-**Bug Fixes**
-- Tab key now inserts a tab character in the message input instead of moving focus
-- Keyboard shortcuts harmonized between send bar and edit bar (Enter/Ctrl+Enter behavior)
-- Conversation `updated_at` now updates on edit and regenerate (fixes sort order)
-- Hook system messages render markdown correctly and persist across sessions
-
-**Internal**
-- Shared `ContextMenu` component extracted and used across sidebar and chat
-- `buildLastUserMessage()` extracted from messages service for SDK session resume logic
-- `groupStreamParts` utility for collapsible Task block rendering
-- Test suite expanded: 1510 tests (870 main + 640 renderer) with coverage thresholds (70% lines, 60% branches)
+Architecture, IPC patterns, theming, headless deployment, and contribution guides → [wiki](https://agent-desktop.wiki).
 
 ## License
-
 
 [AGPL-3.0](LICENSE)
