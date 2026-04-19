@@ -91,6 +91,9 @@ function createCoreContext(db: any): TaskRunContext {
       ;(db as any).prepare(
         'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, updated_at = ? WHERE id = ?'
       ).run(clearedAt, clearedAt, conversationId)
+      // No invalidateSession call here — headless has no live SDK sessions to tear down.
+      // The Electron path (scheduler.ts) calls invalidateSession explicitly to match
+      // compactConversation's behaviour; that asymmetry is intentional in headless.
     },
     async compactConversation(conversationId: number) {
       const compactOptions: MessagesHandlerOptions = {
