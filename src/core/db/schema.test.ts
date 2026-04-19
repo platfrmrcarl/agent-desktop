@@ -123,4 +123,31 @@ describe('schema', () => {
     expect(row.type).toBe('stdio')
     db.close()
   })
+
+  it('scheduled_tasks has pre_run_action column after migration', async () => {
+    const db = await createTestDb()
+    createTables(db as any)
+
+    const cols = db.pragma('table_info(scheduled_tasks)') as { name: string }[]
+    const colNames = cols.map((c) => c.name)
+
+    expect(colNames).toContain('pre_run_action')
+    db.close()
+  })
+
+  it('scheduled_tasks pre_run_action defaults to none', async () => {
+    const db = await createTestDb()
+    createTables(db as any)
+
+    const conv = db.prepare("INSERT INTO conversations (title, model, updated_at) VALUES ('Test', 'claude-sonnet-4-6', datetime('now'))").run()
+    const convId = conv.lastInsertRowid as number
+
+    db.prepare(
+      "INSERT INTO scheduled_tasks (name, prompt, conversation_id, interval_value, interval_unit, next_run_at, created_at, updated_at) VALUES ('t', 'p', ?, 1, 'hours', datetime('now'), datetime('now'), datetime('now'))"
+    ).run(convId)
+
+    const row = db.prepare('SELECT pre_run_action FROM scheduled_tasks').get() as { pre_run_action: string }
+    expect(row.pre_run_action).toBe('none')
+    db.close()
+  })
 })
