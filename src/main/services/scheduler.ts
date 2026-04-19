@@ -7,6 +7,7 @@ import { promises as fsp } from 'fs'
 import { getMainWindow } from '../index'
 import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage, compactConversation as compactConversationImpl } from './messages'
 import { streamMessage, injectApiKeyEnv, registerStreamWindow } from './streaming'
+import { invalidateSession } from './sessionManager'
 import { broadcast } from '../utils/broadcast'
 import { speak as ttsSpeak } from './tts'
 import {
@@ -37,7 +38,7 @@ function notifyRenderer(event: string, data: unknown): void {
   broadcast(event, data)
 }
 
-function createElectronContext(db: Database.Database): TaskRunContext {
+export function createElectronContext(db: Database.Database): TaskRunContext {
   return {
     db,
     buildHistory(conversationId: number) {
@@ -85,6 +86,9 @@ function createElectronContext(db: Database.Database): TaskRunContext {
       db.prepare(
         'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, updated_at = ? WHERE id = ?'
       ).run(clearedAt, clearedAt, conversationId)
+      // Explicit invalidation mirrors compactConversation's behaviour — both paths
+      // must tear down the live SDK session so the next turn starts fresh.
+      invalidateSession(conversationId)
     },
     async compactConversation(conversationId: number) {
       await compactConversationImpl(db, conversationId)
