@@ -12,5 +12,10 @@ export function createMockIpcMain() {
       if (!handler) throw new Error(`No handler for ${channel}`)
       return handler({}, ...args)
     },
+    invokeWithEvent: async (channel: string, event: unknown, ...args: unknown[]) => {
+      const handler = handlers.get(channel)
+      if (!handler) throw new Error(`No handler for ${channel}`)
+      return handler(event, ...args)
+    },
   }
 }

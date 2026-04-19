@@ -23,6 +23,9 @@ vi.mock('electron', () => {
       openExternal: vi.fn(),
     },
     Notification: MockNotification,
+    BrowserWindow: {
+      fromWebContents: vi.fn(() => null),
+    },
   }
 })
 
@@ -210,6 +213,22 @@ describe('System Service', () => {
 
       const result = await ipc.invoke('system:selectFolder')
       expect(result).toBeNull()
+    })
+
+    it('passes parent BrowserWindow so the native dialog is sheet-modal (prevents popover click-outside)', async () => {
+      const { dialog, BrowserWindow } = await import('electron')
+      const mockWindow = { id: 42 } as any
+      vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(mockWindow)
+      vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+        canceled: true,
+        filePaths: [],
+      } as any)
+
+      await ipc.invokeWithEvent('system:selectFolder', { sender: {} })
+
+      expect(dialog.showOpenDialog).toHaveBeenCalledWith(mockWindow, expect.objectContaining({
+        properties: expect.arrayContaining(['openDirectory']),
+      }))
     })
   })
 

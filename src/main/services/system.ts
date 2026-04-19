@@ -1,7 +1,7 @@
 import type { IpcMain } from 'electron'
 import type Database from 'better-sqlite3'
 import type { LogEntry } from '../../shared/types'
-import { app, dialog, shell, Notification } from 'electron'
+import { app, dialog, shell, Notification, BrowserWindow } from 'electron'
 import { getSessionType } from '../utils/env'
 
 const LOG_BUFFER_MAX = 500
@@ -82,20 +82,30 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     }
   )
 
-  ipcMain.handle('system:selectFolder', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openDirectory', 'createDirectory'],
+  ipcMain.handle('system:selectFolder', async (event) => {
+    // Parent window makes the dialog sheet-modal on Linux/macOS so input events
+    // don't leak to the renderer and trigger click-outside handlers on popovers.
+    const parent = event?.sender ? BrowserWindow.fromWebContents(event.sender) : null
+    const options = {
+      properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'>,
       title: 'Select working directory',
-    })
+    }
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
 
-  ipcMain.handle('system:selectFile', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile'],
+  ipcMain.handle('system:selectFile', async (event) => {
+    const parent = event?.sender ? BrowserWindow.fromWebContents(event.sender) : null
+    const options = {
+      properties: ['openFile'] as Array<'openFile'>,
       title: 'Select file',
-    })
+    }
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
