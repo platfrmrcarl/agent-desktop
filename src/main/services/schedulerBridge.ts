@@ -4,9 +4,9 @@ import * as path from 'path'
 import { randomUUID } from 'crypto'
 import { app } from 'electron'
 import type Database from 'better-sqlite3'
-import type { CreateScheduledTask, IntervalUnit } from '../../shared/types'
-import { computeNextRun } from '../../core/services/scheduler'
-import { validateString, validatePositiveInt } from '../utils/validate'
+import type { IntervalUnit, PreRunAction } from '../../shared/types'
+import { SchedulerService } from '../../core/services/scheduler'
+import { validatePositiveInt } from '../utils/validate'
 import { broadcast } from '../utils/broadcast'
 import { sanitizeError } from '../utils/errors'
 import { findBinaryInPath } from '../utils/env'
@@ -63,52 +63,33 @@ function dispatch(req: BridgeRequest): unknown {
   switch (req.method) {
     case 'scheduler.create': {
       const p = req.params
-      const name = p.name as string
-      const prompt = p.prompt as string
       const conversationId = p.conversation_id as number
-      const intervalValue = p.interval_value as number
-      const intervalUnit = p.interval_unit as IntervalUnit
-      const scheduleTime = (p.schedule_time as string) || null
-      const maxRuns = p.max_runs != null ? (p.max_runs as number) : null
-
-      validateString(name, 'name', 200)
-      validateString(prompt, 'prompt', 10_000_000)
       validatePositiveInt(conversationId, 'conversation_id')
-      validatePositiveInt(intervalValue, 'interval_value')
 
-      const validUnits: IntervalUnit[] = ['minutes', 'hours', 'days']
-      if (!validUnits.includes(intervalUnit)) {
-        throw new Error('interval_unit must be minutes, hours, or days')
-      }
-      if (scheduleTime && !/^\d{2}:\d{2}$/.test(scheduleTime)) {
-        throw new Error('schedule_time must be HH:MM format')
-      }
-
-      // Verify conversation exists
+      // Bridge callers (agent MCP) MUST target an existing conversation.
+      // SchedulerService.create would auto-create one otherwise.
       const conv = db.prepare('SELECT id FROM conversations WHERE id = ?').get(conversationId)
       if (!conv) throw new Error('Conversation not found')
 
-      const now = new Date()
-      const nextRun = computeNextRun(intervalValue, intervalUnit, scheduleTime, now)
-      const nowIso = now.toISOString()
-
-      // Validate max_runs: must be null or positive integer
-      if (maxRuns !== null) validatePositiveInt(maxRuns, 'max_runs')
-
-      const result = db.prepare(`
-        INSERT INTO scheduled_tasks (name, prompt, conversation_id, interval_value, interval_unit,
-          schedule_time, catch_up, max_runs, notify_desktop, notify_voice, next_run_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 0, ?, 1, 0, ?, ?, ?)
-      `).run(
-        name, prompt, conversationId, intervalValue, intervalUnit,
-        scheduleTime, maxRuns, nextRun, nowIso, nowIso
-      )
-
-      const task = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?')
-        .get(result.lastInsertRowid) as Record<string, unknown>
+      const service = new SchedulerService(db)
+      const task = service.create({
+        name: p.name as string,
+        prompt: p.prompt as string,
+        conversation_id: conversationId,
+        interval_value: p.interval_value as number,
+        interval_unit: p.interval_unit as IntervalUnit,
+        schedule_time: (p.schedule_time as string) || undefined,
+        max_runs: p.max_runs != null ? (p.max_runs as number) : null,
+        // Bridge historical defaults preserved:
+        catch_up: false,
+        notify_desktop: true,
+        notify_voice: false,
+        // pre_run_action: optional — pass through if present
+        pre_run_action: (p.pre_run_action as PreRunAction | undefined) ?? undefined,
+      })
 
       notifyRenderer('scheduler:taskUpdate', task)
-      return { id: result.lastInsertRowid as number, name, next_run_at: nextRun, max_runs: maxRuns }
+      return { id: task.id, name: task.name, next_run_at: task.next_run_at, max_runs: task.max_runs }
     }
 
     case 'scheduler.list': {
