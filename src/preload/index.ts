@@ -69,6 +69,10 @@ const api: AgentAPI = {
       }
     },
   },
+  context: {
+    getBreakdown: (conversationId: number) =>
+      withTimeout(ipcRenderer.invoke('context:getBreakdown', conversationId)),
+  },
   files: {
     listTree: (basePath: string, excludePatterns?: string[]) => withTimeout(ipcRenderer.invoke('files:listTree', basePath, excludePatterns)),
     listDir: (dirPath: string) => withTimeout(ipcRenderer.invoke('files:listDir', dirPath)),

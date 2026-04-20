@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useAuthStore } from '../../stores/authStore'
-import { DEFAULT_MODEL, SETTING_SOURCES_OPTIONS, SKILLS_TOGGLE_OPTIONS, SDK_BACKEND_OPTIONS, CONFIG_SHARING_OPTIONS, parseCustomModels, shortenModelName, type PIExtensionInfo } from '../../../shared/constants'
+import { DEFAULT_MODEL, SETTING_SOURCES_OPTIONS, SKILLS_TOGGLE_OPTIONS, SDK_BACKEND_OPTIONS, CONFIG_SHARING_OPTIONS, parseCustomModels, parseCustomModelContextLengths, shortenModelName, type PIExtensionInfo } from '../../../shared/constants'
 import { useModelsStore } from '../../stores/modelsStore'
 import { SystemPromptEditorModal } from './SystemPromptEditorModal'
 import { CwdWhitelistEditor } from './CwdWhitelistEditor'
@@ -31,6 +31,17 @@ export function AISettings() {
   const model = settings['ai_model'] ?? DEFAULT_MODEL
   const isCustomModel = !!customModel
   const customModels = parseCustomModels(settings['ai_customModels'])
+  const customModelContextLengths = parseCustomModelContextLengths(settings['ai_customModelContextLengths'])
+
+  const setCustomModelContextLength = useCallback((modelId: string, lengthInK: number | null) => {
+    const next = { ...customModelContextLengths }
+    if (lengthInK == null || lengthInK <= 0) {
+      delete next[modelId]
+    } else {
+      next[modelId] = Math.round(lengthInK * 1000)
+    }
+    setSetting('ai_customModelContextLengths', JSON.stringify(next))
+  }, [customModelContextLengths, setSetting])
   const fetchedModels = useModelsStore((s) => s.models)
   const fetchModels = useModelsStore((s) => s.fetch)
   useEffect(() => { fetchModels() }, [fetchModels])
@@ -400,30 +411,83 @@ export function AISettings() {
             />
           )}
           {customModels.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-0.5">
-              {customModels.map((m) => (
-                <span
-                  key={m}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.625rem] font-mono"
-                  style={{
-                    backgroundColor: 'color-mix(in srgb, var(--color-text-muted) 15%, transparent)',
-                    color: 'var(--color-text-muted)',
-                  }}
-                >
-                  {shortenModelName(m)}
-                  <button
-                    onClick={() => removeCustomModel(m)}
-                    className="hover:opacity-70 leading-none"
-                    aria-label={`Remove custom model ${m}`}
-                    title="Remove"
+            <div className="flex flex-col gap-1 mt-1">
+              {customModels.map((m) => {
+                const persistedK = customModelContextLengths[m] ? customModelContextLengths[m] / 1000 : ''
+                return (
+                  <div
+                    key={m}
+                    className="flex items-center gap-2 px-2 py-1 rounded text-xs"
+                    style={{
+                      backgroundColor: 'color-mix(in srgb, var(--color-text-muted) 10%, transparent)',
+                      color: 'var(--color-text-muted)',
+                    }}
                   >
-                    &times;
-                  </button>
-                </span>
-              ))}
+                    <span className="font-mono flex-1 truncate" title={m}>{shortenModelName(m)}</span>
+                    <label className="flex items-center gap-1 text-[0.625rem] whitespace-nowrap">
+                      ctx
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="auto"
+                        defaultValue={persistedK}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim()
+                          setCustomModelContextLength(m, v === '' ? null : Number(v))
+                        }}
+                        className="w-14 px-1 py-0.5 rounded border text-right"
+                        style={{
+                          backgroundColor: 'var(--color-bg)',
+                          color: 'var(--color-text)',
+                          borderColor: 'color-mix(in srgb, var(--color-text-muted) 30%, transparent)',
+                        }}
+                        aria-label={`Context window size for ${m} (thousands of tokens)`}
+                        title="Context window size in thousands of tokens. Leave blank to auto-detect."
+                      />
+                      k
+                    </label>
+                    <button
+                      onClick={() => removeCustomModel(m)}
+                      className="hover:opacity-70 leading-none text-sm"
+                      aria-label={`Remove custom model ${m}`}
+                      title="Remove"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
+      </div>
+
+      {/* Context token counter mode */}
+      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div className="flex flex-col gap-0.5 pr-4">
+          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+            Context counter
+          </span>
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+            How <code>/context</code> estimates token usage. PI backend is always local.
+          </span>
+        </div>
+        <select
+          value={settings['ai_contextTokenCounter'] ?? 'local'}
+          onChange={(e) => setSetting('ai_contextTokenCounter', e.target.value)}
+          disabled={!isClaudeBackend}
+          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none disabled:opacity-50 mobile:text-base mobile:py-2"
+          style={{
+            backgroundColor: 'var(--color-bg)',
+            color: 'var(--color-text)',
+          }}
+          aria-label="Select context token counter mode"
+          title={isClaudeBackend ? undefined : 'Only available on Claude Agent SDK backend'}
+        >
+          <option value="local">Local (gpt-tokenizer, fast)</option>
+          <option value="anthropic">Anthropic API (exact, slower)</option>
+        </select>
       </div>
 
       {/* Max Turns */}

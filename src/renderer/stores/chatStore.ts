@@ -2,9 +2,8 @@ import { create } from 'zustand'
 import type { Message, Attachment, StreamChunk, StreamPart, AskUserQuestion, McpConnectionStatus, NotificationEvent, NotificationConfig } from '../../shared/types'
 import { DEFAULT_NOTIFICATION_CONFIG, NOTIFICATION_EVENTS } from '../../shared/constants'
 import { useSettingsStore } from './settingsStore'
-import { useConversationsStore } from './conversationsStore'
 import { playCompletionSound, playErrorSound } from '../utils/notificationSound'
-import { getEffectiveContextWindow, computeUsedTokens } from '../../shared/contextWindow'
+import type { ContextBreakdown } from '../../core/services/contextBreakdown'
 
 export interface QueuedMessage {
   id: string
@@ -13,15 +12,9 @@ export interface QueuedMessage {
   createdAt: number
 }
 
-/** Transient state shown when the user invokes /contexte. Auto-dismisses. */
+/** Transient state shown when the user invokes /context. Auto-dismisses. */
 export interface ContextDisplay {
-  used: number
-  window: number
-  input: number
-  output: number
-  cacheRead: number
-  cacheCreation: number
-  updatedAt: string | null
+  breakdown: ContextBreakdown
   shownAt: number
 }
 
@@ -59,7 +52,7 @@ interface ChatState {
   clearChat: () => void
   clearContext: (conversationId: number) => Promise<void>
   compactContext: (conversationId: number) => Promise<void>
-  showContextInfo: (conversationId: number) => void
+  showContextInfo: (conversationId: number) => Promise<void>
   dismissContextInfo: () => void
   addToQueue: (conversationId: number, content: string, attachments?: Attachment[]) => void
   removeFromQueue: (conversationId: number, messageId: string) => void
@@ -425,36 +418,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  showContextInfo: (conversationId: number) => {
-    const conv = useConversationsStore.getState().conversations.find((c) => c.id === conversationId)
-    const input = conv?.last_input_tokens ?? 0
-    const output = conv?.last_output_tokens ?? 0
-    const cacheRead = conv?.last_cache_read_tokens ?? 0
-    const cacheCreation = conv?.last_cache_creation_tokens ?? 0
-    const used = computeUsedTokens({ input, cacheRead, cacheCreation })
-    // Take the max of what the SDK observed and what our static table knows:
-    // the SDK's modelUsage table lags Anthropic's model roster and defaults to
-    // 200k for unknown models (e.g. opus-4-7 in SDK 0.2.37/0.2.114).
-    const window_ = getEffectiveContextWindow(conv?.model ?? null, conv?.last_context_window ?? null)
-    set({
-      contextDisplay: {
-        used,
-        window: window_,
-        input,
-        output,
-        cacheRead,
-        cacheCreation,
-        updatedAt: conv?.last_usage_updated_at ?? null,
-        shownAt: Date.now(),
-      },
-    })
-    // Auto-dismiss after 20 seconds, but only if the same bubble is still visible
-    const shownAt = Date.now()
-    setTimeout(() => {
-      if (useChatStore.getState().contextDisplay?.shownAt === shownAt) {
-        useChatStore.setState({ contextDisplay: null })
-      }
-    }, 20_000)
+  showContextInfo: async (conversationId: number) => {
+    try {
+      const breakdown = await window.agent.context.getBreakdown(conversationId) as ContextBreakdown
+      const shownAt = Date.now()
+      set({ contextDisplay: { breakdown, shownAt } })
+      // Auto-dismiss after 20s only if the same bubble is still visible
+      setTimeout(() => {
+        if (useChatStore.getState().contextDisplay?.shownAt === shownAt) {
+          useChatStore.setState({ contextDisplay: null })
+        }
+      }, 20_000)
+    } catch (err) {
+      console.error('[chatStore] showContextInfo failed:', err)
+    }
   },
 
   dismissContextInfo: () => set({ contextDisplay: null }),

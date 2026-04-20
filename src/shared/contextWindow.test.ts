@@ -71,6 +71,17 @@ describe('getEffectiveContextWindow', () => {
     expect(getEffectiveContextWindow(null, null)).toBe(DEFAULT_CONTEXT_WINDOW)
     expect(getEffectiveContextWindow('', 0)).toBe(DEFAULT_CONTEXT_WINDOW)
   })
+
+  it('respects the user custom-model override when provided', () => {
+    expect(getEffectiveContextWindow('my-local-llm', null, { 'my-local-llm': 128_000 })).toBe(128_000)
+    // Override wins even over a bigger static guess (user knows their model)
+    expect(getEffectiveContextWindow('my-local-llm', 2_000_000, { 'my-local-llm': 128_000 })).toBe(128_000)
+  })
+
+  it('ignores zero or negative override and falls back to the max logic', () => {
+    expect(getEffectiveContextWindow('claude-opus-4-7', null, { 'claude-opus-4-7': 0 })).toBe(EXTENDED_CONTEXT_WINDOW)
+    expect(getEffectiveContextWindow('claude-opus-4-7', null, { 'claude-opus-4-7': -1 })).toBe(EXTENDED_CONTEXT_WINDOW)
+  })
 })
 
 describe('computeUsedTokens', () => {

@@ -24,7 +24,7 @@ import { parseMcpDisabledList } from '../utils/mcpUtils'
 import { useVoiceInputStore } from '../stores/voiceInputStore'
 import type { Attachment, AIOverrides, KnowledgeSelection } from '../../shared/types'
 import type { TaskNotification, QueuedMessage } from '../stores/chatStore'
-import { DEFAULT_MODEL, DEFAULT_EXCLUDE_PATTERNS, shortenModelName, parseCustomModels } from '../../shared/constants'
+import { DEFAULT_MODEL, DEFAULT_EXCLUDE_PATTERNS, shortenModelName, parseCustomModels, parseCustomModelContextLengths } from '../../shared/constants'
 import { getEffectiveContextWindow, computeUsedTokens } from '../../shared/contextWindow'
 import { usePiExtensionUI } from '../hooks/usePiExtensionUI'
 import { usePiExtensionUIStore } from '../stores/piExtensionUIStore'
@@ -156,9 +156,13 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
   const effectiveModel = effectiveSettings['ai_model'] || DEFAULT_MODEL
   const effectivePermissionMode = effectiveSettings['ai_permissionMode'] || 'bypassPermissions'
 
+  const customCtxOverrides = useMemo(
+    () => parseCustomModelContextLengths(globalSettings['ai_customModelContextLengths']),
+    [globalSettings]
+  )
   const contextWindow = useMemo(
-    () => getEffectiveContextWindow(effectiveModel, conversation?.last_context_window ?? null),
-    [conversation?.last_context_window, effectiveModel]
+    () => getEffectiveContextWindow(effectiveModel, conversation?.last_context_window ?? null, customCtxOverrides),
+    [conversation?.last_context_window, effectiveModel, customCtxOverrides]
   )
   const contextUsed = useMemo(() => {
     if (!conversation?.last_usage_updated_at) return null

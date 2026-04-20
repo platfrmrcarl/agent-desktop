@@ -26,10 +26,9 @@ function ContextClearedDivider({ clearedCount }: { clearedCount: number }) {
 }
 
 function ContextInfoBubble({ display, onDismiss }: { display: ContextDisplay; onDismiss: () => void }) {
-  const { used, window: ctxWindow, input, output, cacheRead, cacheCreation, updatedAt } = display
-  const free = Math.max(0, ctxWindow - used)
-  const pct = ctxWindow > 0 ? Math.round((used / ctxWindow) * 100) : 0
-  const hasData = updatedAt !== null
+  const { breakdown } = display
+  const { total, window: ctxWindow, autocompactBuffer, free, percentUsed, categories, totalIsExact, mode, preFirstTurn } = breakdown
+  const freePct = ctxWindow > 0 ? Math.max(0, 100 - percentUsed) : 0
   return (
     <div className="flex justify-center mb-4">
       <div
@@ -38,6 +37,7 @@ function ContextInfoBubble({ display, onDismiss }: { display: ContextDisplay; on
           backgroundColor: 'color-mix(in srgb, var(--color-accent) 15%, var(--color-bg))',
           color: 'var(--color-text)',
           border: '1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)',
+          minWidth: 360,
         }}
       >
         <button
@@ -47,31 +47,63 @@ function ContextInfoBubble({ display, onDismiss }: { display: ContextDisplay; on
           aria-label="Dismiss"
           title="Fermer"
         >×</button>
-        <div className="font-medium mb-1.5" style={{ color: 'var(--color-accent)' }}>
+        <div className="font-medium mb-2" style={{ color: 'var(--color-accent)' }}>
           /context
         </div>
-        {hasData ? (
-          <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            <div>
-              <span style={{ color: 'var(--color-text)' }}>{formatTokens(used)}</span>
-              {' / '}
-              <span>{formatTokens(ctxWindow)}</span>
-              {' dans le contexte — '}
-              <span style={{ color: 'var(--color-text)' }}>{formatTokens(free)}</span>
-              {' libres ('}{100 - pct}{'%)'}
+        <div className="text-sm mb-2">
+          <span style={{ color: 'var(--color-text)' }}>{formatTokens(total)}</span>
+          {' / '}
+          <span>{formatTokens(ctxWindow)}</span>
+          {totalIsExact ? ' tokens (exact)' : ' tokens'}
+          <span style={{ color: 'var(--color-text-muted)' }}>{' — '}{percentUsed}%</span>
+        </div>
+        {!preFirstTurn && (
+          <div className="flex flex-col gap-0.5 mb-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+            <div className="uppercase tracking-wide text-[0.6rem] opacity-70 mb-0.5">Estimated usage by category</div>
+            {categories.map((cat, i) => {
+              const catPct = ctxWindow > 0 && cat.tokens != null ? ((cat.tokens / ctxWindow) * 100) : null
+              return (
+                <div key={i} className="flex justify-between gap-3">
+                  <span className="flex items-center gap-1">
+                    <span style={{ color: 'var(--color-accent)' }}>▪</span>
+                    <span style={{ color: 'var(--color-text)' }}>{cat.label}</span>
+                    {cat.hint && <span className="text-[0.6rem] opacity-60">({cat.hint})</span>}
+                  </span>
+                  <span className="font-mono tabular-nums whitespace-nowrap">
+                    {cat.tokens == null ? '—' : formatTokens(cat.tokens)}
+                    {catPct != null && <span className="opacity-70 ml-1">({catPct.toFixed(1)}%)</span>}
+                  </span>
+                </div>
+              )
+            })}
+            <div className="flex justify-between gap-3 mt-0.5">
+              <span className="flex items-center gap-1">
+                <span className="opacity-60">□</span>
+                <span>Free space</span>
+              </span>
+              <span className="font-mono tabular-nums whitespace-nowrap">
+                {formatTokens(free)} <span className="opacity-70">({freePct}%)</span>
+              </span>
             </div>
-            <div className="mt-1.5 text-xs" style={{ opacity: 0.8 }}>
-              entrée {formatTokens(input)} · cache lu {formatTokens(cacheRead)} · cache créé {formatTokens(cacheCreation)} · sortie {formatTokens(output)}
+            <div className="flex justify-between gap-3">
+              <span className="flex items-center gap-1">
+                <span className="opacity-60">⊠</span>
+                <span>Autocompact buffer</span>
+              </span>
+              <span className="font-mono tabular-nums whitespace-nowrap">
+                {formatTokens(autocompactBuffer)}
+              </span>
             </div>
-            <div className="mt-1 text-[10px]" style={{ opacity: 0.6, color: 'var(--color-text-muted)' }}>
-              Inclut system prompt, définitions des tools et historique — pas seulement ton dernier message.
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            En attente du premier tour — les mesures apparaîtront après la première réponse.
           </div>
         )}
+        {preFirstTurn && (
+          <div className="text-xs mb-1" style={{ color: 'var(--color-text-muted)' }}>
+            En attente du premier tour — la ventilation par catégorie apparaîtra après la première réponse.
+          </div>
+        )}
+        <div className="text-[10px] opacity-60" style={{ color: 'var(--color-text-muted)' }}>
+          Mode : {mode === 'anthropic' ? 'Anthropic API (exact)' : 'local (gpt-tokenizer, ±10%)'}
+        </div>
       </div>
     </div>
   )

@@ -78,6 +78,9 @@ export interface AgentAPI {
     respondToApproval(requestId: string, response: ToolApprovalResponse | AskUserResponse): Promise<void>
     onStream(callback: (chunk: StreamChunk) => void): () => void
   }
+  context: {
+    getBreakdown(conversationId: number): Promise<import('../core/services/contextBreakdown').ContextBreakdown>
+  }
   files: {
     listTree(basePath: string, excludePatterns?: string[]): Promise<FileNode[]>
     listDir(dirPath: string): Promise<FileNode[]>

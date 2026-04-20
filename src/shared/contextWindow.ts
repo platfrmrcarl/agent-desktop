@@ -33,22 +33,24 @@ export function getContextWindow(modelId: string | null | undefined): number {
 /**
  * Effective context window for display.
  *
- * The SDK's `modelUsage.contextWindow` is *not* authoritative for models it
- * doesn't know about — it silently falls back to 200k for unknown model IDs
- * (e.g. opus-4-7 is absent from @anthropic-ai/claude-agent-sdk 0.2.114's
- * internal metadata table). So we take the **maximum** of what the SDK
- * reported and what we statically know the model supports.
+ * Priority order:
+ *   1. User-declared override for custom models (`customOverrides[modelId]`)
+ *   2. What the SDK reported (`observedFromSdk`)
+ *   3. Static table (`getContextWindow(modelId)`)
  *
- * This is safe because:
- *   - For known 1M models, our static table matches Anthropic's docs.
- *   - For known 200k models, both sources agree on 200k.
- *   - For truly unknown models, both fall back to 200k (conservative).
- *   - A future SDK that learns opus-4-7 (reports 1M) won't be overridden.
+ * Rationale: the SDK's `modelUsage.contextWindow` is *not* authoritative for
+ * models it doesn't know about — it silently falls back to 200k for unknown
+ * model IDs (e.g. opus-4-7 is absent from @anthropic-ai/claude-agent-sdk
+ * 0.2.114's internal metadata table). We take `max(...)` over the available
+ * sources, with the user's explicit override (step 1) always winning.
  */
 export function getEffectiveContextWindow(
   modelId: string | null | undefined,
-  observedFromSdk: number | null | undefined
+  observedFromSdk: number | null | undefined,
+  customOverrides?: Record<string, number>
 ): number {
+  const userOverride = modelId && customOverrides ? customOverrides[modelId] : undefined
+  if (userOverride && userOverride > 0) return userOverride
   const staticBest = getContextWindow(modelId)
   return Math.max(observedFromSdk ?? 0, staticBest)
 }

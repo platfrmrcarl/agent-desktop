@@ -35,6 +35,26 @@ export function parseCustomModels(json: string | undefined): string[] {
   catch { return [] }
 }
 
+/**
+ * Parse the per-custom-model context length map from `ai_customModelContextLengths`.
+ * Format: `{"model-id": 1000000, "other": 200000}`.
+ * Returns an empty object on malformed input.
+ */
+export function parseCustomModelContextLengths(json: string | undefined): Record<string, number> {
+  if (!json) return {}
+  try {
+    const obj = JSON.parse(json)
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {}
+    const out: Record<string, number> = {}
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === 'number' && v > 0) out[k] = v
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
 /** baseModels (defaults to MODEL_OPTIONS) + saved custom models (for dropdowns) */
 export function buildModelOptions(
   customModels: string[],
