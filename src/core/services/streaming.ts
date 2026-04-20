@@ -9,13 +9,21 @@ import type { ToolApprovalResponse, AskUserResponse, ToolCall, CwdWhitelistEntry
 
 type MessageParam = { role: 'user' | 'assistant'; content: string }
 
+export interface TurnUsage {
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+  context_window?: number
+}
+
 type SendTurnFn = (
   conversationId: number,
   messages: MessageParam[],
   systemPrompt?: string,
   aiSettings?: AISettings,
   sdkSessionId?: string | null,
-) => Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string; stopReason?: string }>
+) => Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string; stopReason?: string; usage?: TurnUsage }>
 
 type RespondToSessionApprovalFn = (requestId: string, response: ToolApprovalResponse | AskUserResponse) => void
 type AbortSessionFn = (conversationId?: number) => void
@@ -228,7 +236,7 @@ export async function streamMessage(
   conversationId?: number,
   sdkSessionId?: string | null,
   persistSession?: boolean
-): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string }> {
+): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string; stopReason?: string; usage?: TurnUsage }> {
   // PI backend: sync MCP config then delegate
   if (aiSettings?.sdkBackend === 'pi') {
     if (!_streamMessagePI) {

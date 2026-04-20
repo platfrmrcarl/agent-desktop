@@ -249,6 +249,27 @@ function runMigrations(db: Database.Database): void {
     try { db.exec('ALTER TABLE conversations ADD COLUMN last_opened_at TEXT') } catch (e) { console.warn('[migration] conversations.last_opened_at:', e) }
   }
 
+  // Add last_*_tokens + last_usage_updated_at to conversations (context window usage tracking for /contexte)
+  const convCols7 = db.pragma('table_info(conversations)') as { name: string }[]
+  if (!convCols7.some((c) => c.name === 'last_input_tokens')) {
+    try { db.exec('ALTER TABLE conversations ADD COLUMN last_input_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_input_tokens:', e) }
+  }
+  if (!convCols7.some((c) => c.name === 'last_output_tokens')) {
+    try { db.exec('ALTER TABLE conversations ADD COLUMN last_output_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_output_tokens:', e) }
+  }
+  if (!convCols7.some((c) => c.name === 'last_cache_read_tokens')) {
+    try { db.exec('ALTER TABLE conversations ADD COLUMN last_cache_read_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_cache_read_tokens:', e) }
+  }
+  if (!convCols7.some((c) => c.name === 'last_cache_creation_tokens')) {
+    try { db.exec('ALTER TABLE conversations ADD COLUMN last_cache_creation_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_cache_creation_tokens:', e) }
+  }
+  if (!convCols7.some((c) => c.name === 'last_usage_updated_at')) {
+    try { db.exec('ALTER TABLE conversations ADD COLUMN last_usage_updated_at TEXT') } catch (e) { console.warn('[migration] conversations.last_usage_updated_at:', e) }
+  }
+  if (!convCols7.some((c) => c.name === 'last_context_window')) {
+    try { db.exec('ALTER TABLE conversations ADD COLUMN last_context_window INTEGER') } catch (e) { console.warn('[migration] conversations.last_context_window:', e) }
+  }
+
   // Ensure exactly one default folder exists
   const hasDefault = db.prepare('SELECT id FROM folders WHERE is_default = 1').get()
   if (!hasDefault) {

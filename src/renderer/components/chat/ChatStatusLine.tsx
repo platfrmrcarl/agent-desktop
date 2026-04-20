@@ -29,9 +29,25 @@ interface ChatStatusLineProps {
   onKbAccessToggle?: (name: string) => void
   extensionStatus?: Record<string, string>
   customModels?: string[]
+  contextUsed?: number | null
+  contextWindow?: number | null
 }
 
-export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChange, onPermissionModeChange, onMcpServerToggle, kbCollections, onKbCollectionToggle, onKbAccessToggle, extensionStatus, customModels }: ChatStatusLineProps) {
+/** Format a token count as compact k-units: 1234 -> "1.2k", 128000 -> "128k" */
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n)
+  const k = n / 1000
+  return k >= 100 ? `${Math.round(k)}k` : `${k.toFixed(1)}k`
+}
+
+/** Color class for the context chip based on usage ratio — green < 50%, yellow 50-80%, red > 80%. */
+function contextColorClass(pct: number): string {
+  if (pct < 50) return 'text-green-500'
+  if (pct < 80) return 'text-yellow-500'
+  return 'text-red-500'
+}
+
+export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChange, onPermissionModeChange, onMcpServerToggle, kbCollections, onKbCollectionToggle, onKbAccessToggle, extensionStatus, customModels, contextUsed, contextWindow }: ChatStatusLineProps) {
   const baseModels = useModelsStore((s) => s.models)
   const fetchModels = useModelsStore((s) => s.fetch)
   useEffect(() => { fetchModels() }, [fetchModels])
@@ -300,6 +316,33 @@ export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChang
               </div>
             )}
           </div>
+        </>
+      )}
+      {typeof contextUsed === 'number' && typeof contextWindow === 'number' && contextWindow > 0 && (
+        <>
+          <span aria-hidden="true">&middot;</span>
+          {(() => {
+            const pct = Math.min(100, Math.round((contextUsed / contextWindow) * 100))
+            const colorCls = contextColorClass(pct)
+            return (
+              <span
+                className={`whitespace-nowrap mobile:py-1 mobile:px-1 inline-flex items-center gap-1 ${colorCls}`}
+                title={`Contexte : ${formatTokens(contextUsed)} / ${formatTokens(contextWindow)} (${pct}%) — inclut system prompt + tools + historique`}
+                aria-label={`Context ${pct}% used`}
+              >
+                <span>{formatTokens(contextUsed)}/{formatTokens(contextWindow)}</span>
+                <span
+                  className="inline-block h-1 w-8 rounded-sm overflow-hidden"
+                  style={{ backgroundColor: 'color-mix(in srgb, currentColor 20%, transparent)' }}
+                >
+                  <span
+                    className="block h-full"
+                    style={{ width: `${pct}%`, backgroundColor: 'currentColor' }}
+                  />
+                </span>
+              </span>
+            )
+          })()}
         </>
       )}
       {extensionStatus && Object.keys(extensionStatus).length > 0 && (

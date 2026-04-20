@@ -321,13 +321,22 @@ if (typeof window !== 'undefined' && window.agent?.events?.onConversationTitleUp
 }
 
 // Listen for conversation updated (edit/regenerate/stream finished) — bump updated_at so sort order stays correct
+// and re-fetch the row so that fields written by backend handlers (last_*_tokens, sdk_session_id, …) stay in sync.
 if (typeof window !== 'undefined' && window.agent?.events?.onConversationUpdated) {
-  window.agent.events.onConversationUpdated((conversationId: number) => {
+  window.agent.events.onConversationUpdated(async (conversationId: number) => {
     const now = new Date().toISOString()
     useConversationsStore.setState((s) => ({
       conversations: s.conversations
         .map((c) => c.id === conversationId ? { ...c, updated_at: now } : c),
     }))
+    try {
+      const fresh = await window.agent.conversations.get(conversationId) as Conversation | null | undefined
+      if (fresh) {
+        useConversationsStore.setState((s) => ({
+          conversations: s.conversations.map((c) => c.id === conversationId ? { ...c, ...fresh } : c),
+        }))
+      }
+    } catch { /* transient race with delete — ignore */ }
   })
 }
 

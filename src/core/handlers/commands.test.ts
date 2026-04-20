@@ -153,4 +153,12 @@ describe('commands handlers (macros)', () => {
     expect(found).toBeDefined()
     expect(found!.source).toBe('macro')
   })
+
+  it('commands:list includes the /context builtin', async () => {
+    const commandsList = dispatch.get('commands:list')!
+    const cmds = (await commandsList()) as Array<{ name: string; source: string; description: string }>
+    const ctx = cmds.find((c) => c.name === 'context')
+    expect(ctx).toBeDefined()
+    expect(ctx!.source).toBe('builtin')
+  })
 })

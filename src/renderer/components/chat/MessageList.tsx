@@ -4,7 +4,14 @@ import { MarkdownRenderer } from './MarkdownRenderer'
 import { StreamingIndicator } from './StreamingIndicator'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Message, StreamPart } from '../../../shared/types'
-import type { TaskNotification } from '../../stores/chatStore'
+import type { TaskNotification, ContextDisplay } from '../../stores/chatStore'
+
+/** Format a token count as compact k-units: 1234 -> "1.2k", 128000 -> "128k" */
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n)
+  const k = n / 1000
+  return k >= 100 ? `${Math.round(k)}k` : `${k.toFixed(1)}k`
+}
 
 function ContextClearedDivider({ clearedCount }: { clearedCount: number }) {
   return (
@@ -14,6 +21,58 @@ function ContextClearedDivider({ clearedCount }: { clearedCount: number }) {
         Context cleared{clearedCount > 0 ? ` — ${clearedCount} message${clearedCount !== 1 ? 's' : ''}` : ''}
       </span>
       <div className="flex-1 h-px" style={{ backgroundColor: 'var(--color-border)' }} />
+    </div>
+  )
+}
+
+function ContextInfoBubble({ display, onDismiss }: { display: ContextDisplay; onDismiss: () => void }) {
+  const { used, window: ctxWindow, input, output, cacheRead, cacheCreation, updatedAt } = display
+  const free = Math.max(0, ctxWindow - used)
+  const pct = ctxWindow > 0 ? Math.round((used / ctxWindow) * 100) : 0
+  const hasData = updatedAt !== null
+  return (
+    <div className="flex justify-center mb-4">
+      <div
+        className="rounded-lg px-4 py-3 text-xs max-w-[80%] compact:max-w-[95%] relative"
+        style={{
+          backgroundColor: 'color-mix(in srgb, var(--color-accent) 15%, var(--color-bg))',
+          color: 'var(--color-text)',
+          border: '1px solid color-mix(in srgb, var(--color-accent) 30%, transparent)',
+        }}
+      >
+        <button
+          onClick={onDismiss}
+          className="absolute top-1 right-2 text-xs opacity-60 hover:opacity-100"
+          style={{ color: 'var(--color-text-muted)' }}
+          aria-label="Dismiss"
+          title="Fermer"
+        >×</button>
+        <div className="font-medium mb-1.5" style={{ color: 'var(--color-accent)' }}>
+          /context
+        </div>
+        {hasData ? (
+          <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+            <div>
+              <span style={{ color: 'var(--color-text)' }}>{formatTokens(used)}</span>
+              {' / '}
+              <span>{formatTokens(ctxWindow)}</span>
+              {' dans le contexte — '}
+              <span style={{ color: 'var(--color-text)' }}>{formatTokens(free)}</span>
+              {' libres ('}{100 - pct}{'%)'}
+            </div>
+            <div className="mt-1.5 text-xs" style={{ opacity: 0.8 }}>
+              entrée {formatTokens(input)} · cache lu {formatTokens(cacheRead)} · cache créé {formatTokens(cacheCreation)} · sortie {formatTokens(output)}
+            </div>
+            <div className="mt-1 text-[10px]" style={{ opacity: 0.6, color: 'var(--color-text-muted)' }}>
+              Inclut system prompt, définitions des tools et historique — pas seulement ton dernier message.
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
+            En attente du premier tour — les mesures apparaîtront après la première réponse.
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -52,6 +111,8 @@ interface MessageListProps {
   streamingContent: string
   isLoading: boolean
   taskNotifications?: TaskNotification[]
+  contextDisplay?: ContextDisplay | null
+  onDismissContextInfo?: () => void
   effectiveTtsResponseMode?: string
   effectiveAgentName?: string
   effectiveSdkBackend?: string
@@ -71,6 +132,8 @@ export function MessageList({
   streamingContent,
   isLoading,
   taskNotifications,
+  contextDisplay,
+  onDismissContextInfo,
   effectiveTtsResponseMode,
   effectiveAgentName,
   effectiveSdkBackend,
@@ -193,6 +256,10 @@ export function MessageList({
                 )
               })}
             </div>
+          )}
+
+          {contextDisplay && (
+            <ContextInfoBubble display={contextDisplay} onDismiss={onDismissContextInfo ?? (() => {})} />
           )}
 
           {isStreaming && (

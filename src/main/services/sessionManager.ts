@@ -9,6 +9,16 @@ import type { ToolCall, ToolApprovalResponse, AskUserResponse } from '../../shar
 
 // ─── Types ────────────────────────────────────────────────────
 
+/** Token usage reported by the Claude Agent SDK on turn end */
+export interface TurnUsage {
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+  /** Context window size reported by the SDK via modelUsage[*].contextWindow */
+  context_window?: number
+}
+
 /** Matches the return type of streamMessage for drop-in compatibility */
 export interface TurnResult {
   content: string
@@ -17,6 +27,7 @@ export interface TurnResult {
   sessionId: string | null
   error?: string
   stopReason?: string
+  usage?: TurnUsage
 }
 
 interface SDKUserMessage {
@@ -34,6 +45,8 @@ interface TurnState {
   askUserToolIds: Set<string>
   lastStopReason?: string
   lastResultSubtype?: string
+  /** Usage reported on the most recent SDK result message */
+  lastUsage?: TurnUsage
   /** Number of background tasks still running */
   pendingTaskCount: number
   turnEndDeferred: boolean
@@ -185,6 +198,8 @@ interface ResultMsg {
   tool_use_id?: string
   summary?: string
   content?: string
+  usage?: TurnUsage
+  modelUsage?: Record<string, { contextWindow?: number; maxOutputTokens?: number }>
 }
 
 interface SystemMsg {
@@ -359,6 +374,16 @@ async function consumeStream(session: ActiveSession): Promise<void> {
         const result = msg as ResultMsg
         if (result.stop_reason) turn.lastStopReason = result.stop_reason
         if (result.subtype) turn.lastResultSubtype = result.subtype
+        if (result.usage) {
+          turn.lastUsage = { ...result.usage }
+          // Pull the authoritative context window size from modelUsage — the SDK
+          // knows per-model limits (200k / 1M / whatever Anthropic ships next).
+          if (result.modelUsage) {
+            const entries = Object.values(result.modelUsage)
+            const maxWindow = entries.reduce((m, e) => Math.max(m, e?.contextWindow ?? 0), 0)
+            if (maxWindow > 0) turn.lastUsage.context_window = maxWindow
+          }
+        }
 
         if (result.subtype === 'tool_result' || result.tool_name) {
           // Tool result — NOT end of turn
@@ -428,6 +453,7 @@ async function consumeStream(session: ActiveSession): Promise<void> {
                   aborted: false,
                   sessionId: session.sessionId,
                   stopReason: turn.lastStopReason,
+                  usage: turn.lastUsage,
                 })
                 session.currentTurn = null
                 session.lastActivity = Date.now()
@@ -449,6 +475,7 @@ async function consumeStream(session: ActiveSession): Promise<void> {
               aborted: false,
               sessionId: session.sessionId,
               stopReason: turn.lastStopReason,
+              usage: turn.lastUsage,
             })
             session.currentTurn = null
             session.lastActivity = Date.now()
@@ -557,7 +584,7 @@ async function consumeStream(session: ActiveSession): Promise<void> {
         (err.name === 'AbortError' || err.message.includes('abort'))
       ) {
         sendChunk('done', undefined, { conversationId: session.conversationId, stopReason: 'aborted' })
-        turn.resolve({ content: turn.content, toolCalls: Array.from(turn.toolCallsMap.values()), aborted: true, sessionId: session.sessionId, stopReason: 'aborted' })
+        turn.resolve({ content: turn.content, toolCalls: Array.from(turn.toolCallsMap.values()), aborted: true, sessionId: session.sessionId, stopReason: 'aborted', usage: turn.lastUsage })
       } else {
         const errorMsg = err instanceof Error ? err.message : 'Unknown streaming error'
         console.error('[sessionManager] Stream error:', err)
@@ -571,6 +598,7 @@ async function consumeStream(session: ActiveSession): Promise<void> {
           sessionId: session.sessionId,
           error: errorMsg,
           stopReason: turn.lastStopReason,
+          usage: turn.lastUsage,
         })
       }
       session.currentTurn = null
@@ -884,6 +912,7 @@ export function invalidateSession(conversationId: number): void {
       toolCalls: Array.from(session.currentTurn.toolCallsMap.values()),
       aborted: true,
       sessionId: session.sessionId,
+      usage: session.currentTurn.lastUsage,
     })
     session.currentTurn = null
   }

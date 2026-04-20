@@ -47,6 +47,12 @@ export interface Conversation {
   compact_summary: string | null
   sdk_session_id: string | null
   color: string | null
+  last_input_tokens: number | null
+  last_output_tokens: number | null
+  last_cache_read_tokens: number | null
+  last_cache_creation_tokens: number | null
+  last_usage_updated_at: string | null
+  last_context_window: number | null
   message_count?: number
   created_at: string
   updated_at: string

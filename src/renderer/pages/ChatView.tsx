@@ -25,6 +25,7 @@ import { useVoiceInputStore } from '../stores/voiceInputStore'
 import type { Attachment, AIOverrides, KnowledgeSelection } from '../../shared/types'
 import type { TaskNotification, QueuedMessage } from '../stores/chatStore'
 import { DEFAULT_MODEL, DEFAULT_EXCLUDE_PATTERNS, shortenModelName, parseCustomModels } from '../../shared/constants'
+import { getEffectiveContextWindow, computeUsedTokens } from '../../shared/contextWindow'
 import { usePiExtensionUI } from '../hooks/usePiExtensionUI'
 import { usePiExtensionUIStore } from '../stores/piExtensionUIStore'
 import { ExtensionDialog } from '../components/extensions/ExtensionDialog'
@@ -50,6 +51,8 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
   const clearedAt = useChatStore((s) => s.clearedAt)
   const compactSummary = useChatStore((s) => s.compactSummary)
   const isCompacting = useChatStore((s) => s.isCompacting)
+  const contextDisplay = useChatStore((s) => s.contextDisplay)
+  const dismissContextInfo = useChatStore((s) => s.dismissContextInfo)
   const isStreaming = useChatStore((s) => s.isStreaming)
   const streamParts = useChatStore((s) => s.streamParts)
   const streamingContent = useChatStore((s) => s.streamingContent)
@@ -152,6 +155,19 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
   )
   const effectiveModel = effectiveSettings['ai_model'] || DEFAULT_MODEL
   const effectivePermissionMode = effectiveSettings['ai_permissionMode'] || 'bypassPermissions'
+
+  const contextWindow = useMemo(
+    () => getEffectiveContextWindow(effectiveModel, conversation?.last_context_window ?? null),
+    [conversation?.last_context_window, effectiveModel]
+  )
+  const contextUsed = useMemo(() => {
+    if (!conversation?.last_usage_updated_at) return null
+    return computeUsedTokens({
+      input: conversation.last_input_tokens,
+      cacheRead: conversation.last_cache_read_tokens,
+      cacheCreation: conversation.last_cache_creation_tokens,
+    })
+  }, [conversation?.last_usage_updated_at, conversation?.last_input_tokens, conversation?.last_cache_read_tokens, conversation?.last_cache_creation_tokens])
   const mcpDisabledList = useMemo(() => parseMcpDisabledList(effectiveSettings['ai_mcpDisabled']), [effectiveSettings])
   const mcpServerEntries = useMemo(() => {
     const disabledSet = new Set(mcpDisabledList)
@@ -357,6 +373,10 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
       await useChatStore.getState().compactContext(conversationId)
       return
     }
+    if (trimmed === '/context') {
+      useChatStore.getState().showContextInfo(conversationId)
+      return
+    }
     // Macro invocation: /name with no extra arguments
     if (/^\/[\w-]+$/.test(trimmed)) {
       const macroName = trimmed.slice(1)
@@ -522,6 +542,8 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
           streamingContent={streamingContent}
           isLoading={isLoading}
           taskNotifications={taskNotifications}
+          contextDisplay={contextDisplay}
+          onDismissContextInfo={dismissContextInfo}
           effectiveTtsResponseMode={effectiveSettings['tts_responseMode']}
           effectiveAgentName={effectiveSettings['agent_name']}
           effectiveSdkBackend={effectiveSettings['ai_sdkBackend']}
@@ -575,6 +597,8 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
             onKbAccessToggle={handleKbAccessToggle}
             extensionStatus={statusEntries}
             customModels={parseCustomModels(globalSettings['ai_customModels'])}
+            contextUsed={contextUsed}
+            contextWindow={contextWindow}
           />
         </div>
 

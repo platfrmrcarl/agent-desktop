@@ -114,6 +114,22 @@ describe('schema', () => {
     db.close()
   })
 
+  it('conversations has last_*_tokens + last_usage_updated_at columns after migration', async () => {
+    const db = await createTestDb()
+    createTables(db as any)
+
+    const cols = db.pragma('table_info(conversations)') as { name: string; type: string }[]
+    const colMap = new Map(cols.map((c) => [c.name, c.type]))
+
+    expect(colMap.get('last_input_tokens')).toBe('INTEGER')
+    expect(colMap.get('last_output_tokens')).toBe('INTEGER')
+    expect(colMap.get('last_cache_read_tokens')).toBe('INTEGER')
+    expect(colMap.get('last_cache_creation_tokens')).toBe('INTEGER')
+    expect(colMap.get('last_context_window')).toBe('INTEGER')
+    expect(colMap.get('last_usage_updated_at')).toBe('TEXT')
+    db.close()
+  })
+
   it('mcp_servers type column defaults to stdio', async () => {
     const db = await createTestDb()
     createTables(db as any)

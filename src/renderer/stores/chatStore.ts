@@ -2,13 +2,27 @@ import { create } from 'zustand'
 import type { Message, Attachment, StreamChunk, StreamPart, AskUserQuestion, McpConnectionStatus, NotificationEvent, NotificationConfig } from '../../shared/types'
 import { DEFAULT_NOTIFICATION_CONFIG, NOTIFICATION_EVENTS } from '../../shared/constants'
 import { useSettingsStore } from './settingsStore'
+import { useConversationsStore } from './conversationsStore'
 import { playCompletionSound, playErrorSound } from '../utils/notificationSound'
+import { getEffectiveContextWindow, computeUsedTokens } from '../../shared/contextWindow'
 
 export interface QueuedMessage {
   id: string
   content: string
   attachments?: Attachment[]
   createdAt: number
+}
+
+/** Transient state shown when the user invokes /contexte. Auto-dismisses. */
+export interface ContextDisplay {
+  used: number
+  window: number
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+  updatedAt: string | null
+  shownAt: number
 }
 
 export interface TaskNotification {
@@ -34,6 +48,7 @@ interface ChatState {
   queuePaused: Record<number, boolean>
   queueEditLocked: Record<number, boolean>
   taskNotifications: Record<number, TaskNotification[]>
+  contextDisplay: ContextDisplay | null
 
   loadMessages: (conversationId: number) => Promise<void>
   sendMessage: (conversationId: number, content: string, attachments?: Attachment[]) => Promise<void>
@@ -44,6 +59,8 @@ interface ChatState {
   clearChat: () => void
   clearContext: (conversationId: number) => Promise<void>
   compactContext: (conversationId: number) => Promise<void>
+  showContextInfo: (conversationId: number) => void
+  dismissContextInfo: () => void
   addToQueue: (conversationId: number, content: string, attachments?: Attachment[]) => void
   removeFromQueue: (conversationId: number, messageId: string) => void
   editQueuedMessage: (conversationId: number, messageId: string, newContent: string) => void
@@ -148,7 +165,7 @@ function popQueue(get: () => ChatState, conversationId: number): QueuedMessage |
   return next
 }
 
-/** Process a queued message: handle slash commands (/clear, /compact) and macros, or send normally */
+/** Process a queued message: handle slash commands (/clear, /compact, /context) and macros, or send normally */
 async function processQueuedMessage(
   get: () => ChatState,
   conversationId: number,
@@ -158,11 +175,13 @@ async function processQueuedMessage(
   const trimmed = content.trim()
 
   // Client-side slash commands -- don't start a stream, so must continue drain
-  if (trimmed === '/clear' || trimmed === '/compact') {
+  if (trimmed === '/clear' || trimmed === '/compact' || trimmed === '/context') {
     if (trimmed === '/clear') {
       await get().clearContext(conversationId)
-    } else {
+    } else if (trimmed === '/compact') {
       await get().compactContext(conversationId)
+    } else {
+      get().showContextInfo(conversationId)
     }
     // Continue draining: these don't trigger streamOperation, so drain manually
     const next = popQueue(get, conversationId)
@@ -252,6 +271,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   queuePaused: {},
   queueEditLocked: {},
   taskNotifications: {},
+  contextDisplay: null,
 
   loadMessages: async (conversationId: number) => {
     set((s) => ({ isLoading: true, error: s.error ?? null }))
@@ -377,7 +397,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeConversationId: id,
       isStreaming: isActiveStreaming,
       // Clear stale data when switching conversations to prevent showing wrong conv's data
-      ...(id !== prevId ? { messages: [], clearedAt: null, compactSummary: null } : {}),
+      ...(id !== prevId ? { messages: [], clearedAt: null, compactSummary: null, contextDisplay: null } : {}),
       ...syncViewFromBuffer(id),
     })
   },
@@ -385,7 +405,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   clearChat: () => {
     streamBuffersMap.clear()
     streamTextMap.clear()
-    set({ messages: [], clearedAt: null, compactSummary: null, isCompacting: false, streamParts: [], streamingContent: '', isStreaming: false, error: null, activeConversationId: null })
+    set({ messages: [], clearedAt: null, compactSummary: null, isCompacting: false, streamParts: [], streamingContent: '', isStreaming: false, error: null, activeConversationId: null, contextDisplay: null })
   },
 
   clearContext: async (conversationId: number) => {
@@ -404,6 +424,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ error: msg, isCompacting: false })
     }
   },
+
+  showContextInfo: (conversationId: number) => {
+    const conv = useConversationsStore.getState().conversations.find((c) => c.id === conversationId)
+    const input = conv?.last_input_tokens ?? 0
+    const output = conv?.last_output_tokens ?? 0
+    const cacheRead = conv?.last_cache_read_tokens ?? 0
+    const cacheCreation = conv?.last_cache_creation_tokens ?? 0
+    const used = computeUsedTokens({ input, cacheRead, cacheCreation })
+    // Take the max of what the SDK observed and what our static table knows:
+    // the SDK's modelUsage table lags Anthropic's model roster and defaults to
+    // 200k for unknown models (e.g. opus-4-7 in SDK 0.2.37/0.2.114).
+    const window_ = getEffectiveContextWindow(conv?.model ?? null, conv?.last_context_window ?? null)
+    set({
+      contextDisplay: {
+        used,
+        window: window_,
+        input,
+        output,
+        cacheRead,
+        cacheCreation,
+        updatedAt: conv?.last_usage_updated_at ?? null,
+        shownAt: Date.now(),
+      },
+    })
+    // Auto-dismiss after 20 seconds, but only if the same bubble is still visible
+    const shownAt = Date.now()
+    setTimeout(() => {
+      if (useChatStore.getState().contextDisplay?.shownAt === shownAt) {
+        useChatStore.setState({ contextDisplay: null })
+      }
+    }, 20_000)
+  },
+
+  dismissContextInfo: () => set({ contextDisplay: null }),
 
   addToQueue: (conversationId, content, attachments?) => {
     set((s) => {

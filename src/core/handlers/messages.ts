@@ -521,6 +521,37 @@ function clearConversationSdkSessionId(db: SqlJsAdapter, conversationId: number)
   (db as any).prepare('UPDATE conversations SET sdk_session_id = NULL WHERE id = ?').run(conversationId)
 }
 
+function saveConversationUsage(
+  db: SqlJsAdapter,
+  conversationId: number,
+  usage: {
+    input_tokens?: number
+    output_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+    context_window?: number
+  }
+): void {
+  (db as any).prepare(
+    `UPDATE conversations SET
+       last_input_tokens = ?,
+       last_output_tokens = ?,
+       last_cache_read_tokens = ?,
+       last_cache_creation_tokens = ?,
+       last_context_window = ?,
+       last_usage_updated_at = ?
+     WHERE id = ?`
+  ).run(
+    usage.input_tokens ?? null,
+    usage.output_tokens ?? null,
+    usage.cache_read_input_tokens ?? null,
+    usage.cache_creation_input_tokens ?? null,
+    usage.context_window ?? null,
+    new Date().toISOString(),
+    conversationId
+  )
+}
+
 function updateConversationTimestamp(db: SqlJsAdapter, conversationId: number): void {
   (db as any).prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(
     new Date().toISOString(),
@@ -607,6 +638,21 @@ async function streamAndSave(
       )
       const { content: responseContent, toolCalls, aborted, sessionId: newSessionId, error } = result
       const stopReason = (result as any).stopReason as string | undefined
+      const usage = (result as any).usage as {
+        input_tokens?: number
+        output_tokens?: number
+        cache_read_input_tokens?: number
+        cache_creation_input_tokens?: number
+        context_window?: number
+      } | undefined
+
+      // Persist token usage so the /context command and status-line indicator have live data.
+      if (usage) {
+        try {
+          saveConversationUsage(db, conversationId, usage)
+          notifyConversationUpdated(conversationId)
+        } catch (e) { console.warn('[messages] saveConversationUsage:', e) }
+      }
 
       if (aborted) return null
 

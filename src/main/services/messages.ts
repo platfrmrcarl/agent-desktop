@@ -500,6 +500,37 @@ function clearConversationSdkSessionId(db: Database.Database, conversationId: nu
   db.prepare('UPDATE conversations SET sdk_session_id = NULL WHERE id = ?').run(conversationId)
 }
 
+export function saveConversationUsage(
+  db: Database.Database,
+  conversationId: number,
+  usage: {
+    input_tokens?: number
+    output_tokens?: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+    context_window?: number
+  }
+): void {
+  db.prepare(
+    `UPDATE conversations SET
+       last_input_tokens = ?,
+       last_output_tokens = ?,
+       last_cache_read_tokens = ?,
+       last_cache_creation_tokens = ?,
+       last_context_window = ?,
+       last_usage_updated_at = ?
+     WHERE id = ?`
+  ).run(
+    usage.input_tokens ?? null,
+    usage.output_tokens ?? null,
+    usage.cache_read_input_tokens ?? null,
+    usage.cache_creation_input_tokens ?? null,
+    usage.context_window ?? null,
+    new Date().toISOString(),
+    conversationId
+  )
+}
+
 function updateConversationTimestamp(db: Database.Database, conversationId: number): void {
   db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(
     new Date().toISOString(),
@@ -575,9 +606,18 @@ async function streamAndSave(
       : buildMessageHistory(db, conversationId)
 
     try {
-      const { content: responseContent, toolCalls, aborted, sessionId: newSessionId, error, stopReason } = await streamMessage(
+      const { content: responseContent, toolCalls, aborted, sessionId: newSessionId, error, stopReason, usage } = await streamMessage(
         attemptMessages, systemPrompt, aiSettings, conversationId, attemptSessionId
       )
+
+      // Persist token usage on every turn that reports it (success, error-with-content, even abort) —
+      // the /contexte command and status-line indicator read from these columns.
+      if (usage) {
+        try {
+          saveConversationUsage(db, conversationId, usage)
+          notifyConversationUpdated(conversationId)
+        } catch (e) { console.warn('[messages] saveConversationUsage:', e) }
+      }
 
       if (aborted) return null
 
