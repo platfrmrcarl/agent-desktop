@@ -51,16 +51,18 @@ describe('buildContextBreakdown', () => {
     })
     expect(result.preFirstTurn).toBe(true)
     expect(result.totalIsExact).toBe(false)
-    // Tools & SDK overhead is unknown before the first turn
-    const overhead = result.categories.find((c) => c.label === 'Tools & SDK overhead')
-    expect(overhead?.tokens).toBeNull()
+    // Total is now content-based: just the system prompt tokens here (no msgs, no skills)
+    expect(result.total).toBeGreaterThan(0)
+    expect(result.total).toBeLessThan(20)
     // Opus 4.7 is 1M natively per static table
     expect(result.window).toBe(1_000_000)
     // Autocompact buffer is ~3% of window
     expect(result.autocompactBuffer).toBe(30_000)
   })
 
-  it('uses the SDK-reported total once a turn has completed', async () => {
+  it('headline total is content-based, not SDK cache-inclusive', async () => {
+    // SDK reports 70k of total (input + cache_read + cache_create) but we only
+    // show what we can tokenize from DB content.
     const id = await seedConversation(db, {
       last_input_tokens: 10,
       last_cache_read_tokens: 50_000,
@@ -74,11 +76,8 @@ describe('buildContextBreakdown', () => {
       mode: 'local',
     })
     expect(result.preFirstTurn).toBe(false)
-    expect(result.total).toBe(70_010) // 10 + 50k + 20k
-    // Overhead is derived: SDK total minus what we counted locally
-    const overhead = result.categories.find((c) => c.label === 'Tools & SDK overhead')
-    expect(overhead?.tokens).not.toBeNull()
-    expect(overhead!.tokens!).toBeGreaterThan(60_000)
+    // Total is content-only ≈ system prompt tokens (few), NOT the 70k SDK reports
+    expect(result.total).toBeLessThan(100)
   })
 
   it('respects totalOverride when mode is anthropic', async () => {
@@ -137,9 +136,6 @@ describe('buildContextBreakdown', () => {
     const toolCat = result.categories.find((c) => c.label === 'Tool exchanges')
     expect(toolCat).toBeDefined()
     expect(toolCat!.tokens).toBeGreaterThan(100) // the ls output alone is ~1.5k tokens
-    // Flagged as informational — SDK may manage/strip tool results so we don't
-    // subtract from the overhead bucket.
-    expect(toolCat!.informational).toBe(true)
   })
 
   it('does not add the "Tool exchanges" category when no tool_calls are present', async () => {
@@ -284,11 +280,11 @@ describe('buildContextBreakdown', () => {
     }
   })
 
-  it('splits out a "Tool result cache" category when last turn used tools and cache_creation spiked', async () => {
+  it('keeps the total content-based even when SDK reports a big cache spike', async () => {
     const id = await seedConversation(db, {
       last_input_tokens: 10,
-      last_cache_read_tokens: 55_000,   // stable baseline cached
-      last_cache_creation_tokens: 80_000, // this turn cached 80k (tool output)
+      last_cache_read_tokens: 55_000,
+      last_cache_creation_tokens: 80_000, // SDK cached 80k this turn
     })
     db.prepare(
       "INSERT INTO messages (conversation_id, role, content, tool_calls) VALUES (?, 'user', 'get aapl price', NULL), (?, 'assistant', 'Here is the price.', ?)"
@@ -300,16 +296,13 @@ describe('buildContextBreakdown', () => {
       systemPrompt: 'sp',
       mode: 'local',
     })
-    const transient = result.categories.find((c) => c.label === 'Tool result cache')
-    expect(transient).toBeDefined()
-    expect(transient!.tokens).toBe(80_000)
-    // The stable 'Tools & SDK overhead' bucket = (sdk_total - counted) - transient.
-    // sdk_total(145010) - counted(~30) - transient(80k) ≈ 65k. Being defensive
-    // against minor tokenizer drift, just verify it was reduced by ~transient.
-    const stable = result.categories.find((c) => c.label === 'Tools & SDK overhead')
-    expect(stable!.tokens).toBeLessThan(70_000)  // well under 145k raw overhead
-    // Tip explicitly warns the user this will drop
-    expect(result.tip).toMatch(/strip.*tool_result/i)
+    // Total reflects ONLY locally-tokenized content (messages + tool_calls +
+    // system prompt) — never the 145k SDK-reported cache usage.
+    expect(result.total).toBeLessThan(200)
+    // We should NOT surface a 'Tool result cache' or 'Tools & SDK overhead'
+    // category in content-based mode.
+    expect(result.categories.find((c) => c.label === 'Tool result cache')).toBeUndefined()
+    expect(result.categories.find((c) => c.label === 'Tools & SDK overhead')).toBeUndefined()
   })
 
   it('does not add the "Skills" category when skillsMode is off', async () => {
