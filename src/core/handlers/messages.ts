@@ -952,6 +952,8 @@ export function registerMessagesHandlers(
       conversationId: validConvId,
       systemPrompt,
       mode: effectiveMode,
+      skillsMode: aiSettings.skillsEnabled === false ? 'off' : (aiSettings.skills ?? 'off'),
+      cwd,
     })
   })
 

@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { buildContextBreakdown } from './contextBreakdown'
 import { createTestDb } from '../../main/__tests__/db-helper'
 import { createTables } from '../db/schema'
+import { mkdtemp, writeFile, mkdir, rm } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 async function seedConversation(db: Awaited<ReturnType<typeof createTestDb>>, overrides: Record<string, unknown> = {}) {
   const cols = {
@@ -40,7 +43,7 @@ describe('buildContextBreakdown', () => {
 
   it('returns a pre-first-turn breakdown when no SDK usage has been persisted yet', async () => {
     const id = await seedConversation(db)
-    const result = buildContextBreakdown({
+    const result = await buildContextBreakdown({
       db: db as never,
       conversationId: id,
       systemPrompt: 'You are a helpful assistant.',
@@ -64,7 +67,7 @@ describe('buildContextBreakdown', () => {
       last_cache_creation_tokens: 20_000,
       last_context_window: 1_000_000,
     })
-    const result = buildContextBreakdown({
+    const result = await buildContextBreakdown({
       db: db as never,
       conversationId: id,
       systemPrompt: 'System prompt content.',
@@ -84,7 +87,7 @@ describe('buildContextBreakdown', () => {
       last_cache_read_tokens: 50_000,
       last_cache_creation_tokens: 20_000,
     })
-    const result = buildContextBreakdown({
+    const result = await buildContextBreakdown({
       db: db as never,
       conversationId: id,
       systemPrompt: 'sp',
@@ -96,8 +99,8 @@ describe('buildContextBreakdown', () => {
     expect(result.mode).toBe('anthropic')
   })
 
-  it('falls back to an empty breakdown for a missing conversation', () => {
-    const result = buildContextBreakdown({
+  it('falls back to an empty breakdown for a missing conversation', async () => {
+    const result = await buildContextBreakdown({
       db: db as never,
       conversationId: 999_999,
       systemPrompt: '',
@@ -125,7 +128,7 @@ describe('buildContextBreakdown', () => {
       "INSERT INTO messages (conversation_id, role, content, tool_calls) VALUES (?, 'assistant', 'I ran the command.', ?)"
     ).run(id, toolCallsJson)
 
-    const result = buildContextBreakdown({
+    const result = await buildContextBreakdown({
       db: db as never,
       conversationId: id,
       systemPrompt: 'sp',
@@ -145,13 +148,72 @@ describe('buildContextBreakdown', () => {
     db.prepare(
       "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', 'hello')"
     ).run(id)
-    const result = buildContextBreakdown({
+    const result = await buildContextBreakdown({
       db: db as never,
       conversationId: id,
       systemPrompt: 'sp',
       mode: 'local',
     })
     expect(result.categories.find((c) => c.label === 'Tool exchanges')).toBeUndefined()
+  })
+
+  it('adds a "Skills" category when ai_skills is enabled and the scope has SKILL.md files', async () => {
+    // Simulate a project-scoped skills directory with 3 skills
+    const origHome = process.env.HOME
+    const tmpHome = await mkdtemp(join(tmpdir(), 'ctx-skills-test-'))
+    const tmpProject = await mkdtemp(join(tmpdir(), 'ctx-skills-project-'))
+    process.env.HOME = tmpHome
+    try {
+      await mkdir(join(tmpHome, '.claude/skills/alpha'), { recursive: true })
+      await writeFile(
+        join(tmpHome, '.claude/skills/alpha/SKILL.md'),
+        '---\nname: alpha\ndescription: Alpha skill that does thing A with a fairly verbose description\n---\nbody here'
+      )
+      await mkdir(join(tmpProject, '.claude/skills/beta'), { recursive: true })
+      await writeFile(
+        join(tmpProject, '.claude/skills/beta/SKILL.md'),
+        '---\nname: beta\ndescription: Beta skill doing stuff\n---\nbody'
+      )
+
+      const id = await seedConversation(db, {
+        last_input_tokens: 10,
+        last_cache_read_tokens: 0,
+        last_cache_creation_tokens: 0,
+      })
+      const result = await buildContextBreakdown({
+        db: db as never,
+        conversationId: id,
+        systemPrompt: 'sp',
+        mode: 'local',
+        skillsMode: 'project',
+        cwd: tmpProject,
+      })
+      const skills = result.categories.find((c) => c.label === 'Skills')
+      expect(skills).toBeDefined()
+      expect(skills!.tokens).toBeGreaterThan(0)
+      expect(skills!.hint).toContain('2 SKILL.md') // both alpha + beta discovered
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome
+      else delete process.env.HOME
+      await rm(tmpHome, { recursive: true, force: true })
+      await rm(tmpProject, { recursive: true, force: true })
+    }
+  })
+
+  it('does not add the "Skills" category when skillsMode is off', async () => {
+    const id = await seedConversation(db, {
+      last_input_tokens: 10,
+      last_cache_read_tokens: 0,
+      last_cache_creation_tokens: 0,
+    })
+    const result = await buildContextBreakdown({
+      db: db as never,
+      conversationId: id,
+      systemPrompt: 'sp',
+      mode: 'local',
+      skillsMode: 'off',
+    })
+    expect(result.categories.find((c) => c.label === 'Skills')).toBeUndefined()
   })
 
   it('includes a compact summary category when one is present', async () => {
@@ -161,7 +223,7 @@ describe('buildContextBreakdown', () => {
       last_cache_read_tokens: 0,
       last_cache_creation_tokens: 0,
     })
-    const result = buildContextBreakdown({
+    const result = await buildContextBreakdown({
       db: db as never,
       conversationId: id,
       systemPrompt: 'sp',

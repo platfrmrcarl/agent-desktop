@@ -17,6 +17,9 @@
  *     `totalOverride`).
  */
 
+import { promises as fsp } from 'fs'
+import { join } from 'path'
+import { homedir } from 'os'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import { localTokenizer } from '../../shared/tokenCounter'
 import { getEffectiveContextWindow } from '../../shared/contextWindow'
@@ -109,12 +112,74 @@ export interface BuildBreakdownInput {
   mode: TokenCounterMode
   /** When mode is 'anthropic', caller passes the authoritative total here. */
   totalOverride?: number | null
+  /** Effective skills discovery mode (from ai_skills cascade). Controls which scopes to scan. */
+  skillsMode?: 'off' | 'user' | 'project' | 'local'
+  /** Project CWD — needed to resolve project/local skill scopes. */
+  cwd?: string
+}
+
+/**
+ * Count tokens bundled into the system prompt as SKILL.md frontmatters, by scanning
+ * the same scopes the Claude Agent SDK would via `settingSources`.
+ *
+ * The SDK reads `.claude/skills/*\/SKILL.md` and `.claude/plugins/*\/skills/*\/SKILL.md`
+ * under each enabled scope and bundles the frontmatter block (name + description + more)
+ * of every skill into the initial system prompt so the model can decide which to invoke.
+ *
+ * With many plugins installed (1000+ skills seen in the wild), this can silently add
+ * ~100k tokens to the context on every turn. We count it so the user sees it.
+ */
+async function countSkillsFrontmatters(scopes: string[]): Promise<{ tokens: number; count: number }> {
+  let tokens = 0
+  let count = 0
+  const seen = new Set<string>()
+
+  async function walk(dir: string): Promise<void> {
+    let entries: import('fs').Dirent[]
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true })
+    } catch { return }
+    for (const e of entries) {
+      const full = join(dir, e.name)
+      if (e.isDirectory()) {
+        await walk(full)
+      } else if (e.name === 'SKILL.md' && !seen.has(full)) {
+        seen.add(full)
+        try {
+          const content = await fsp.readFile(full, 'utf-8')
+          const m = content.match(/^---\s*\n([\s\S]*?)\n---/)
+          if (m) {
+            tokens += localTokenizer.count(m[1])
+            count++
+          }
+        } catch { /* unreadable — skip */ }
+      }
+    }
+  }
+
+  for (const scope of scopes) {
+    await walk(join(scope, 'skills'))
+    await walk(join(scope, 'plugins'))
+  }
+  return { tokens, count }
+}
+
+function scopesForSkillsMode(mode: 'off' | 'user' | 'project' | 'local', cwd?: string): string[] {
+  if (mode === 'off') return []
+  const scopes = [join(homedir(), '.claude')]
+  if (mode === 'project' || mode === 'local') {
+    if (cwd) scopes.push(join(cwd, '.claude'))
+  }
+  if (mode === 'local') {
+    if (cwd) scopes.push(join(cwd, '.claude.local'))
+  }
+  return scopes
 }
 
 const AUTOCOMPACT_BUFFER_RATIO = 0.03 // 3% — matches Claude Code's reserve
 
-export function buildContextBreakdown(input: BuildBreakdownInput): ContextBreakdown {
-  const { db, conversationId, systemPrompt, mode, totalOverride } = input
+export async function buildContextBreakdown(input: BuildBreakdownInput): Promise<ContextBreakdown> {
+  const { db, conversationId, systemPrompt, mode, totalOverride, skillsMode = 'off', cwd } = input
 
   const conv = readConversation(db, conversationId)
   if (!conv) {
@@ -144,7 +209,13 @@ export function buildContextBreakdown(input: BuildBreakdownInput): ContextBreakd
     return sum + localTokenizer.count(r.tool_calls)
   }, 0)
 
-  const localCounted = systemPromptTokens + compactSummaryTokens + messagesTokens + toolExchangesTokens
+  // --- Skills: frontmatter of every SKILL.md in the enabled scopes ---
+  const skillScopes = scopesForSkillsMode(skillsMode, cwd)
+  const skills = skillScopes.length > 0
+    ? await countSkillsFrontmatters(skillScopes)
+    : { tokens: 0, count: 0 }
+
+  const localCounted = systemPromptTokens + compactSummaryTokens + messagesTokens + toolExchangesTokens + skills.tokens
 
   // --- Derive the "Tools & SDK overhead" bucket from the last SDK turn ---
   const preFirstTurn = conv.last_input_tokens == null
@@ -187,6 +258,13 @@ export function buildContextBreakdown(input: BuildBreakdownInput): ContextBreakd
       label: 'Tool exchanges',
       tokens: toolExchangesTokens,
       hint: `tool_use + tool_result across ${toolCount} turn${toolCount > 1 ? 's' : ''}`,
+    })
+  }
+  if (skills.count > 0) {
+    categories.push({
+      label: 'Skills',
+      tokens: skills.tokens,
+      hint: `${skills.count} SKILL.md frontmatters bundled (ai_skills: ${skillsMode})`,
     })
   }
 
