@@ -299,10 +299,11 @@ describe('buildContextBreakdown', () => {
     // Total reflects ONLY locally-tokenized content (messages + tool_calls +
     // system prompt) — never the 145k SDK-reported cache usage.
     expect(result.total).toBeLessThan(200)
-    // We should NOT surface a 'Tool result cache' or 'Tools & SDK overhead'
-    // category in content-based mode.
-    expect(result.categories.find((c) => c.label === 'Tool result cache')).toBeUndefined()
-    expect(result.categories.find((c) => c.label === 'Tools & SDK overhead')).toBeUndefined()
+    // The SDK-derived 'Framework & MCP tools' line is informational only.
+    const fw = result.categories.find((c) => c.label === 'Framework & MCP tools')
+    expect(fw).toBeDefined()
+    expect(fw!.informational).toBe(true)
+    expect(fw!.tokens).toBeGreaterThan(100_000) // ~sdk_total(145k) - content ≈ 135k
   })
 
   it('does not add the "Skills" category when skillsMode is off', async () => {

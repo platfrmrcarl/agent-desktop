@@ -323,6 +323,22 @@ export async function buildContextBreakdown(input: BuildBreakdownInput): Promise
     })
   }
 
+  // Informational: how much the SDK reports on top of what we can tokenize
+  // (MCP tool specs, built-in tools, SDK internal system prompt, etc.).
+  // NOT included in the total — this is what the user can't directly control
+  // via messages, only via disabling MCP servers or changing skills mode.
+  if (!preFirstTurn) {
+    const sdkDerived = Math.max(0, sdkReportedTotal - localCounted)
+    if (sdkDerived > 0) {
+      categories.push({
+        label: 'Framework & MCP tools',
+        tokens: sdkDerived,
+        hint: `SDK-reported overhead (MCP specs + framework) — disable unused MCPs to shrink`,
+        informational: true,
+      })
+    }
+  }
+
   // --- Total ---
   // Policy: the headline reflects CONTENT we can tokenize locally, not the
   // SDK's cache-inclusive cost. Rationale:
