@@ -137,6 +137,9 @@ describe('buildContextBreakdown', () => {
     const toolCat = result.categories.find((c) => c.label === 'Tool exchanges')
     expect(toolCat).toBeDefined()
     expect(toolCat!.tokens).toBeGreaterThan(100) // the ls output alone is ~1.5k tokens
+    // Flagged as informational — SDK may manage/strip tool results so we don't
+    // subtract from the overhead bucket.
+    expect(toolCat!.informational).toBe(true)
   })
 
   it('does not add the "Tool exchanges" category when no tool_calls are present', async () => {
@@ -279,6 +282,34 @@ describe('buildContextBreakdown', () => {
       else delete process.env.HOME
       await rm(tmpHome, { recursive: true, force: true })
     }
+  })
+
+  it('splits out a "Tool result cache" category when last turn used tools and cache_creation spiked', async () => {
+    const id = await seedConversation(db, {
+      last_input_tokens: 10,
+      last_cache_read_tokens: 55_000,   // stable baseline cached
+      last_cache_creation_tokens: 80_000, // this turn cached 80k (tool output)
+    })
+    db.prepare(
+      "INSERT INTO messages (conversation_id, role, content, tool_calls) VALUES (?, 'user', 'get aapl price', NULL), (?, 'assistant', 'Here is the price.', ?)"
+    ).run(id, id, JSON.stringify([{ id: 't1', name: 'Bash', input: '{}', output: 'tiny captured slice', status: 'done' }]))
+
+    const result = await buildContextBreakdown({
+      db: db as never,
+      conversationId: id,
+      systemPrompt: 'sp',
+      mode: 'local',
+    })
+    const transient = result.categories.find((c) => c.label === 'Tool result cache')
+    expect(transient).toBeDefined()
+    expect(transient!.tokens).toBe(80_000)
+    // The stable 'Tools & SDK overhead' bucket = (sdk_total - counted) - transient.
+    // sdk_total(145010) - counted(~30) - transient(80k) ≈ 65k. Being defensive
+    // against minor tokenizer drift, just verify it was reduced by ~transient.
+    const stable = result.categories.find((c) => c.label === 'Tools & SDK overhead')
+    expect(stable!.tokens).toBeLessThan(70_000)  // well under 145k raw overhead
+    // Tip explicitly warns the user this will drop
+    expect(result.tip).toMatch(/strip.*tool_result/i)
   })
 
   it('does not add the "Skills" category when skillsMode is off', async () => {

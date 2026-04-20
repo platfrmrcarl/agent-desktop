@@ -61,11 +61,12 @@ function ContextInfoBubble({ display, onDismiss }: { display: ContextDisplay; on
           <div className="flex flex-col gap-0.5 mb-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
             <div className="uppercase tracking-wide text-[0.6rem] opacity-70 mb-0.5">Estimated usage by category</div>
             {categories.map((cat, i) => {
-              const catPct = ctxWindow > 0 && cat.tokens != null ? ((cat.tokens / ctxWindow) * 100) : null
+              const catPct = ctxWindow > 0 && cat.tokens != null && !cat.informational ? ((cat.tokens / ctxWindow) * 100) : null
+              const isInfo = !!cat.informational
               return (
-                <div key={i} className="flex justify-between gap-3">
+                <div key={i} className="flex justify-between gap-3" style={isInfo ? { opacity: 0.6, fontStyle: 'italic' } : undefined}>
                   <span className="flex items-center gap-1">
-                    <span style={{ color: 'var(--color-accent)' }}>▪</span>
+                    <span style={{ color: isInfo ? 'var(--color-text-muted)' : 'var(--color-accent)' }}>{isInfo ? '◦' : '▪'}</span>
                     <span style={{ color: 'var(--color-text)' }}>{cat.label}</span>
                     {cat.hint && <span className="text-[0.6rem] opacity-60">({cat.hint})</span>}
                   </span>

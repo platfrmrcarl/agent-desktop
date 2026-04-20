@@ -481,6 +481,48 @@ async function consumeStream(session: ActiveSession): Promise<void> {
             session.lastActivity = Date.now()
           }
         }
+      } else if (msg.type === 'user') {
+        // Tool results arrive as synthetic user messages between tool_use and the
+        // next assistant chunk. The SDK delivers them as:
+        //   { type: 'user', message: { role: 'user', content: [{type: 'tool_result', tool_use_id, content}, ...] } }
+        // Without capturing `content` here, our DB's tool_calls column only ever
+        // records tool INPUTS — outputs stay empty, which makes the /context
+        // breakdown miss 10–100k of real context per tool-heavy turn and
+        // inflates the derived "Tools & SDK overhead" bucket proportionally.
+        const userMsg = msg as { type: 'user'; message?: { content?: unknown }; tool_use_result?: unknown }
+        const blocks = Array.isArray(userMsg.message?.content) ? userMsg.message!.content as Array<Record<string, unknown>> : []
+        for (const block of blocks) {
+          if (block?.type !== 'tool_result') continue
+          const toolUseId = block.tool_use_id as string | undefined
+          if (!toolUseId) continue
+          // content can be a string, an array of blocks, or missing — normalise to string
+          let outputText = ''
+          const c = block.content
+          if (typeof c === 'string') outputText = c
+          else if (Array.isArray(c)) {
+            outputText = c.map((part) => {
+              if (typeof part === 'string') return part
+              if (part && typeof part === 'object' && 'text' in part && typeof (part as { text?: unknown }).text === 'string') {
+                return (part as { text: string }).text
+              }
+              return JSON.stringify(part)
+            }).join('\n')
+          }
+          const existing = turn.toolCallsMap.get(toolUseId)
+          if (existing) {
+            // Preserve anything already set, only fill output (cap 50k to match prior convention).
+            turn.toolCallsMap.set(toolUseId, { ...existing, output: outputText.slice(0, 50_000) })
+          } else {
+            // Tool result arriving for an id we never saw a tool_use for — unusual; record for completeness.
+            turn.toolCallsMap.set(toolUseId, {
+              id: toolUseId,
+              name: 'tool',
+              input: '{}',
+              output: outputText.slice(0, 50_000),
+              status: 'done',
+            })
+          }
+        }
       } else if (msg.type === 'system') {
         const sysMsg = msg as SystemMsg
         if (sysMsg.subtype === 'init' && sysMsg.mcp_servers) {

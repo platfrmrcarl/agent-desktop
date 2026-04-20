@@ -34,6 +34,9 @@ export interface ContextCategory {
   tokens: number | null
   /** Purely informational hint shown in a small muted font. */
   hint?: string
+  /** When true: show the size for info but don't include in the usage total — the
+   *  SDK may strip or compact this content out of the live context window. */
+  informational?: boolean
 }
 
 export interface ContextBreakdown {
@@ -260,10 +263,13 @@ export async function buildContextBreakdown(input: BuildBreakdownInput): Promise
 
   const rows = fetchMessages(db, conversationId, conv.cleared_at)
   const messagesTokens = rows.reduce((sum, r) => sum + localTokenizer.count(r.content), 0)
-  // Tool calls (arguments + outputs) live in a separate column; they represent the
-  // tool_use / tool_result blocks that travel in the request alongside plain text.
-  // Count them as their own category so the user sees how much of their context a
-  // chatty bash or large Read call has eaten.
+  // Tool exchanges are INFORMATIONAL only — we tokenize the tool_calls column to
+  // give the user a sense of how much tool I/O has passed through the conversation,
+  // but we do NOT add this to `localCounted` (the subtraction basis for overhead).
+  // Rationale: the Claude Agent SDK does server-side context management on tool
+  // results (they may be stripped or compacted after a few turns), so we can't
+  // assume every byte of tool_calls is still in the active context. Attributing
+  // them falsely would under-count the derived 'Tools & SDK overhead' bucket.
   const toolExchangesTokens = rows.reduce((sum, r) => {
     if (!r.tool_calls) return sum
     return sum + localTokenizer.count(r.tool_calls)
@@ -275,7 +281,8 @@ export async function buildContextBreakdown(input: BuildBreakdownInput): Promise
     ? await countSkillsFrontmatters(skillScopes)
     : { tokens: 0, count: 0 }
 
-  const localCounted = systemPromptTokens + compactSummaryTokens + messagesTokens + toolExchangesTokens + skills.tokens
+  // NOTE: toolExchangesTokens intentionally NOT included — see comment above.
+  const localCounted = systemPromptTokens + compactSummaryTokens + messagesTokens + skills.tokens
 
   // --- Derive the "Tools & SDK overhead" bucket from the last SDK turn ---
   const preFirstTurn = conv.last_input_tokens == null
@@ -290,16 +297,38 @@ export async function buildContextBreakdown(input: BuildBreakdownInput): Promise
   // If SDK says less than we counted (rare, possible with multi-turn drift) clamp to 0.
   const overheadFromSdk = preFirstTurn ? null : Math.max(0, sdkReportedTotal - localCounted)
 
+  // Detect tool-turn cache bloat: when the last assistant turn used tools, the
+  // SDK likely cached the tool_result payloads this turn (visible as a large
+  // last_cache_creation_tokens). Those bytes typically get stripped on the next
+  // non-tool turn. Split them off so the 'Tools & SDK overhead' bucket reflects
+  // the STABLE baseline rather than the pulsed tool-turn pic.
+  const hadToolCallsLastTurn = rows.length > 0
+    && rows[rows.length - 1]?.tool_calls != null
+    && rows[rows.length - 1]?.role === 'assistant'
+  const transientToolCache = (!preFirstTurn && hadToolCallsLastTurn && (conv.last_cache_creation_tokens ?? 0) > 30_000)
+    ? (conv.last_cache_creation_tokens ?? 0)
+    : 0
+  const stableOverhead = overheadFromSdk != null ? Math.max(0, overheadFromSdk - transientToolCache) : null
+
   // --- Build category list (Claude Code ordering: system first, tools, memory, skills, messages, summary) ---
   const categories: ContextCategory[] = []
   categories.push({ label: 'System prompt', tokens: systemPromptTokens })
   categories.push({
     label: 'Tools & SDK overhead',
-    tokens: overheadFromSdk,
+    tokens: stableOverhead,
     hint: preFirstTurn
       ? 'measured after the first turn'
-      : 'MCP tool specs + internal framework overhead',
+      : transientToolCache > 0
+        ? 'MCP tool specs + framework (transient tool cache split out below)'
+        : 'MCP tool specs + internal framework overhead',
   })
+  if (transientToolCache > 0) {
+    categories.push({
+      label: 'Tool result cache',
+      tokens: transientToolCache,
+      hint: `just cached this turn — typically stripped on your next non-tool message`,
+    })
+  }
   if (compactSummaryTokens > 0) {
     categories.push({
       label: 'Compact summary',
@@ -317,7 +346,8 @@ export async function buildContextBreakdown(input: BuildBreakdownInput): Promise
     categories.push({
       label: 'Tool exchanges',
       tokens: toolExchangesTokens,
-      hint: `tool_use + tool_result across ${toolCount} turn${toolCount > 1 ? 's' : ''}`,
+      hint: `tool_use + tool_result across ${toolCount} turn${toolCount > 1 ? 's' : ''} — informational, not counted (SDK-managed)`,
+      informational: true,
     })
   }
   if (skills.count > 0) {
@@ -347,8 +377,15 @@ export async function buildContextBreakdown(input: BuildBreakdownInput): Promise
   const percentUsed = window > 0 ? Math.min(100, Math.round((total / window) * 100)) : 0
 
   // Actionable tip — surface the most impactful thing the user can change.
-  // Priority: skills bloat (biggest wins, easiest fix) > tool exchanges > generic.
-  const tip = buildTip({ skills, skillsMode, toolExchangesTokens, percentUsed })
+  // Priority: transient tool-turn overhead > skills bloat > generic.
+  const tip = buildTip({
+    skills,
+    skillsMode,
+    toolExchangesTokens,
+    percentUsed,
+    cacheCreation: conv.last_cache_creation_tokens ?? 0,
+    hadToolCallsLastTurn: rows.length > 0 && rows[rows.length - 1]?.tool_calls != null && rows[rows.length - 1]?.role === 'assistant',
+  })
 
   return {
     total,
@@ -371,8 +408,19 @@ function buildTip(args: {
   skillsMode: 'off' | 'user' | 'project' | 'local'
   toolExchangesTokens: number
   percentUsed: number
+  cacheCreation: number
+  hadToolCallsLastTurn: boolean
 }): string | undefined {
-  const { skills, skillsMode, toolExchangesTokens, percentUsed } = args
+  const { skills, skillsMode, toolExchangesTokens, percentUsed, cacheCreation, hadToolCallsLastTurn } = args
+
+  // Top priority: explain the big jump on tool-use turns so the user's mental
+  // model matches reality. Claude Code's SDK caches tool results this turn and
+  // typically strips them on the next non-tool turn, causing overhead to drop
+  // back toward baseline. Without this hint, the user sees "+120 k out of
+  // nowhere" and assumes a counting bug.
+  if (hadToolCallsLastTurn && cacheCreation >= 30_000) {
+    return `This turn cached ~${Math.round(cacheCreation / 1000)}k of tool output. The SDK usually strips tool_results on your next plain message, so expect overhead to drop back toward baseline (~55k) — run /context again after sending a non-tool message to verify.`
+  }
 
   if (skills.tokens >= SKILLS_TIP_THRESHOLD_TOKENS) {
     const kTokens = Math.round(skills.tokens / 1000)
