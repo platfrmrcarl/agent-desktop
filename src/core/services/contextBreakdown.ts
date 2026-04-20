@@ -85,8 +85,10 @@ function readSetting(db: SqlJsAdapter, key: string): string | null {
   return row?.value ?? null
 }
 
-function fetchMessages(db: SqlJsAdapter, conversationId: number, clearedAt: string | null): string[] {
-  let query = 'SELECT content FROM messages WHERE conversation_id = ?'
+interface MessageRow { content: string; tool_calls: string | null; role: 'user' | 'assistant' }
+
+function fetchMessages(db: SqlJsAdapter, conversationId: number, clearedAt: string | null): MessageRow[] {
+  let query = 'SELECT content, tool_calls, role FROM messages WHERE conversation_id = ?'
   const params: (number | string)[] = [conversationId]
   if (clearedAt) {
     query += ' AND created_at > ?'
@@ -94,8 +96,8 @@ function fetchMessages(db: SqlJsAdapter, conversationId: number, clearedAt: stri
   }
   query += ' ORDER BY created_at ASC'
   const rows = (db as unknown as { prepare: (q: string) => { all: (...p: unknown[]) => unknown[] } })
-    .prepare(query).all(...params) as { content: string }[]
-  return rows.map((r) => r.content)
+    .prepare(query).all(...params) as MessageRow[]
+  return rows
 }
 
 export interface BuildBreakdownInput {
@@ -131,10 +133,18 @@ export function buildContextBreakdown(input: BuildBreakdownInput): ContextBreakd
     compactSummaryTokens = localTokenizer.count(`[Previous conversation summary]\n${conv.compact_summary}`)
   }
 
-  const messageContents = fetchMessages(db, conversationId, conv.cleared_at)
-  const messagesTokens = messageContents.reduce((sum, c) => sum + localTokenizer.count(c), 0)
+  const rows = fetchMessages(db, conversationId, conv.cleared_at)
+  const messagesTokens = rows.reduce((sum, r) => sum + localTokenizer.count(r.content), 0)
+  // Tool calls (arguments + outputs) live in a separate column; they represent the
+  // tool_use / tool_result blocks that travel in the request alongside plain text.
+  // Count them as their own category so the user sees how much of their context a
+  // chatty bash or large Read call has eaten.
+  const toolExchangesTokens = rows.reduce((sum, r) => {
+    if (!r.tool_calls) return sum
+    return sum + localTokenizer.count(r.tool_calls)
+  }, 0)
 
-  const localCounted = systemPromptTokens + compactSummaryTokens + messagesTokens
+  const localCounted = systemPromptTokens + compactSummaryTokens + messagesTokens + toolExchangesTokens
 
   // --- Derive the "Tools & SDK overhead" bucket from the last SDK turn ---
   const preFirstTurn = conv.last_input_tokens == null
@@ -169,8 +179,16 @@ export function buildContextBreakdown(input: BuildBreakdownInput): ContextBreakd
   categories.push({
     label: 'Messages',
     tokens: messagesTokens,
-    hint: messageContents.length > 0 ? `${messageContents.length} turn${messageContents.length > 1 ? 's' : ''}` : undefined,
+    hint: rows.length > 0 ? `${rows.length} turn${rows.length > 1 ? 's' : ''}` : undefined,
   })
+  if (toolExchangesTokens > 0) {
+    const toolCount = rows.filter((r) => r.tool_calls).length
+    categories.push({
+      label: 'Tool exchanges',
+      tokens: toolExchangesTokens,
+      hint: `tool_use + tool_result across ${toolCount} turn${toolCount > 1 ? 's' : ''}`,
+    })
+  }
 
   // --- Total ---
   let total: number

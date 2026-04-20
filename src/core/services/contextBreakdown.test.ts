@@ -107,6 +107,53 @@ describe('buildContextBreakdown', () => {
     expect(result.categories).toEqual([])
   })
 
+  it('adds a "Tool exchanges" category when assistant messages have tool_calls payloads', async () => {
+    const id = await seedConversation(db, {
+      last_input_tokens: 10,
+      last_cache_read_tokens: 0,
+      last_cache_creation_tokens: 0,
+    })
+    // Seed an assistant message with a large tool_calls JSON payload
+    const toolCallsJson = JSON.stringify([{
+      id: 'toolu_1',
+      name: 'bash',
+      input: JSON.stringify({ command: 'ls -la' }),
+      output: 'drwxr-xr-x 5 user user 4096 Apr 20 23:00 .\n'.repeat(200),
+      status: 'done',
+    }])
+    db.prepare(
+      "INSERT INTO messages (conversation_id, role, content, tool_calls) VALUES (?, 'assistant', 'I ran the command.', ?)"
+    ).run(id, toolCallsJson)
+
+    const result = buildContextBreakdown({
+      db: db as never,
+      conversationId: id,
+      systemPrompt: 'sp',
+      mode: 'local',
+    })
+    const toolCat = result.categories.find((c) => c.label === 'Tool exchanges')
+    expect(toolCat).toBeDefined()
+    expect(toolCat!.tokens).toBeGreaterThan(100) // the ls output alone is ~1.5k tokens
+  })
+
+  it('does not add the "Tool exchanges" category when no tool_calls are present', async () => {
+    const id = await seedConversation(db, {
+      last_input_tokens: 10,
+      last_cache_read_tokens: 0,
+      last_cache_creation_tokens: 0,
+    })
+    db.prepare(
+      "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', 'hello')"
+    ).run(id)
+    const result = buildContextBreakdown({
+      db: db as never,
+      conversationId: id,
+      systemPrompt: 'sp',
+      mode: 'local',
+    })
+    expect(result.categories.find((c) => c.label === 'Tool exchanges')).toBeUndefined()
+  })
+
   it('includes a compact summary category when one is present', async () => {
     const id = await seedConversation(db, {
       compact_summary: 'Previous turns summarized here.',
