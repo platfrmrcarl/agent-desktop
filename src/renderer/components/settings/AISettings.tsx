@@ -52,6 +52,14 @@ export function AISettings() {
   const permissionMode = settings['ai_permissionMode'] ?? 'bypassPermissions'
   const requirePlanApproval = settings['ai_requirePlanApproval'] ?? 'true'
   const skills = settings['ai_skills'] ?? 'off'
+  const [skillsOverhead, setSkillsOverhead] = useState<Record<'off' | 'user' | 'project' | 'local', { tokens: number; count: number }> | null>(null)
+
+  useEffect(() => {
+    if (!isClaudeBackend) return
+    window.agent.context.getSkillsOverhead()
+      .then((r) => setSkillsOverhead(r as never))
+      .catch(() => setSkillsOverhead(null))
+  }, [isClaudeBackend])
   const sharedHooks = settings['settings_sharedAcrossBackends'] ?? 'true'
   const cwdRestriction = settings['hooks_cwdRestriction'] ?? 'true'
   const cwdWhitelistRaw = settings['hooks_cwdWhitelist'] ?? '[]'
@@ -640,31 +648,69 @@ export function AISettings() {
 
       {/* Setting Sources (Claude only) */}
       {isClaudeBackend && (
-        <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
-          <div className="flex flex-col gap-0.5 pr-4">
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              Setting Sources
-            </span>
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Load Claude Code configuration from filesystem (settings.json, CLAUDE.md, skills, commands, hooks).
-            </span>
+        <div className="flex flex-col gap-2 py-3 border-b border-[var(--color-text-muted)]/10">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-0.5 pr-4">
+              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                Setting Sources
+              </span>
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                Scopes the Claude Agent SDK scans for settings.json, CLAUDE.md, skills and commands. Larger scopes load more skill frontmatters into the system prompt.
+              </span>
+            </div>
+            <select
+              value={skills}
+              onChange={(e) => setSetting('ai_skills', e.target.value)}
+              className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none whitespace-nowrap mobile:text-base mobile:py-2"
+              style={{
+                backgroundColor: 'var(--color-bg)',
+                color: 'var(--color-text)',
+              }}
+              aria-label="Select setting sources"
+            >
+              {SETTING_SOURCES_OPTIONS.map((opt) => {
+                const o = skillsOverhead?.[opt.value as 'off' | 'user' | 'project' | 'local']
+                const suffix = o && o.tokens > 0
+                  ? ` — +${o.tokens >= 1000 ? `${Math.round(o.tokens / 1000)}k` : o.tokens} tokens (${o.count} skills)`
+                  : skillsOverhead
+                    ? ' — 0 tokens'
+                    : ''
+                return (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}{suffix}
+                  </option>
+                )
+              })}
+            </select>
           </div>
-          <select
-            value={skills}
-            onChange={(e) => setSetting('ai_skills', e.target.value)}
-            className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
+          <div
+            className="text-[11px] leading-relaxed px-3 py-2 rounded"
             style={{
-              backgroundColor: 'var(--color-bg)',
-              color: 'var(--color-text)',
+              color: 'var(--color-text-muted)',
+              backgroundColor: 'color-mix(in srgb, var(--color-text-muted) 8%, transparent)',
             }}
-            aria-label="Select setting sources"
           >
-            {SETTING_SOURCES_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            {skills === 'off' && (
+              <><strong>Disabled</strong> — No skills loaded. Zero overhead. Skills &amp; slash commands from plugins are invisible to the agent.</>
+            )}
+            {skills === 'user' && (
+              <><strong>User</strong> — Loads ~/.claude/skills/ and ~/.claude/plugins/*/skills/ only. Recommended starting point for most setups.</>
+            )}
+            {skills === 'project' && (
+              <><strong>User + Project</strong> — Adds the current CWD's .claude/skills/ and .claude/plugins/ — project-specific skills become available in this conversation.</>
+            )}
+            {skills === 'local' && (
+              <><strong>User + Project + Local</strong> — Also adds .claude.local/ (gitignored overrides). Most verbose mode; useful for personal tweaks in a shared repo but inflates the context.</>
+            )}
+            {skillsOverhead && (
+              <span className="block mt-1 opacity-80">
+                Current scope bundles <strong>{(() => {
+                  const cur = skillsOverhead[skills as 'off' | 'user' | 'project' | 'local']
+                  return cur ? `${cur.count} SKILL.md frontmatters ≈ ${cur.tokens >= 1000 ? `${Math.round(cur.tokens / 1000)}k` : cur.tokens} tokens` : 'unknown'
+                })()}</strong> into every turn's system prompt.
+              </span>
+            )}
+          </div>
         </div>
       )}
 

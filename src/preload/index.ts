@@ -72,6 +72,8 @@ const api: AgentAPI = {
   context: {
     getBreakdown: (conversationId: number) =>
       withTimeout(ipcRenderer.invoke('context:getBreakdown', conversationId)),
+    getSkillsOverhead: (cwd?: string) =>
+      withTimeout(ipcRenderer.invoke('context:getSkillsOverhead', cwd)),
   },
   files: {
     listTree: (basePath: string, excludePatterns?: string[]) => withTimeout(ipcRenderer.invoke('files:listTree', basePath, excludePatterns)),

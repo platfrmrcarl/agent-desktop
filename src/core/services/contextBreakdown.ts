@@ -55,6 +55,8 @@ export interface ContextBreakdown {
   mode: TokenCounterMode
   /** True if no turn has completed yet — the "overhead" category is guessed/unknown. */
   preFirstTurn: boolean
+  /** Optional actionable advice for the user (e.g. "drop ai_skills to user to save ~X tokens"). */
+  tip?: string
 }
 
 interface ConversationRow {
@@ -129,6 +131,20 @@ export interface BuildBreakdownInput {
  * With many plugins installed (1000+ skills seen in the wild), this can silently add
  * ~100k tokens to the context on every turn. We count it so the user sees it.
  */
+/**
+ * Compute the token overhead per skills mode so the settings UI can preview
+ * each option's cost before the user picks one.
+ */
+export async function computeSkillsOverheadPerMode(
+  cwd?: string
+): Promise<Record<'off' | 'user' | 'project' | 'local', { tokens: number; count: number }>> {
+  const off = { tokens: 0, count: 0 }
+  const user = await countSkillsFrontmatters(scopesForSkillsMode('user', cwd))
+  const project = await countSkillsFrontmatters(scopesForSkillsMode('project', cwd))
+  const local = await countSkillsFrontmatters(scopesForSkillsMode('local', cwd))
+  return { off, user, project, local }
+}
+
 async function countSkillsFrontmatters(scopes: string[]): Promise<{ tokens: number; count: number }> {
   let tokens = 0
   let count = 0
@@ -286,6 +302,10 @@ export async function buildContextBreakdown(input: BuildBreakdownInput): Promise
   const free = Math.max(0, window - total - autocompactBuffer)
   const percentUsed = window > 0 ? Math.min(100, Math.round((total / window) * 100)) : 0
 
+  // Actionable tip — surface the most impactful thing the user can change.
+  // Priority: skills bloat (biggest wins, easiest fix) > tool exchanges > generic.
+  const tip = buildTip({ skills, skillsMode, toolExchangesTokens, percentUsed })
+
   return {
     total,
     totalIsExact,
@@ -296,7 +316,42 @@ export async function buildContextBreakdown(input: BuildBreakdownInput): Promise
     categories,
     mode,
     preFirstTurn,
+    tip,
   }
+}
+
+const SKILLS_TIP_THRESHOLD_TOKENS = 20_000
+
+function buildTip(args: {
+  skills: { tokens: number; count: number }
+  skillsMode: 'off' | 'user' | 'project' | 'local'
+  toolExchangesTokens: number
+  percentUsed: number
+}): string | undefined {
+  const { skills, skillsMode, toolExchangesTokens, percentUsed } = args
+
+  if (skills.tokens >= SKILLS_TIP_THRESHOLD_TOKENS) {
+    const kTokens = Math.round(skills.tokens / 1000)
+    if (skillsMode === 'local') {
+      return `Skills use ~${kTokens}k tokens across ${skills.count} files. Settings → AI → Skills Mode: switch to "User + Project" or "User only" to drop local-scope skill bundles from the prompt.`
+    }
+    if (skillsMode === 'project') {
+      return `Skills use ~${kTokens}k tokens across ${skills.count} files. Settings → AI → Skills Mode: switch to "User only" to drop project-scope skill bundles.`
+    }
+    if (skillsMode === 'user') {
+      return `Skills use ~${kTokens}k tokens across ${skills.count} files. Settings → AI → Skills Mode: set to "Disabled" if you don't invoke them; or disable unused plugins to trim ~/.claude/plugins/ discovery.`
+    }
+  }
+
+  if (toolExchangesTokens >= 50_000) {
+    return `Tool exchanges take ~${Math.round(toolExchangesTokens / 1000)}k tokens. Run /compact to summarize earlier turns, or /clear to drop the history without summary.`
+  }
+
+  if (percentUsed >= 80) {
+    return `Over 80 % of the window used. Run /compact soon — past that, you risk hitting the token limit mid-turn.`
+  }
+
+  return undefined
 }
 
 function emptyBreakdown(mode: TokenCounterMode): ContextBreakdown {

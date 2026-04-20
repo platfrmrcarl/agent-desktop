@@ -42,6 +42,18 @@ export const mockAgent = {
       return () => {}
     }),
   },
+  context: {
+    getBreakdown: vi.fn().mockResolvedValue({
+      total: 0, totalIsExact: false, window: 200_000, autocompactBuffer: 6_000,
+      free: 194_000, percentUsed: 0, categories: [], mode: 'local', preFirstTurn: true,
+    }),
+    getSkillsOverhead: vi.fn().mockResolvedValue({
+      off: { tokens: 0, count: 0 },
+      user: { tokens: 0, count: 0 },
+      project: { tokens: 0, count: 0 },
+      local: { tokens: 0, count: 0 },
+    }),
+  },
   files: {
     listTree: vi.fn().mockResolvedValue([]),
     listDir: vi.fn().mockResolvedValue([]),

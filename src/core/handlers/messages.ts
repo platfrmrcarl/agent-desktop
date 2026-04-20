@@ -922,6 +922,11 @@ export function registerMessagesHandlers(
     return compactConversation(db, validConvId, options)
   })
 
+  registrar.handle('context:getSkillsOverhead', async (_event, cwd?: unknown) => {
+    const { computeSkillsOverheadPerMode } = await import('../services/contextBreakdown')
+    return computeSkillsOverheadPerMode(typeof cwd === 'string' ? cwd : undefined)
+  })
+
   registrar.handle('context:getBreakdown', async (_event, conversationId: unknown) => {
     const validConvId = validatePositiveInt(conversationId, 'conversationId')
     const { buildContextBreakdown } = await import('../services/contextBreakdown')

@@ -80,6 +80,7 @@ export interface AgentAPI {
   }
   context: {
     getBreakdown(conversationId: number): Promise<import('../core/services/contextBreakdown').ContextBreakdown>
+    getSkillsOverhead(cwd?: string): Promise<Record<'off' | 'user' | 'project' | 'local', { tokens: number; count: number }>>
   }
   files: {
     listTree(basePath: string, excludePatterns?: string[]): Promise<FileNode[]>

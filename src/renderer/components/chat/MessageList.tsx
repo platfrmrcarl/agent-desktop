@@ -101,7 +101,20 @@ function ContextInfoBubble({ display, onDismiss }: { display: ContextDisplay; on
             En attente du premier tour — la ventilation par catégorie apparaîtra après la première réponse.
           </div>
         )}
-        <div className="text-[10px] opacity-60" style={{ color: 'var(--color-text-muted)' }}>
+        {breakdown.tip && (
+          <div
+            className="text-[11px] mt-2 px-2 py-1.5 rounded border-l-2"
+            style={{
+              color: 'var(--color-text)',
+              backgroundColor: 'color-mix(in srgb, var(--color-accent) 8%, transparent)',
+              borderLeftColor: 'var(--color-accent)',
+            }}
+          >
+            <span className="font-medium mr-1" style={{ color: 'var(--color-accent)' }}>💡 Astuce</span>
+            {breakdown.tip}
+          </div>
+        )}
+        <div className="text-[10px] opacity-60 mt-1.5" style={{ color: 'var(--color-text-muted)' }}>
           Mode : {mode === 'anthropic' ? 'Anthropic API (exact)' : 'local (gpt-tokenizer, ±10%)'}
         </div>
       </div>

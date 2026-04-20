@@ -200,6 +200,40 @@ describe('buildContextBreakdown', () => {
     }
   })
 
+  it('produces a tip suggesting a skills mode downgrade when local skills exceed 20k tokens', async () => {
+    const origHome = process.env.HOME
+    const tmpHome = await mkdtemp(join(tmpdir(), 'ctx-tip-test-'))
+    process.env.HOME = tmpHome
+    try {
+      await mkdir(join(tmpHome, '.claude/skills/huge'), { recursive: true })
+      // Craft a frontmatter that alone tokenizes to >20k. Using a long description.
+      const bigDesc = 'abcdefg hijklmn opqrstu '.repeat(4000) // ~24k tokens
+      await writeFile(
+        join(tmpHome, '.claude/skills/huge/SKILL.md'),
+        `---\nname: huge\ndescription: ${bigDesc}\n---\nbody`
+      )
+
+      const id = await seedConversation(db, {
+        last_input_tokens: 10,
+        last_cache_read_tokens: 0,
+        last_cache_creation_tokens: 0,
+      })
+      const result = await buildContextBreakdown({
+        db: db as never,
+        conversationId: id,
+        systemPrompt: 'sp',
+        mode: 'local',
+        skillsMode: 'local',
+      })
+      expect(result.tip).toBeDefined()
+      expect(result.tip).toMatch(/Settings.*AI.*Skills Mode/i)
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome
+      else delete process.env.HOME
+      await rm(tmpHome, { recursive: true, force: true })
+    }
+  })
+
   it('does not add the "Skills" category when skillsMode is off', async () => {
     const id = await seedConversation(db, {
       last_input_tokens: 10,
