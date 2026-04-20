@@ -145,7 +145,29 @@ export async function computeSkillsOverheadPerMode(
   return { off, user, project, local }
 }
 
-async function countSkillsFrontmatters(scopes: string[]): Promise<{ tokens: number; count: number }> {
+interface SkillScope {
+  /** Directory with loose SKILL.md files to walk recursively. */
+  skillsDir?: string
+  /** installed_plugins.json whose entry `installPath`s are walked for SKILL.md. */
+  installedPluginsJson?: string
+}
+
+/**
+ * Count tokens bundled into the system prompt as SKILL.md frontmatters, matching
+ * the Claude Agent SDK's actual discovery.
+ *
+ * CRITICAL: plugin skills are NOT read wholesale from `~/.claude/plugins/**`. That
+ * path contains `marketplaces/` (catalogues of available-but-not-installed plugins
+ * — tens of thousands of SKILL.md files on any machine with registered marketplaces)
+ * alongside `cache/` which holds the real installed payloads. The SDK resolves the
+ * truth via `installed_plugins.json`, listing each installed plugin's `installPath`.
+ * Walking the whole tree over-counts by ~30x on a typical dev setup.
+ *
+ * This function walks:
+ *   - each explicit `skillsDir` recursively for loose SKILL.md files, and
+ *   - each entry in `installed_plugins.json`'s `installPath`, mirroring SDK discovery.
+ */
+async function countSkillsFrontmatters(scopes: SkillScope[]): Promise<{ tokens: number; count: number }> {
   let tokens = 0
   let count = 0
   const seen = new Set<string>()
@@ -173,21 +195,43 @@ async function countSkillsFrontmatters(scopes: string[]): Promise<{ tokens: numb
     }
   }
 
+  async function installedPluginPaths(jsonPath: string): Promise<string[]> {
+    try {
+      const raw = await fsp.readFile(jsonPath, 'utf-8')
+      const parsed = JSON.parse(raw) as { plugins?: Record<string, Array<{ installPath?: string }>> }
+      const out: string[] = []
+      for (const entries of Object.values(parsed.plugins || {})) {
+        for (const entry of entries) {
+          if (entry.installPath) out.push(entry.installPath)
+        }
+      }
+      return out
+    } catch { return [] }
+  }
+
   for (const scope of scopes) {
-    await walk(join(scope, 'skills'))
-    await walk(join(scope, 'plugins'))
+    if (scope.skillsDir) await walk(scope.skillsDir)
+    if (scope.installedPluginsJson) {
+      const paths = await installedPluginPaths(scope.installedPluginsJson)
+      for (const p of paths) await walk(p)
+    }
   }
   return { tokens, count }
 }
 
-function scopesForSkillsMode(mode: 'off' | 'user' | 'project' | 'local', cwd?: string): string[] {
+function scopesForSkillsMode(mode: 'off' | 'user' | 'project' | 'local', cwd?: string): SkillScope[] {
   if (mode === 'off') return []
-  const scopes = [join(homedir(), '.claude')]
-  if (mode === 'project' || mode === 'local') {
-    if (cwd) scopes.push(join(cwd, '.claude'))
+  const userHome = join(homedir(), '.claude')
+  const scopes: SkillScope[] = [{
+    skillsDir: join(userHome, 'skills'),
+    installedPluginsJson: join(userHome, 'plugins', 'installed_plugins.json'),
+  }]
+  // Project/local scopes don't carry their own plugin marketplace — only loose skills.
+  if ((mode === 'project' || mode === 'local') && cwd) {
+    scopes.push({ skillsDir: join(cwd, '.claude', 'skills') })
   }
-  if (mode === 'local') {
-    if (cwd) scopes.push(join(cwd, '.claude.local'))
+  if (mode === 'local' && cwd) {
+    scopes.push({ skillsDir: join(cwd, '.claude.local', 'skills') })
   }
   return scopes
 }

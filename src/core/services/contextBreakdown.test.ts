@@ -200,6 +200,53 @@ describe('buildContextBreakdown', () => {
     }
   })
 
+  it('ignores marketplace-cached SKILL.md files not listed in installed_plugins.json', async () => {
+    // Reproduce the real structure: ~/.claude/plugins/{marketplaces, cache, installed_plugins.json}
+    const origHome = process.env.HOME
+    const tmpHome = await mkdtemp(join(tmpdir(), 'ctx-marketplace-test-'))
+    process.env.HOME = tmpHome
+    try {
+      // 100 skills in a marketplace catalog — should NOT be counted
+      for (let i = 0; i < 100; i++) {
+        const dir = join(tmpHome, '.claude/plugins/marketplaces/some-marketplace/skill-' + i)
+        await mkdir(dir, { recursive: true })
+        await writeFile(join(dir, 'SKILL.md'), `---\nname: skill-${i}\ndescription: Marketplace skill ${i} with a long enough description to matter\n---\nbody`)
+      }
+
+      // 1 actually-installed skill — must be counted
+      const installDir = join(tmpHome, '.claude/plugins/cache/real-plugin/my-skill/1.0.0')
+      await mkdir(installDir, { recursive: true })
+      await writeFile(join(installDir, 'SKILL.md'), '---\nname: real\ndescription: An actually installed skill\n---\nbody')
+
+      await writeFile(
+        join(tmpHome, '.claude/plugins/installed_plugins.json'),
+        JSON.stringify({
+          version: 2,
+          plugins: {
+            'my-skill@real-plugin': [{ scope: 'user', installPath: installDir, version: '1.0.0' }],
+          },
+        })
+      )
+
+      const id = await seedConversation(db)
+      const result = await buildContextBreakdown({
+        db: db as never,
+        conversationId: id,
+        systemPrompt: 'sp',
+        mode: 'local',
+        skillsMode: 'user',
+      })
+      const skills = result.categories.find((c) => c.label === 'Skills')
+      expect(skills).toBeDefined()
+      // Only the installed one should count — not the 100 marketplace entries
+      expect(skills!.hint).toContain('1 SKILL.md')
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome
+      else delete process.env.HOME
+      await rm(tmpHome, { recursive: true, force: true })
+    }
+  })
+
   it('produces a tip suggesting a skills mode downgrade when local skills exceed 20k tokens', async () => {
     const origHome = process.env.HOME
     const tmpHome = await mkdtemp(join(tmpdir(), 'ctx-tip-test-'))
