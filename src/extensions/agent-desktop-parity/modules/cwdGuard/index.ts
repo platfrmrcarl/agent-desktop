@@ -1,11 +1,23 @@
 import type { ExtensionAPI, ExtensionRuntimeContext } from '../../shared/types'
-import { isToolCallEventType } from '@mariozechner/pi-coding-agent'
 import {
   isPathOutsideWriteAllowed,
   isPathOutsideAllowed,
   extractBashWritePaths,
 } from '../../../../core/services/guards/cwdGuard'
 import type { CwdWhitelistEntry } from '../../../../core/types'
+
+// `@mariozechner/pi-coding-agent` is ESM-only (no `require` export). Static
+// runtime imports break under electron-vite's CJS externalization for main.
+// PI's `isToolCallEventType(name, event)` is a one-line string compare —
+// inline it here via local type guards to avoid the import entirely.
+type WriteEvent = { toolName: 'write'; input: { path?: string } }
+type EditEvent = { toolName: 'edit'; input: { path?: string } }
+type BashEvent = { toolName: 'bash'; input: { command?: string } }
+type ToolCallEventLike = { toolName: string; input: Record<string, unknown> }
+
+const isWrite = (e: ToolCallEventLike): e is WriteEvent => e.toolName === 'write'
+const isEdit = (e: ToolCallEventLike): e is EditEvent => e.toolName === 'edit'
+const isBash = (e: ToolCallEventLike): e is BashEvent => e.toolName === 'bash'
 
 /**
  * Phase 1 — CWD write guard.
@@ -40,8 +52,8 @@ export function initCwdGuard(pi: ExtensionAPI, ctx: ExtensionRuntimeContext): vo
     return `"${cwd}"`
   }
 
-  pi.on('tool_call', (event) => {
-    if (isToolCallEventType('write', event) || isToolCallEventType('edit', event)) {
+  ;(pi as unknown as { on: (e: string, h: (ev: ToolCallEventLike) => unknown) => void }).on('tool_call', (event) => {
+    if (isWrite(event) || isEdit(event)) {
       const filePath = event.input.path
       if (!filePath) return undefined
       const check = checkPath(filePath)
@@ -54,7 +66,7 @@ export function initCwdGuard(pi: ExtensionAPI, ctx: ExtensionRuntimeContext): vo
       return { block: true, reason }
     }
 
-    if (isToolCallEventType('bash', event)) {
+    if (isBash(event)) {
       const command = event.input.command
       if (!command) return undefined
       for (const p of extractBashWritePaths(command)) {
