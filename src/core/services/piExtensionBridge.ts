@@ -58,12 +58,19 @@ export function createBridge(conversationId: number, deps: BridgeDeps): PiExtens
       deps.chunkSender('system_message', content, extra)
     },
 
-    emitTaskNotification(_summary, _meta) {
-      throw new Error('emitTaskNotification — Task 6')
+    emitTaskNotification(summary, meta) {
+      const extra: Record<string, unknown> = { conversationId }
+      if (meta?.taskId) extra.taskId = meta.taskId
+      if (meta?.status) extra.status = meta.status
+      if (meta?.outputFile) extra.outputFile = meta.outputFile
+      deps.chunkSender('task_notification', summary, extra)
     },
 
-    emitMcpStatus(_servers) {
-      throw new Error('emitMcpStatus — Task 6')
+    emitMcpStatus(servers) {
+      deps.chunkSender('mcp_status', undefined, {
+        conversationId,
+        mcpServers: JSON.stringify(servers),
+      })
     },
 
     recordTokenUsage(_usage) {
