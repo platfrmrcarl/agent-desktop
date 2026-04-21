@@ -321,7 +321,7 @@ function filterMcpServers(
 }
 
 export function getAISettings(db: Database.Database, conversationId: number): AISettings {
-  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'webhook_completionUrl']
+  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'ai_skillsIncludePlugins', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'webhook_completionUrl']
   const rows = db
     .prepare(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`)
     .all(...keys) as { key: string; value: string }[]
@@ -446,6 +446,7 @@ export function getAISettings(db: Database.Database, conversationId: number): AI
     skills: (map['ai_skills'] as 'off' | 'user' | 'project' | 'local') || 'off',
     skillsEnabled: (map['ai_skillsEnabled'] ?? 'true') === 'true',
     disabledSkills: safeJsonParse<string[]>(map['ai_disabledSkills'] || '[]', []),
+    skillsIncludePlugins: (map['ai_skillsIncludePlugins'] ?? 'false') === 'true',
     apiKey: globalApiKey,
     baseUrl: globalBaseUrl,
     ttsResponseMode: (map['tts_responseMode'] as 'off' | 'full' | 'summary' | 'auto') || undefined,

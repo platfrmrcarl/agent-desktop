@@ -77,7 +77,6 @@ describe('skillsBridge', () => {
     expect(result).toEqual({
       skillPaths: [
         path.join(homedir(), '.claude/skills'),
-        path.join(homedir(), '.claude/plugins'),
       ],
     })
   })
@@ -93,7 +92,7 @@ describe('skillsBridge', () => {
       ]),
     })
     const paths = (result as { skillPaths: string[] }).skillPaths
-    expect(paths).toHaveLength(4)
+    expect(paths).toHaveLength(2)
   })
 
   it('returns local-scope paths (user + project + local)', async () => {
@@ -101,8 +100,28 @@ describe('skillsBridge', () => {
     initSkillsBridge(pi as never, makeCtx({ skills: 'local' }))
     const [result] = await pi.fire('resources_discover', { cwd: '/fallback' })
     const paths = (result as { skillPaths: string[] }).skillPaths
-    expect(paths).toHaveLength(6)
+    expect(paths).toHaveLength(3)
     expect(paths).toContain('/project/.claude.local/skills')
+  })
+
+  it('is a no-op when sharedHooks === false (Share Claude Config off)', () => {
+    const pi = makeMockPi()
+    initSkillsBridge(pi as never, makeCtx({ skills: 'user', sharedHooks: false }))
+    expect(pi.handlers['resources_discover']).toBeUndefined()
+  })
+
+  it('activates when sharedHooks is true (or undefined — defaults to true)', () => {
+    const pi = makeMockPi()
+    initSkillsBridge(pi as never, makeCtx({ skills: 'user', sharedHooks: true }))
+    expect(pi.handlers['resources_discover']).toHaveLength(1)
+  })
+
+  it('never includes any plugins/ path (no overlap with PI npm packages)', async () => {
+    const pi = makeMockPi()
+    initSkillsBridge(pi as never, makeCtx({ skills: 'local' }))
+    const [result] = await pi.fire('resources_discover', { cwd: '/fallback' })
+    const paths = (result as { skillPaths: string[] }).skillPaths
+    expect(paths.every(p => !p.endsWith('/plugins'))).toBe(true)
   })
 
   it('falls back to event.cwd when aiSettings.cwd is missing', async () => {

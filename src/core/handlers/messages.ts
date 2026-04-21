@@ -463,6 +463,7 @@ export function getAISettings(db: SqlJsAdapter, conversationId: number, opts?: {
     skills: (map['ai_skills'] as 'off' | 'user' | 'project' | 'local') || 'off',
     skillsEnabled: (map['ai_skillsEnabled'] ?? 'true') === 'true',
     disabledSkills: safeJsonParse<string[]>(map['ai_disabledSkills'] || '[]', []),
+    skillsIncludePlugins: (map['ai_skillsIncludePlugins'] ?? 'false') === 'true',
     apiKey: globalApiKey,
     baseUrl: globalBaseUrl,
     ttsResponseMode: (map['tts_responseMode'] as 'off' | 'full' | 'summary' | 'auto') || undefined,

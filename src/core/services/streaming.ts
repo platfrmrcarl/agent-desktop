@@ -152,6 +152,19 @@ export interface AISettings {
   skills?: 'off' | 'user' | 'project' | 'local'
   skillsEnabled?: boolean
   disabledSkills?: string[]
+  /**
+   * When true, also expose skills from CLAUDE-INSTALLED plugins
+   * (`~/.claude/plugins/installed_plugins.json` → each entry's `<installPath>/skills`).
+   *
+   * - PI backend: `skillsBridge` reads the manifest and contributes the
+   *   skill dirs via `resources_discover`.
+   * - Claude backend: the SDK loads installed-plugin skills natively
+   *   when `settingSources` is set; this flag is informational (no
+   *   extra code path). Turning the flag OFF does NOT disable plugin
+   *   skills on Claude — the SDK has no fine-grained toggle. Remove
+   *   plugins via `claude plugin uninstall ...` if you need them gone.
+   */
+  skillsIncludePlugins?: boolean
   apiKey?: string
   baseUrl?: string
   ttsResponseMode?: 'off' | 'full' | 'summary' | 'auto'

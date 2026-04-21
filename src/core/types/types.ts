@@ -19,6 +19,7 @@ export interface AIOverrides {
   ai_skills?: string
   ai_skillsEnabled?: string    // 'true' | 'false'
   ai_disabledSkills?: string   // JSON string[] of disabled skill names
+  ai_skillsIncludePlugins?: string  // 'true' | 'false' — include Claude-installed plugin skills
   pi_disabledExtensions?: string  // JSON string[] of disabled extension resolved paths
   hooks_cwdRestriction?: string
   hooks_cwdWhitelist?: string  // JSON CwdWhitelistEntry[]
