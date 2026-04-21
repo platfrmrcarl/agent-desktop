@@ -15,7 +15,7 @@ The PI path (`src/main/services/streamingPI.ts`) currently maps only the minimum
 
 - CWD write protection (PI writes anywhere without prompting)
 - Permission modes and interactive tool approval
-- Skills discovery and the `Skill` tool
+- **Automatic integration of `.claude/skills/` with our `ai_skills` scope setting.** PI *does* implement the Agent Skills standard natively (discovery via `~/.pi/agent/skills/`, `.pi/skills/`, `.agents/skills/`, package `pi.skills` entries; exposure via system-prompt XML injection + `/skill:name` commands + on-demand `read`) and *does* support loading Claude skills when the user manually adds `~/.claude/skills` to PI's `skills` setting. What is lost today is the **automatic wiring** of our app's `ai_skills` (off/user/project/local) and `disabledSkills` settings to PI's discovery — switching backend doesn't translate these settings to PI's own config.
 - User-defined hooks (PreToolUse, PostToolUse, UserPromptSubmit, Stop)
 - Budget caps (`maxBudgetUsd`)
 - Task notifications, webhook completion
@@ -45,6 +45,7 @@ Summarized from the brainstorming Q&A:
 | Q5.6 | Integration test fidelity | **Spawn real PI process** (not mock) via `pi-coding-agent` subprocess harness |
 | Q5.7 | Settings migration | **DB migration v4** for `ai_approvalTimeoutMs` |
 | Q5.8 | Phase 5 (budgetTracker) | **Skippable** — if phases 0–4 reveal architectural issues, budget moves to its own future spec |
+| Q5.9 | Skills scope in PI backend | **PI has native skills support** (Agent Skills standard, `/skill:name` commands, system-prompt XML injection). Our `skillsBridge` module is limited to: (a) contributing `.claude/skills/` paths via `resources_discover` based on `ai_skills` scope, (b) best-effort `disabledSkills` filtering. We do **not** re-implement command registration or prompt injection. |
 
 ---
 
@@ -220,14 +221,27 @@ Modes:
 
 | Field | Value |
 |---|---|
-| Responsibility | Expose `.claude/skills/` as PI slash commands |
+| Responsibility | Map our `ai_skills` setting to PI's `resources_discover` event; expose `disabledSkills` filtering |
 | PI events | `resources_discover` |
-| Commands registered | One per discovered `SKILL.md` |
+| Commands registered | **None** — PI natively registers `/skill:name` commands for each discovered `SKILL.md`. We do not duplicate. |
 | Settings read | `skills` (off/user/project/local), `skillsEnabled`, `disabledSkills`, `cwd` |
-| Core imports | `guards/skillsResolver.discoverSkills`, `getSkillPaths` |
+| Core imports | `guards/skillsResolver.getSkillPaths(cwd, scope)`, `filterDisabledSkills` |
 | Bridge calls | — |
 
-Discovery happens at factory time (per-turn). Changes to `disabledSkills` mid-turn take effect on the next turn (same as Claude's semantics).
+**What this module does:**
+1. Early-return no-op if `skills === 'off'` or `skillsEnabled === false`. (Users can also rely on PI's native `--no-skills` flag for total disable.)
+2. On `resources_discover`, return `{ skillPaths: getSkillPaths(cwd, scope) }`:
+   - `user` → `[~/.claude/skills, ~/.claude/plugins/*/skills]`
+   - `project` → user paths + `[<cwd>/.claude/skills, <cwd>/.claude/plugins]`
+   - `local` → project paths + `[<cwd>/.claude.local]`
+3. `disabledSkills` filtering: PI does not expose a hook for filtering already-discovered skills. v1 approach: post-discovery, iterate `pi.getCommands()` for entries with `source: 'skill'` and unregister (or mark inactive) ones matching `disabledSkills`. If PI does not support unregistering slash commands, this is documented as a partial limitation (see open question 5).
+
+**What this module intentionally does NOT do:**
+- Register slash commands for skills (PI does this natively)
+- Inject SKILL.md content into prompts (PI does this natively via system-prompt XML)
+- Implement on-demand SKILL.md loading (PI does this natively via its `read` tool)
+
+Discovery happens once per turn at factory load time. Changes to `disabledSkills` mid-turn take effect on the next turn.
 
 ### 5.4 `hooksSystem`
 
@@ -394,16 +408,17 @@ Six sequential PRs. Each is independently mergeable.
 - Five hook points + webhook completion
 - Tests with mocked `child_process`
 
-### Phase 4 — `skillsBridge` (~150 lines)
-- Discovery + slash command registration
-- Tests with fake fs
+### Phase 4 — `skillsBridge` (~80 lines)
+- `resources_discover` handler contributing `.claude/skills/` paths mapped from `ai_skills` scope
+- `disabledSkills` post-discovery filtering (best effort — see open question 5)
+- Tests with fake fs, asserts correct paths contributed per scope
 
 ### Phase 5 — `budgetTracker` (~350 lines, may be deferred)
 - `usageExtractor` table for 5+ providers
 - Accumulator + block logic
 - Tests per provider
 
-**Total**: ~1750 lines code + ~2000 lines tests.
+**Total**: ~1680 lines code + ~2000 lines tests.
 
 ### Per-phase completion criteria
 
@@ -435,6 +450,7 @@ The following are explicitly **not** in this spec and would require separate spe
 4. **`settings_sharedAcrossBackends` semantics for hooks.** Need confirmation that the user-level hooks config path (`~/.claude/settings.json` vs `~/.agent-desktop/hooks.json`) is right. May require adjustment during Phase 3.
 5. **`exitPlanMode` UX.** Claude natively has plan mode semantics recognized by the UI. For PI, the UI needs to detect the `exitPlanMode` custom tool and show similar affordances. May require a small ChatView change in Phase 2.
 6. **Bridge API stability.** The bridge is a public contract between app core and extension package. Future breaking changes (e.g., renaming `emitSystemMessage`) will silently break the bundled extension at runtime. Mitigation: `version: 1` field in `PendingExtensionContext`, typed tests.
+7. **`disabledSkills` filtering in `skillsBridge`.** PI registers `/skill:name` commands automatically during its resource-discovery phase; there is no documented hook to veto individual skills. The extension attempts post-discovery unregistration of matching commands, but `ExtensionAPI` may not expose an unregister method for commands it did not register. If it does not, the fallback is to emit a system message at turn start listing the skills the user *thinks* are disabled but are still visible to the agent, and document the caveat. Long-term: propose an upstream `skills_filter` or `before_command_register` event to `pi-coding-agent`.
 
 ---
 
