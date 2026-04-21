@@ -10,13 +10,8 @@ import type { Static, TSchema } from '@sinclair/typebox'
 import type { AISettings } from './streaming'
 import type { ToolCall } from '../../shared/types'
 import type { AgentToolResult } from '@mariozechner/pi-agent-core'
-import { app } from 'electron'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { createBridge, type ExtensionRuntimeContext } from '../../core/services/piExtensionBridge'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+import parityFactory from '../../extensions/agent-desktop-parity'
 
 // Tool parameters schema for scheduler tool
 const SchedulerToolParams = /* #__PURE__ */ (() =>
@@ -209,12 +204,9 @@ export async function streamMessagePI(
     // Build resource loader with extension filtering
     const disabledPaths = new Set(aiSettings?.piDisabledExtensions || [])
 
-    // Bundled extension path: dev uses source tree, packaged uses out/extensions
-    const bundledExtRoot = app.isPackaged
-      ? path.join(app.getAppPath(), 'out/extensions/agent-desktop-parity')
-      : path.resolve(__dirname, '../../../src/extensions/agent-desktop-parity')
-
-    // Runtime context handed to the bundled extension via extensionFactories closure
+    // Runtime context handed to the bundled parity extension via extensionFactories closure.
+    // The factory is statically imported above so electron-vite bundles it into out/main/;
+    // no runtime file load, no dev/packaged path branching, no dependency on `app`.
     const extensionBridge = createBridge(conversationId ?? -1, { chunkSender: coreSendChunk })
     const runtimeCtx: ExtensionRuntimeContext = {
       version: 1,
@@ -224,31 +216,13 @@ export async function streamMessagePI(
       bridge: extensionBridge,
     }
 
-    // Dynamic import of the bundled extension. In dev (electron-vite) .ts is transformed;
-    // in packaged builds a raw .ts file cannot be loaded by Node. Soft-fail: if the import
-    // throws, no extension factory is registered and PI runs without parity features.
-    // Phase 1+ will switch the copy rule to produce .js alongside or replace with a compiled
-    // bundle step so packaged builds load correctly.
-    let bundledDefault: ((piApi: unknown, ctx: ExtensionRuntimeContext) => void | Promise<void>) | null = null
-    try {
-      const mod = await import(path.join(bundledExtRoot, 'index.ts'))
-      bundledDefault = mod.default
-    } catch (err) {
-      console.warn('[streamingPI] bundled parity extension failed to load:', err instanceof Error ? err.message : err)
-    }
-
     const resourceLoader = new pi.DefaultResourceLoader({
       cwd: aiSettings?.cwd || process.cwd(),
       noSkills: true,
       noPromptTemplates: true,
       noThemes: true,
-      additionalExtensionPaths: [
-        bundledExtRoot,
-        ...(aiSettings?.piExtensionsDir ? [aiSettings.piExtensionsDir] : []),
-      ],
-      ...(bundledDefault
-        ? { extensionFactories: [(piApi: unknown) => bundledDefault!(piApi, runtimeCtx)] }
-        : {}),
+      ...(aiSettings?.piExtensionsDir ? { additionalExtensionPaths: [aiSettings.piExtensionsDir] } : {}),
+      extensionFactories: [(piApi: unknown) => parityFactory(piApi as never, runtimeCtx)],
       ...(disabledPaths.size > 0 ? {
         extensionsOverride: (result: { extensions: Array<{ resolvedPath: string }>; [k: string]: unknown }) => ({
           ...result,
