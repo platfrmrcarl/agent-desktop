@@ -9,17 +9,6 @@ function hashInput(input: unknown): string {
 }
 
 /**
- * Normalize PI tool names (lowercase) to title-case for permissionPolicy lookup.
- * PI emits lowercase names ("write", "bash", "read") while the policy sets use
- * title-case ("Write", "Bash", "Read"). First-letter capitalize is sufficient
- * for all single-word built-in tools. Multi-word tools (NotebookEdit) must be
- * emitted by PI in their exact title-case form.
- */
-function normalizeTool(toolName: string): string {
-  return toolName.charAt(0).toUpperCase() + toolName.slice(1)
-}
-
-/**
  * Phase 2 — Permission modes.
  *
  * Implements the five Claude-SDK modes on top of PI:
@@ -32,8 +21,8 @@ function normalizeTool(toolName: string): string {
  * Approval prompts use `extCtx.ui.confirm` (native PI) which routes through our
  * `PiUIContext` adapter to the Electron renderer. No new stream protocol.
  *
- * Note: PI emits lowercase tool names; permissionPolicy uses title-case sets.
- * normalizeTool() bridges the gap at this module boundary.
+ * Tool names are lowercase (PI convention); `shouldRequireApproval` handles
+ * case normalization internally so the same policy works for Claude too.
  */
 export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
   const modeRaw = ctx.aiSettings.permissionMode ?? 'bypassPermissions'
@@ -48,8 +37,7 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
   const approvalCache = new Map<string, boolean>()
 
   pi.on('tool_call', async (event, extCtx) => {
-    const normalized = normalizeTool(event.toolName)
-    const decision = shouldRequireApproval(normalized, mode)
+    const decision = shouldRequireApproval(event.toolName, mode)
     if (decision === 'allow') return undefined
     if (decision === 'deny') {
       const reason = `Tool "${event.toolName}" is not allowed in ${mode} mode`
@@ -61,7 +49,7 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
     }
 
     // decision === 'ask' — check cache for dontAsk first.
-    const cacheKey = `${normalized}:${hashInput(event.input)}`
+    const cacheKey = `${event.toolName}:${hashInput(event.input)}`
     if (mode === 'dontAsk' && approvalCache.has(cacheKey)) {
       return approvalCache.get(cacheKey)
         ? undefined
