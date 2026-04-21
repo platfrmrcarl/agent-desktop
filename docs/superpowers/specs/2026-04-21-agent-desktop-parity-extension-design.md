@@ -1,9 +1,9 @@
 # Agent Desktop Parity Extension — Design Spec
 
 - **Date**: 2026-04-21
-- **Status**: Approved (brainstorming phase complete)
+- **Status**: Approved (brainstorming phase complete, revised after PI native-feature audit)
 - **Author**: Laurent Baaziz (via brainstorming session)
-- **Scope**: Bring the PI backend of Agent Desktop to feature parity with the Claude Agent SDK backend, via a bundled PI extension that consumes shared core policies.
+- **Scope**: Bring the PI backend of Agent Desktop to feature parity with the Claude Agent SDK backend, via a bundled PI extension that consumes shared core policies + direct usage of PI-native features.
 
 ---
 
@@ -11,41 +11,47 @@
 
 Agent Desktop supports two AI backends: `claude-agent-sdk` (default) and `pi` (`@mariozechner/pi-coding-agent`). The Claude path exposes rich safety and UX features — CWD write restriction, permission modes, hook system messages, skills, budget caps — implemented directly in `src/core/services/streaming.ts` and the related hook/guard modules.
 
-The PI path (`src/main/services/streamingPI.ts`) currently maps only the minimum set of PI session events to the existing stream chunk protocol. Users switching backend lose:
+The PI path (`src/main/services/streamingPI.ts`) currently maps only the minimum set of PI session events to the existing stream chunk protocol. After auditing the PI documentation (`packages/coding-agent/docs/*`), we find that **PI natively implements much of what we thought was missing** (plan mode, skills discovery, per-turn usage normalization, persistent session manager, native compaction). The actual work is smaller than initially scoped: an extension that **adapts our app's settings cascade to PI's native facilities**, plus a thin layer of genuinely new logic (CWD write guard, hook config file runner, multi-mode permission state machine, budget cap enforcement).
 
-- CWD write protection (PI writes anywhere without prompting)
-- Permission modes and interactive tool approval
-- **Automatic integration of `.claude/skills/` with our `ai_skills` scope setting.** PI *does* implement the Agent Skills standard natively (discovery via `~/.pi/agent/skills/`, `.pi/skills/`, `.agents/skills/`, package `pi.skills` entries; exposure via system-prompt XML injection + `/skill:name` commands + on-demand `read`) and *does* support loading Claude skills when the user manually adds `~/.claude/skills` to PI's `skills` setting. What is lost today is the **automatic wiring** of our app's `ai_skills` (off/user/project/local) and `disabledSkills` settings to PI's discovery — switching backend doesn't translate these settings to PI's own config.
-- User-defined hooks (PreToolUse, PostToolUse, UserPromptSubmit, Stop)
-- Budget caps (`maxBudgetUsd`)
-- Task notifications, webhook completion
+Switching to PI today loses:
+- **CWD write protection** — PI has no native CWD-scoped write guard
+- **Permission modes** (`bypassPermissions`/`acceptEdits`/`default`/`dontAsk`) + interactive approval — PI has no mode state machine; plan mode has a reference example extension
+- **Automatic wiring** of our `ai_skills` scope to PI's native `skills` setting array
+- **User-defined hooks** driven by `~/.claude/settings.json` / `~/.agent-desktop/hooks.json` — PI has the event primitives but not the config-driven runner
+- **Budget caps** (`maxBudgetUsd` enforcement) — PI exposes usage but does not cap spend
+- **Task notifications**, **webhook completion** — custom
 
-The PI SDK exposes a **rich extension system** (factory signature, event bus, tool/command registration, UI context, resource loaders, provider registration). Nearly all Claude-only features can be replicated via extensions without patching `pi-coding-agent`.
+And two features that are natively supported by PI but not currently wired up:
+- **Persistent session resume** — PI has a first-class `SessionManager` with JSONL persistence; we force `SessionManager.inMemory()`
+- **Native conversation compaction** — PI has `session_before_compact` / `session_compact` events and `ctx.compact()` API; our app currently falls back to Claude Haiku even in PI mode
 
-The goal of this spec: design a **single bundled extension** (`agent-desktop-parity`) containing five independent modules that together close the parity gap. The extension is shipped with the app, loaded automatically when the PI backend is active, and reads per-conversation settings via a typed in-process bridge.
+Goal of this spec: ship a **single bundled extension** (`agent-desktop-parity`) plus two streamingPI-level wiring changes (session persistence + native compaction adoption) that together close the parity gap. The extension is loaded automatically when PI backend is active and receives per-conversation settings via an `extensionFactories` closure documented in PI's SDK.
 
 ---
 
 ## 2. Decisions Record
 
-Summarized from the brainstorming Q&A:
+Summarized from the brainstorming Q&A + PI documentation audit.
 
 | # | Decision | Choice |
 |---|---|---|
 | Q1 | Distribution model | **Bundled with the app** — lives in `src/extensions/`, auto-pointed by `streamingPI.ts`, no user install |
-| Q2 | Scope | **All five modules** in v1: `cwdGuard`, `permissionModes`, `skillsBridge`, `hooksSystem`, `budgetTracker` |
-| Q3 | Config bridge | **In-process registry with closure capture** — `setPendingExtensionContext` before `resourceLoader.reload()`, extension factory consumes and captures in closure |
-| Q4 | UI return channel | **Bidirectional typed bridge** exposing `emitSystemMessage`, `requestApproval`, `emitAskUser`, `emitTaskNotification`, `emitMcpStatus`, `recordTokenUsage`, `getAccumulatedUsage` |
+| Q2 | Scope | **Five modules + two wiring phases**: `cwdGuard`, `permissionModes`, `skillsBridge`, `hooksSystem`, `budgetTracker` + native compaction + persistent session |
+| Q3 | Config bridge | **`extensionFactories` closure** (PI-native, documented in `sdk.md`) — `streamingPI.ts` builds a closure that receives `pi: ExtensionAPI` and calls our extension's default export with the captured `{ conversationId, aiSettings, db, bridge }` context. Supersedes the push/consume registry idea. |
+| Q4 | UI return channel | **Two-track**: (1) a typed bridge exposing `emitSystemMessage`, `emitTaskNotification`, `emitMcpStatus`, `recordTokenUsage`, `getAccumulatedUsage` for stream-protocol concerns; (2) PI-native `ctx.ui.confirm/select/input/editor` routed through a custom adapter on `PiUIContext` for user interactions. |
 | Q5 | Relation to Claude path | **Extension consumes Claude's existing logic** — pure policies extracted to `src/core/services/guards/` and reused by both backends; Claude path structure unchanged |
-| Q5.1 | Bridge dependency injection | **Decoupled via callbacks** — `createBridge(convId, { chunkSender, registerPending })` rather than passing the `pendingRequests` Map |
-| Q5.2 | Approval timeout | **Configurable via `ai_approvalTimeoutMs` setting** (cascadable, 0 = disabled, default 0) |
-| Q5.3 | `consumePendingExtensionContext` storage | **Simple field** (not LIFO stack) — sequential `await resourceLoader.reload()` guarantees ordering |
-| Q5.4 | Handler `tool_call` throw semantics | **Fail-safe block** (PI default) — handlers return explicit `{ block, reason }`; throws are caught by PI and treated as block |
-| Q5.5 | Budget provider support | **All providers** — `usageExtractor` covers Anthropic, OpenAI (completions/chat/responses), Groq, Cohere, Together |
+| Q5.1 | Bridge dependency injection | **Decoupled via callbacks** — `createBridge(convId, { chunkSender })` |
+| Q5.2 | Approval timeout | **Moot** — removed. Approvals use `ctx.ui.*` which has its own `{timeout, signal}` parameters (per `extensions.md`). |
+| Q5.3 | (superseded) Context storage | **Superseded by Q3 (`extensionFactories`)** |
+| Q5.4 | Handler `tool_call` throw semantics | **Fail-safe block** (PI default) — handlers return explicit `{ block, reason }` |
+| Q5.5 | (superseded) Budget provider parsing | **Superseded** — PI normalizes `Usage` per `AssistantMessage`; no multi-provider extractor needed |
 | Q5.6 | Integration test fidelity | **Spawn real PI process** (not mock) via `pi-coding-agent` subprocess harness |
-| Q5.7 | Settings migration | **DB migration v4** for `ai_approvalTimeoutMs` |
+| Q5.7 | Settings migration | **No migration** for approval timeout (Q5.2 removed). **DB migration v4** still needed if any new setting lands in Phase 2+ (TBD per module). |
 | Q5.8 | Phase 5 (budgetTracker) | **Skippable** — if phases 0–4 reveal architectural issues, budget moves to its own future spec |
-| Q5.9 | Skills scope in PI backend | **PI has native skills support** (Agent Skills standard, `/skill:name` commands, system-prompt XML injection). Our `skillsBridge` module is limited to: (a) contributing `.claude/skills/` paths via `resources_discover` based on `ai_skills` scope, (b) best-effort `disabledSkills` filtering. We do **not** re-implement command registration or prompt injection. |
+| Q5.9 | Skills scope in PI backend | **Write our `ai_skills` scope to PI's native `skills` setting** via `settingsManager.applyOverrides({ skills: [...] })` at turn start. Do not register slash commands or inject prompts (PI native). `disabledSkills` is best-effort (see Open Question 5). |
+| Q5.10 | Compaction | **Adopt PI-native compaction** — hook `session_before_compact` with our prompt, let PI run the summarization with the active model. Remove the "Haiku always" fallback from PI path. |
+| Q5.11 | Session persistence | **Replace `SessionManager.inMemory()` with `SessionManager.create/open(sessionFile)`** — store `sessionFile` path per conversation (new column), pass to `createAgentSession`. Enables true resume across app restarts. |
+| Q5.12 | Approval UI strategy | **Custom `ctx.ui` adapter** (not RPC mode) — keep PI in-process, extend the existing `PiUIContext` class in `src/main/services/piUIContext.ts` to back all `confirm/select/input/editor` calls via our stream protocol. Aligns with current architecture, no subprocess overhead. |
 
 ---
 
@@ -57,12 +63,11 @@ Summarized from the brainstorming Q&A:
 src/
 ├── core/
 │   ├── services/
-│   │   ├── piExtensionBridge.ts          [NEW] bidirectional bridge
+│   │   ├── piExtensionBridge.ts          [NEW] typed facade (emit-style, no approvals)
 │   │   ├── guards/                        [NEW] pure policies
 │   │   │   ├── cwdGuard.ts                extracted from cwdHooks.ts
 │   │   │   ├── permissionPolicy.ts        extracted from canUseTool.ts
-│   │   │   ├── skillsResolver.ts          new
-│   │   │   └── usageExtractor.ts          new (multi-provider usage parsing)
+│   │   │   └── skillsResolver.ts          new — maps ai_skills scope → path list
 │   │   ├── hooks/                         [NEW or moved]
 │   │   │   └── hookRunner.ts              moved from src/main/ if needed
 │   │   ├── cwdHooks.ts                    unchanged behavior, imports guards/cwdGuard
@@ -70,17 +75,18 @@ src/
 │   │   └── streaming.ts                   unchanged
 │   └── db/
 │       └── migrations/
-│           └── v4_approval_timeout.ts     [NEW] adds ai_approvalTimeoutMs setting
+│           └── v4_pi_session_file.ts      [NEW] adds sessionFile column on conversations
 ├── main/
 │   └── services/
-│       └── streamingPI.ts                 [MODIFIED] push context + register bundled ext dir
+│       ├── streamingPI.ts                 [MODIFIED] extensionFactories closure + SessionManager.open + native compaction
+│       └── piUIContext.ts                 [EXTENDED] adapter methods for custom ctx.ui routing
 └── extensions/                            [NEW — excluded from Vite bundle]
     └── agent-desktop-parity/
         ├── package.json
-        ├── index.ts                       factory, composes modules
+        ├── index.ts                       default export: (pi, ctx) => void; composes modules
         ├── modules/
         │   ├── cwdGuard/{index.ts,*.test.ts}
-        │   ├── permissionModes/{index.ts,*.test.ts}
+        │   ├── permissionModes/{index.ts,*.test.ts}      uses PI's plan-mode example as base
         │   ├── skillsBridge/{index.ts,*.test.ts}
         │   ├── hooksSystem/{index.ts,*.test.ts}
         │   └── budgetTracker/{index.ts,*.test.ts}
@@ -91,39 +97,86 @@ src/
 
 1. `electron-vite.config.ts` copies `src/extensions/**` (as `.ts` source) to `out/extensions/`. PI compiles at load time via its own ts-node/esbuild.
 2. `electron-builder.yml` already includes `out/**` — no change.
-3. `streamingPI.ts` computes the bundled path:
-   ```ts
-   const bundledExtDir = path.join(app.getAppPath(), 'out/extensions/agent-desktop-parity')
-   ```
-4. The existing `pi_extensionsDir` user setting still takes effect — the user's directory is appended after the bundled one.
+3. `streamingPI.ts` resolves the bundled path and injects an `extensionFactories` closure (see §4).
 
 ### 3.3 Settings surface
 
 | Setting | Type | Cascadable | Default | Consumed by |
 |---|---|---|---|---|
-| `agent_parity_disabledModules` | `string[]` | yes | `[]` | `index.ts` factory (early-return per module if listed) |
-| `ai_approvalTimeoutMs` | `number` | yes | `0` (disabled) | `bridge.requestApproval`, `bridge.emitAskUser` |
+| `agent_parity_disabledModules` | `string[]` | yes | `[]` | Extension `index.ts` factory (early-return per module) |
 
-Settings `agent_parity_disabledModules` is exposed in `AISettings.tsx` under the `!isClaudeBackend` gate as a "PI Extension Modules" section with a toggle per module.
+Note: `ai_approvalTimeoutMs` from the original draft is **removed** (Q5.2 moot — `ctx.ui` methods accept `timeout` / `signal` parameters natively). Per-module settings that require DB migration will be declared in the corresponding phase's PR.
+
+Settings UI: `agent_parity_disabledModules` is exposed in `AISettings.tsx` under the `!isClaudeBackend` gate as a "PI Extension Modules" toggle list.
 
 ### 3.4 Principles (per CLAUDE.md)
 
-- **Barrel file discipline**: `extensions/agent-desktop-parity/index.ts` is the sole public entry.
-- **Deep module**: external interface is one factory function; internal complexity (five modules + shared types) is hidden.
-- **DRY on knowledge**: business policies live once in `guards/`; Claude and PI are thin adapters.
-- **New features = new modules**: no structural changes to Claude path.
-- **Abstraction at external boundaries**: the bridge is the seam between app core and extension package.
+- Barrel discipline, deep modules, DRY on knowledge, new features = new modules, abstraction at external boundaries (bridge + `extensionFactories` closure).
 
 ---
 
-## 4. Bridge Contract
+## 4. Wiring: `extensionFactories` closure + Bridge
 
 File: `src/core/services/piExtensionBridge.ts`.
 
-### 4.1 Context push/pull
+### 4.1 Context delivery via `extensionFactories` (PI-native)
+
+Per `packages/coding-agent/docs/sdk.md`, `DefaultResourceLoader` accepts an `extensionFactories` option: an array of functions receiving the extension `pi: ExtensionAPI` and returning (or awaiting) registrations.
+
+`streamingPI.ts` (simplified):
 
 ```ts
-export interface PendingExtensionContext {
+import extensionDefault from '<bundledPath>/index.ts'  // dynamic import at runtime
+import { createBridge, type ExtensionRuntimeContext } from '../../core/services/piExtensionBridge'
+
+// inside streamMessagePI(), before createAgentSession:
+const bridge = createBridge(conversationId, { chunkSender: sendChunk })
+const runtimeCtx: ExtensionRuntimeContext = {
+  version: 1,
+  conversationId,
+  aiSettings,
+  db,
+  bridge,
+}
+
+const resourceLoader = new pi.DefaultResourceLoader({
+  additionalExtensionPaths: [bundledExtDir, ...(userExtDir ? [userExtDir] : [])],
+  extensionFactories: [(piApi) => extensionDefault(piApi, runtimeCtx)],
+  ...
+})
+await resourceLoader.reload()
+```
+
+Extension entry (`src/extensions/agent-desktop-parity/index.ts`):
+
+```ts
+import type { ExtensionAPI } from '@mariozechner/pi-coding-agent'
+import type { ExtensionRuntimeContext } from '../../core/services/piExtensionBridge'
+import { initCwdGuard } from './modules/cwdGuard'
+import { initPermissionModes } from './modules/permissionModes'
+import { initSkillsBridge } from './modules/skillsBridge'
+import { initHooksSystem } from './modules/hooksSystem'
+import { initBudgetTracker } from './modules/budgetTracker'
+
+export default function (pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
+  const disabled = new Set(ctx.aiSettings.agent_parity_disabledModules ?? [])
+  if (!disabled.has('cwd-guard'))       initCwdGuard(pi, ctx)
+  if (!disabled.has('permission-modes'))initPermissionModes(pi, ctx)
+  if (!disabled.has('skills-bridge'))   initSkillsBridge(pi, ctx)
+  if (!disabled.has('hooks-system'))    initHooksSystem(pi, ctx)
+  if (!disabled.has('budget-tracker'))  initBudgetTracker(pi, ctx)
+}
+```
+
+**Benefits over push/consume:**
+- No module-level state, no concurrency concerns, no `version` handshake needed (TypeScript signature is the contract)
+- Each session's ResourceLoader carries its own closure — perfect isolation
+- Documented idiom, not a workaround
+
+### 4.2 Bridge facade (simplified)
+
+```ts
+export interface ExtensionRuntimeContext {
   version: 1
   conversationId: number
   aiSettings: AISettings
@@ -131,53 +184,45 @@ export interface PendingExtensionContext {
   bridge: PiExtensionBridge
 }
 
-let pending: PendingExtensionContext | null = null
-
-export function setPendingExtensionContext(ctx: PendingExtensionContext): void {
-  if (pending !== null) {
-    console.warn('[piExtensionBridge] overwriting unconsumed pending context')
-  }
-  pending = ctx
-}
-
-export function consumePendingExtensionContext(): PendingExtensionContext | null {
-  const ctx = pending
-  pending = null
-  return ctx
-}
-```
-
-- **Simple field** (not stack) — sequential `await resourceLoader.reload()` in `streamingPI.ts` guarantees `push → load → consume` ordering for a single turn.
-- **`console.warn` on overwrite** — surfaces the bug where a dev forgot to `await` between two turns.
-- **`version: 1`** — breaking changes bump this; extension can fail-fast on mismatch.
-
-### 4.2 Bridge facade
-
-```ts
 export interface PiExtensionBridge {
+  /** Emit a system message chunk to the UI stream. */
   emitSystemMessage(content: string, meta?: { hookName?: string; hookEvent?: string }): void
-  requestApproval(toolName: string, toolInput: unknown, reason: string): Promise<ToolApprovalResponse>
-  emitAskUser(question: string, options?: { choices?: string[]; placeholder?: string }): Promise<string | undefined>
+
+  /** Task-notification-style chunk. */
   emitTaskNotification(summary: string, meta?: { taskId?: string; status?: string; outputFile?: string }): void
+
+  /** MCP status chunk. */
   emitMcpStatus(servers: Array<{ name: string; status: string; error?: string }>): void
-  recordTokenUsage(usage: UsageRecord): void
+
+  /** Record turn usage (extension reads AssistantMessage.usage directly from PI events). */
+  recordTokenUsage(usage: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; costUsd?: number }): void
+
+  /** Read accumulated usage for budget decisions. */
   getAccumulatedUsage(): { totalTokens: number; totalCostUsd: number }
 }
 
 interface BridgeDeps {
   chunkSender: (type: string, content?: string, extra?: Record<string, unknown>) => void
-  registerPending: (id: string, resolve: (value: unknown) => void, conversationId: number) => void
-  approvalTimeoutMs?: number  // 0 or undefined = no timeout
 }
 
 export function createBridge(conversationId: number, deps: BridgeDeps): PiExtensionBridge
 ```
 
-### 4.3 Invariants
+**Explicitly NOT in the bridge** (deferred to PI-native):
+- `requestApproval`, `emitAskUser` — routed via `ctx.ui.confirm/select/input/editor` and intercepted by our custom adapter on `PiUIContext` (see §4.3).
+- Multi-provider usage parsing — PI normalizes on `AssistantMessage.usage`.
 
-- Bridge functions **never throw**. Errors surface via Promise reject (for approval/ask-user) or are swallowed silently (for fire-and-forget emits).
-- Bridge state (`accumulated`) is closure-scoped to the conversation — two concurrent conversations have two independent bridges.
-- `requestApproval` with `approvalTimeoutMs > 0`: auto-resolves with `{ behavior: 'deny', message: 'Approval timeout' }` after timeout. Pending entry is cleaned up.
+### 4.3 Custom `ctx.ui` adapter via `PiUIContext`
+
+Our existing `src/main/services/piUIContext.ts` already implements the PI `ExtensionUIContext` interface (select/confirm/input/editor/notify/setStatus/setWidget) and routes them via `pi:uiRequest`/`pi:uiResponse` IPC channels to the renderer. Extension modules call `ctx.ui.confirm("Allow write to /etc/passwd?")` — our adapter handles the rest.
+
+For Phase 2 (`permissionModes`), the only extension work is calling `ctx.ui.confirm/select` as documented. No new protocol. A small renderer task in this phase: polish the `pi:uiRequest` modal UI to match Claude's tool-approval affordances.
+
+### 4.4 Invariants
+
+- Bridge functions **never throw**
+- Bridge state (`accumulated`) is closure-scoped per conversation
+- Extension entry `default(pi, ctx)` is synchronous or returns a Promise that awaits any async init (PI handles both)
 
 ---
 
@@ -194,266 +239,306 @@ export function createBridge(conversationId: number, deps: BridgeDeps): PiExtens
 | Bridge calls | `emitSystemMessage` |
 | No-op if | `!cwdRestrictionEnabled` |
 
-Handles `Write`, `Edit`, `Bash`. Relative paths resolved against `cwd`. Symlinks not resolved (same policy as Claude path).
+Align with PI's `protected-paths.ts` example (`packages/coding-agent/examples/extensions/protected-paths.ts`) — same `tool_call` + `{ block, reason }` idiom. Handles `write`, `edit`, `bash`. Relative paths resolved against `cwd`. Symlinks not resolved (matches Claude's policy).
 
-### 5.2 `permissionModes`
+### 5.2 `permissionModes` (based on PI's `plan-mode` example)
 
 | Field | Value |
 |---|---|
-| Responsibility | Implement the five permission modes + plan-mode exit |
-| PI events | `tool_call` |
-| Tools registered | `exitPlanMode` (custom tool) |
-| Settings read | `permissionMode`, `requirePlanApproval`, `ai_approvalTimeoutMs` |
+| Responsibility | Implement 5 permission modes + plan-mode exit, based on PI's reference `plan-mode/` example |
+| Base | `packages/coding-agent/examples/extensions/plan-mode/{index.ts, utils.ts}` — forked, not redesigned |
+| PI events | `tool_call` (consumed), also uses `setActiveTools` for plan mode read-only switch |
+| Tools registered | `exit_plan_mode` (from PI's example, adapted) |
+| Settings read | `permissionMode`, `requirePlanApproval` |
 | Core imports | `guards/permissionPolicy.shouldRequireApproval` |
-| Bridge calls | `requestApproval` |
+| UI calls | `ctx.ui.confirm`, `ctx.ui.select` (native PI, via our custom adapter) |
 | Internal state | `approvalCache: Map<string,boolean>` (for `dontAsk` mode), `planModeActive: boolean` |
 
-Modes:
-- `bypassPermissions`: allow all
-- `acceptEdits`: auto-approve edits, require approval for bash
-- `default`: require approval for write/edit/bash
-- `dontAsk`: like default but caches decisions by `(toolName, inputHash)`
-- `plan`: block all mutating tools, only reads allowed; `exitPlanMode` tool sets `planModeActive = false` (with optional approval via `requirePlanApproval`)
+Modes (on top of PI's plan-mode base):
+- `bypassPermissions`: allow all, `tool_call` returns undefined
+- `acceptEdits`: auto-approve edits, `ctx.ui.confirm` for bash
+- `default`: `ctx.ui.confirm(reason)` for write/edit/bash
+- `dontAsk`: like default but caches decisions by `(toolName, hashInput(input))`
+- `plan`: fork PI's `plan-mode` behavior — `setActiveTools(['read', 'grep', 'find', ...])` to block mutations, `exit_plan_mode` tool flips the flag and restores full tools (with optional `ctx.ui.confirm` gated by `requirePlanApproval`)
 
-`planModeActive` is session-scoped (`let` in closure), not a static setting.
-
-### 5.3 `skillsBridge`
+### 5.3 `skillsBridge` (native settings writer)
 
 | Field | Value |
 |---|---|
-| Responsibility | Map our `ai_skills` setting to PI's `resources_discover` event; expose `disabledSkills` filtering |
-| PI events | `resources_discover` |
-| Commands registered | **None** — PI natively registers `/skill:name` commands for each discovered `SKILL.md`. We do not duplicate. |
+| Responsibility | Map our `ai_skills` scope to PI's native `skills` setting array |
+| Events | None (runs at factory init) |
 | Settings read | `skills` (off/user/project/local), `skillsEnabled`, `disabledSkills`, `cwd` |
-| Core imports | `guards/skillsResolver.getSkillPaths(cwd, scope)`, `filterDisabledSkills` |
-| Bridge calls | — |
+| Core imports | `guards/skillsResolver.getSkillPaths(cwd, scope)` |
+| PI API used | `pi.settingsManager.applyOverrides({ skills: [...] })` (per `sdk.md` §"Settings Management") |
 
-**What this module does:**
-1. Early-return no-op if `skills === 'off'` or `skillsEnabled === false`. (Users can also rely on PI's native `--no-skills` flag for total disable.)
-2. On `resources_discover`, return `{ skillPaths: getSkillPaths(cwd, scope) }`:
-   - `user` → `[~/.claude/skills, ~/.claude/plugins/*/skills]`
-   - `project` → user paths + `[<cwd>/.claude/skills, <cwd>/.claude/plugins]`
-   - `local` → project paths + `[<cwd>/.claude.local]`
-3. `disabledSkills` filtering: PI does not expose a hook for filtering already-discovered skills. v1 approach: post-discovery, iterate `pi.getCommands()` for entries with `source: 'skill'` and unregister (or mark inactive) ones matching `disabledSkills`. If PI does not support unregistering slash commands, this is documented as a partial limitation (see open question 5).
+At factory init, write the paths corresponding to our scope into PI's in-memory settings. PI handles the rest natively (discovery, `/skill:name` commands, system-prompt XML injection, on-demand load).
 
-**What this module intentionally does NOT do:**
-- Register slash commands for skills (PI does this natively)
-- Inject SKILL.md content into prompts (PI does this natively via system-prompt XML)
-- Implement on-demand SKILL.md loading (PI does this natively via its `read` tool)
+```ts
+if (!ctx.aiSettings.skills || ctx.aiSettings.skills === 'off' || ctx.aiSettings.skillsEnabled === false) {
+  pi.settingsManager.applyOverrides({ skills: [] })  // explicit empty disables
+  return
+}
+const paths = getSkillPaths(ctx.aiSettings.cwd ?? process.cwd(), ctx.aiSettings.skills)
+pi.settingsManager.applyOverrides({ skills: paths })
+```
 
-Discovery happens once per turn at factory load time. Changes to `disabledSkills` mid-turn take effect on the next turn.
+`disabledSkills` filtering: see Open Question 5 — no PI-native hook; best-effort via `pi.getCommands()` + attempted unregister. If PI exposes no unregister for skill-registered commands, we document the gap and fall back to emitting a system message at turn start listing the skills that will still be visible to the agent.
 
-### 5.4 `hooksSystem`
+### 5.4 `hooksSystem` (config-file adapter on top of PI events)
 
 | Field | Value |
 |---|---|
-| Responsibility | Execute user-defined hooks + webhook completion |
-| PI events | `input`, `tool_call`, `tool_result`, `before_agent_start`, `agent_end` |
+| Responsibility | Run user-defined hooks from `~/.claude/settings.json` (shared) or `~/.agent-desktop/hooks.json`, bridge their output to PI events |
+| PI events | `input`, `tool_call`, `tool_result`, `session_start` (reason:"startup"), `agent_end` |
 | Settings read | `sharedHooks`, `webhookCompletionUrl`, `cwd` |
-| Core imports | `hooks/hookRunner.runHooks` |
+| Core imports | `hooks/hookRunner.runHooks` (moved to core if not already) |
 | Bridge calls | `emitSystemMessage` |
 
-Hook types:
-- `UserPromptSubmit` → `input` event
-- `PreToolUse` → `tool_call` event (can return `{ block: true, reason }` if hook says deny)
-- `PostToolUse` → `tool_result` event
-- `SessionStart` → `before_agent_start` event (first turn only; tracked via closure flag)
-- `Stop` → `agent_end` event
+Reframe: this is **not** a hook system — PI has one. This is the app-side **config-file adapter** that translates our users' hook declarations (inherited from Claude setup) into calls against PI's native event API. Webhook completion is a single `fetch()` inside the `agent_end` handler (not a separate feature).
 
-Hook definitions loaded from `~/.claude/settings.json` if `sharedHooks === true`, else from `~/.agent-desktop/hooks.json`. Output parsed for `systemMessage` field (JSON); non-JSON output silently ignored (matches Claude behavior per CLAUDE.md).
-
-Webhook on `agent_end`: POST to `webhookCompletionUrl` with `{ conversationId, timestamp }`; `fetch` failures caught and logged, never affect the turn.
-
-### 5.5 `budgetTracker`
+### 5.5 `budgetTracker` (reads `AssistantMessage.usage`)
 
 | Field | Value |
 |---|---|
-| Responsibility | Accumulate tokens/cost; block tool calls when `maxBudgetUsd` exceeded |
-| PI events | `after_provider_response`, `tool_call` |
+| Responsibility | Accumulate tokens/cost from PI's normalized `Usage`; block `tool_call` when `maxBudgetUsd` exceeded |
+| PI events | `message_end` (reads `message.usage`), `tool_call` (enforces cap) |
 | Settings read | `maxBudgetUsd` |
-| Core imports | `guards/usageExtractor.extractUsageFromResponse` |
 | Bridge calls | `recordTokenUsage`, `getAccumulatedUsage`, `emitSystemMessage` |
 | No-op if | `!maxBudgetUsd` or `maxBudgetUsd === 0` |
 
-`usageExtractor` handles Anthropic (`usage.input_tokens/output_tokens/cache_*`), OpenAI (completions/chat/responses `usage.prompt_tokens/completion_tokens`), Groq (OpenAI-compatible), Cohere (`meta.billed_units`), Together (OpenAI-compatible). Each provider maps to a common `UsageRecord { input, output, cache_read, cache_creation, costUsd }`. Cost computed from model pricing table (or provider-reported `cost` field if present).
+PI normalizes `Usage` across Anthropic/OpenAI/Groq/Cohere/Together in `AssistantMessage.usage` (`input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`, `cost: { total, ... }`). No custom extractor needed. The module reads directly:
+
+```ts
+pi.on('message_end', (event) => {
+  const msg = event.message
+  if (msg.role === 'assistant' && msg.usage) {
+    ctx.bridge.recordTokenUsage({
+      input: msg.usage.input,
+      output: msg.usage.output,
+      cacheRead: msg.usage.cacheRead,
+      cacheWrite: msg.usage.cacheWrite,
+      costUsd: msg.usage.cost?.total,
+    })
+  }
+})
+
+pi.on('tool_call', (event) => {
+  const { totalCostUsd } = ctx.bridge.getAccumulatedUsage()
+  if (totalCostUsd >= ctx.aiSettings.maxBudgetUsd!) {
+    ctx.bridge.emitSystemMessage(`Budget cap $${ctx.aiSettings.maxBudgetUsd} reached ($${totalCostUsd.toFixed(4)})`, { hookName: 'budget-tracker', hookEvent: 'PreToolUse' })
+    return { block: true, reason: 'Budget cap exceeded' }
+  }
+})
+```
 
 ---
 
-## 6. Data Flow
+## 6. Streaming-PI wiring additions (not extensions)
 
-### 6.1 Happy path — write inside CWD
+Two changes to `streamingPI.ts` that complement the extension but live in app code because they concern session lifecycle, not per-turn hooks.
+
+### 6.1 Native compaction adoption (Phase 6)
+
+Today our `/compact` command forces a Claude Haiku summarization regardless of backend (cf. CLAUDE.md gotcha and MEMORY.md note). PI natively supports compaction per `packages/coding-agent/docs/compaction.md`: threshold-based trigger (`reserveTokens`, `keepRecentTokens` settings), `ctx.compact()` API, `session_before_compact` event exposing `preparation.messagesToSummarize` / `turnPrefixMessages` / `previousSummary` / `fileOps`, structured `CompactionEntry` persisted in session, cumulative file tracking across compactions.
+
+**Plan:**
+- Remove the "Haiku always in PI mode" fallback from the `/compact` handler.
+- In PI mode, invoke `session.compact()` (or equivalent PI API) — let PI run summarization with the active model.
+- Optionally: hook `session_before_compact` to inject our custom summary prompt template (`ai_compactSummaryPrompt` setting) if set.
+- Update `CLAUDE.md` gotcha entry.
+
+### 6.2 Persistent session (Phase 7)
+
+Today `streamingPI.ts:230` uses `SessionManager.inMemory()` — no persistence, no resume.
+
+PI documents `SessionManager.create(cwd)`, `SessionManager.open(path)`, `SessionManager.continueRecent(cwd)`, JSONL persistence at `~/.pi/agent/sessions/--<path>--/<timestamp>_<uuid>.jsonl`, plus tree API (`getTree`, `getBranch`, `branch`, `fork`, `clone`, `navigate`).
+
+**Plan:**
+- DB migration v4: add `pi_session_file TEXT` column on `conversations`.
+- In `streamMessagePI`:
+  - First turn of a conversation → `SessionManager.create(cwd)`, capture `.filepath`, write to `pi_session_file`.
+  - Subsequent turns → `SessionManager.open(pi_session_file)`.
+  - On corruption/file-missing → fall back to `SessionManager.create`, clear the column (same resilience pattern as the Claude path's `sdk_session_id` retry).
+- Map our `/clear` command to `SessionManager.create` (new file), keeping the old session file on disk for audit.
+
+Both changes are **orthogonal to the extension** but shipped in this spec because they complete the parity story.
+
+---
+
+## 7. Data Flow
+
+### 7.1 Happy path — write inside CWD (with `ctx.ui.confirm`)
 
 ```
 User sends message
   → streamingPI.streamMessagePI()
-    → setPendingExtensionContext({ version:1, convId:42, aiSettings, db, bridge })
+    → bridge = createBridge(42, { chunkSender: sendChunk })
+    → runtimeCtx = { version:1, conversationId:42, aiSettings, db, bridge }
+    → resourceLoader = new DefaultResourceLoader({ extensionFactories: [(pi) => extensionDefault(pi, runtimeCtx)], ... })
     → resourceLoader.reload()
-      → agent-desktop-parity factory executes
-        → consumePendingExtensionContext() returns ctx
-        → initCwdGuard, initPermissionModes, ..., initBudgetTracker
+      → extensionDefault(piApi, runtimeCtx)
+        → initCwdGuard(pi, ctx); initPermissionModes(pi, ctx); ...
+    → SessionManager.open(pi_session_file) or create(cwd)
     → session.prompt(userMessage)
       → PI emits tool_call {toolName:'write', input:{path:'/project/foo.ts'}}
         → cwdGuard: allowed → undefined
-        → permissionModes: mode==='default' → requestApproval(...)
-          → bridge.requestApproval()
-            → chunkSender('tool_approval_request', ..., {requestId, toolName, toolInput})
-              → IPC to renderer → ApprovalPrompt UI
-            → registerPending(id, resolve, 42)
-            → Promise pending
-          → User clicks Allow → IPC respondToApproval(id, {behavior:'allow'}) → resolve
+        → permissionModes: mode==='default' → await ctx.ui.confirm("Allow write to /project/foo.ts?")
+          → PiUIContext routes via pi:uiRequest to renderer
+          → User clicks Allow → pi:uiResponse resolves the promise
           → permissionModes returns undefined (allow)
-        → hooksSystem: PreToolUse hooks run, no block
-        → budgetTracker: totalCost < max → undefined
-      → PI executes the write, emits tool_result
-      → hooksSystem: PostToolUse hooks fire, may emit system_message
+        → hooksSystem: PreToolUse hooks run
+        → budgetTracker: totalCost < cap → undefined
+      → PI executes the write, emits message_end with usage
+        → budgetTracker accumulates usage via bridge
+      → tool_result → hooksSystem PostToolUse
 ```
 
-### 6.2 Block path — write outside CWD
+### 7.2 Block — write outside CWD
 
 ```
 tool_call → cwdGuard: isPathAllowedForWrite('/etc/passwd') = { allowed: false, reason }
   → bridge.emitSystemMessage('Write blocked: ...', { hookName:'cwd-guard', hookEvent:'PreToolUse' })
   → return { block: true, reason }
-PI short-circuits subsequent handlers. Synthesizes a tool_result of "Blocked by extension".
+PI short-circuits subsequent handlers and synthesizes a "Blocked by extension" tool_result.
 ```
 
-### 6.3 Budget exceeded
+### 7.3 Plan mode exit
 
 ```
-after_provider_response → extractUsageFromResponse → bridge.recordTokenUsage({..., costUsd: 0.03})
-accumulated.totalCostUsd grows turn by turn.
-Next tool_call → budgetTracker: totalCostUsd > maxBudgetUsd
-  → emitSystemMessage('Budget cap reached ...')
-  → return { block: true, reason }
+User sets permissionMode='plan'
+  → permissionModes init: setActiveTools(['read', 'grep', 'find', 'ls', ...])   // read-only subset
+  → Agent proposes plan, calls exit_plan_mode
+  → permissionModes: if requirePlanApproval, await ctx.ui.confirm('Exit plan mode and make changes?')
+  → On approve: setActiveTools([...originalTools]); planModeActive = false; return success
 ```
 
-### 6.4 Concurrent conversations
+### 7.4 Concurrent conversations
 
-Each call to `streamMessagePI` creates its own ResourceLoader, pushes its own context, loads a fresh extension instance with its own closure. No shared module-level state. Stack is not needed because `await resourceLoader.reload()` enforces sequential push/consume per call.
+Each call to `streamMessagePI` builds its own `ExtensionRuntimeContext` (closure) and its own `ResourceLoader`. No shared module-level state. PI loads a fresh extension instance per ResourceLoader. Perfect isolation.
 
 ---
 
-## 7. Error Handling
+## 8. Error Handling
 
 | Scenario | Behavior | Owner |
 |---|---|---|
-| `consumePendingExtensionContext()` returns null | Factory returns early, no handlers registered | `extensions/.../index.ts` |
-| Factory throws | PI catches, logs, session continues without the extension | PI SDK (documented) |
-| `tool_call` handler throws | PI fail-safe blocks the tool | PI SDK — we avoid throws, always return explicit `{ block, reason }` |
-| `bridge.requestApproval` never resolves (user never answers) | Timeout auto-deny after `ai_approvalTimeoutMs` if set; otherwise indefinite until conversation abort | `piExtensionBridge` |
-| `abortStream` during pending approval | `pendingRequests` entries auto-resolve with `{ behavior: 'deny', message: 'Request cancelled' }` (existing core logic) | `core/streaming.ts` |
-| `bridge.emitSystemMessage` after conv finished | `sendChunk` forwards anyway; renderer ignores stale convIds | `core/streaming.ts` (existing) |
-| Webhook fetch fails | Caught, logged, turn unaffected | `hooksSystem` module |
-| Hook runner throws or times out | `runHooks` catches, returns `[]` | `hookRunner.ts` |
+| Extension factory throws | PI catches, logs, session continues without the extension | PI SDK |
+| `tool_call` handler throws | PI fail-safe blocks the tool | Modules avoid throws; always return explicit `{block, reason}` or undefined |
+| `ctx.ui.confirm` never answered | Either timeout (if passed) or indefinite until conversation abort | PI + our `PiUIContext` |
+| `abortStream` during pending UI | `PiUIContext.dispose()` resolves all pending with `undefined`/`false` (already implemented) | `piUIContext.ts` (existing) |
+| `bridge.emitSystemMessage` after conv finished | `sendChunk` forwards; renderer ignores stale convIds | `core/streaming.ts` (existing) |
+| Webhook fetch fails | Caught, logged, turn unaffected | `hooksSystem` |
+| Hook runner throws/times out | `runHooks` catches, returns `[]` | `hookRunner.ts` |
 | Bundled extension dir missing | PI logs "no extensions", session continues | `streamingPI.ts` |
-| `aiSettings.cwd` undefined | Fallback to `process.cwd()` | `cwdGuard` module |
-| `db` in ctx null | v1 modules do not re-query DB, so this is tolerated | — |
+| `pi_session_file` points to corrupted file | `SessionManager.open` throws → fallback `SessionManager.create`, clear column | `streamingPI.ts` §6.2 |
+| `pi.settingsManager.applyOverrides` throws | Caught, logged, skills fall back to PI defaults | `skillsBridge` |
+| PI command-unregister API missing for `disabledSkills` | Emit warning system_message at turn start, user informed | `skillsBridge` (Open Q5) |
 
-**Invariant**: no module throws unhandled. Every failure path is either caught and logged, or converted to a typed return.
+**Invariant**: no module throws unhandled. Every failure path is caught or typed.
 
 ---
 
-## 8. Testing Strategy
+## 9. Testing Strategy
 
-### 8.1 Layers
+### 9.1 Layers
 
 | Level | Target | Tool |
 |---|---|---|
-| 0 | Pure policies (`guards/*`, `usageExtractor`) | Vitest, table-driven |
-| 1 | Bridge (`createBridge`, push/consume) | Vitest with mocked callbacks |
+| 0 | Pure policies (`guards/*`) | Vitest, table-driven |
+| 1 | Bridge (`createBridge`) + `PiUIContext` adapter | Vitest with mocked callbacks |
 | 2 | Each module in isolation | Vitest with mocked `pi` event registry + minimal ctx |
-| 3 | Integration: `streamingPI` + loaded extension + real PI subprocess | Vitest with spawned `pi-coding-agent` harness |
-| 4 | Invariants: push/consume ordering, isolation | Vitest |
+| 3 | Integration: real PI subprocess + loaded extension | Vitest + `pi-coding-agent` spawn harness |
+| 4 | `streamingPI` wiring (session persistence, compaction) | Vitest integration tests against real sqlite temp DB |
 
-Coverage targets: **≥ 85% lines, ≥ 75% branches** for extension modules and guards (above project default of 70/60).
+Coverage targets: **≥ 85% lines, ≥ 75% branches** for extension modules and guards.
 
-### 8.2 Integration test approach
+### 9.2 Integration approach
 
-Integration tests spawn a **real PI process** via `pi-coding-agent` and feed it scripted prompts. The extension is loaded from the source tree (not a compiled asar). The test observes `sendChunk` calls by injecting a capturing `chunkSender` via `setChunkSender`. Slower (~seconds per test) but catches wiring bugs the mocks would miss.
-
-### 8.3 Manual smoke per phase
-
-After each module ships:
-1. Launch app with PI backend selected.
-2. Trigger the module's intended behavior (e.g., ask PI to write `/etc/passwd` for cwdGuard).
-3. Verify stream chunks in DevTools + UI rendering in ChatView.
-4. Toggle the module off via `agent_parity_disabledModules` — behavior disappears, no crash.
+Integration tests spawn a real `pi-coding-agent` process, feed scripted prompts, inject a capturing `chunkSender` via `setChunkSender`, and assert the resulting chunk sequence. Slower (~seconds/test) but catches wiring bugs mocks miss. 2–3 key tests minimum per phase; fall back to mocked harness if CI time becomes painful.
 
 ---
 
-## 9. Phasing
+## 10. Phasing
 
-Six sequential PRs. Each is independently mergeable.
+Seven sequential PRs. Each independently mergeable.
 
-### Phase 0 — Infrastructure (~400 lines code + tests)
-- `piExtensionBridge.ts` (push/consume + `createBridge`)
-- `guards/` extraction (`cwdGuard`, `permissionPolicy`, `skillsResolver`, `usageExtractor`)
-- `streamingPI.ts` wiring (push context, append bundled path)
-- `src/extensions/agent-desktop-parity/` scaffold (package.json, no-op index.ts, shared/types.ts)
-- `electron-vite.config.ts` copy rule for `src/extensions/**` → `out/extensions/`
-- Tests: level 0 (policies), level 1 (bridge), level 4 (invariants)
+### Phase 0 — Infrastructure (~350 lines code + tests)
+- `piExtensionBridge.ts` (no push/consume — just `createBridge` + types + `ExtensionRuntimeContext`)
+- `guards/` extraction (`cwdGuard`, `permissionPolicy`, `skillsResolver`)
+- `streamingPI.ts` wiring: `extensionFactories` closure
+- `src/extensions/agent-desktop-parity/` scaffold (package.json, no-op index.ts with default export, shared/types.ts)
+- `electron-vite.config.ts` copy rule
+- Tests: level 0 (policies), level 1 (bridge), skeleton integration test
 
 ### Phase 1 — `cwdGuard` (~150 lines)
-- Module + level 2 tests
-- Integration test: block write outside CWD
+- Module + level 2 tests + integration test
 
-### Phase 2 — `permissionModes` (~300 lines)
-- Five modes + `exitPlanMode` tool + approval cache
-- DB migration v4 adding `ai_approvalTimeoutMs`
-- Settings UI exposure in `AISettings.tsx` (under `!isClaudeBackend` gate) + `OverrideFormFields.tsx` with `piOnly: true` metadata entry
-- Tests: approval flow, cache, timeout behavior
+### Phase 2 — `permissionModes` based on PI's plan-mode (~200 lines)
+- Fork `plan-mode/` example into `modules/permissionModes/`; extend with 4 non-plan modes + approval cache
+- `PiUIContext` adapter polish for approval-style dialogs (small ChatView change if needed)
+- Tests: mode transitions, cache, plan-mode read-only lockdown
 
 ### Phase 3 — `hooksSystem` (~400 lines)
-- Optional move of `hookRunner.ts` to `src/core/services/hooks/`
-- Five hook points + webhook completion
+- Move `hookRunner.ts` to `src/core/services/hooks/` if needed
+- Five hook points + webhook on `agent_end`
 - Tests with mocked `child_process`
 
-### Phase 4 — `skillsBridge` (~80 lines)
-- `resources_discover` handler contributing `.claude/skills/` paths mapped from `ai_skills` scope
-- `disabledSkills` post-discovery filtering (best effort — see open question 5)
-- Tests with fake fs, asserts correct paths contributed per scope
+### Phase 4 — `skillsBridge` (~50 lines)
+- `settingsManager.applyOverrides({ skills: paths })` at factory init
+- `disabledSkills` best-effort (document limitation if PI lacks command unregister)
+- Tests: path list per scope, empty for `off`
 
-### Phase 5 — `budgetTracker` (~350 lines, may be deferred)
-- `usageExtractor` table for 5+ providers
-- Accumulator + block logic
-- Tests per provider
+### Phase 5 — `budgetTracker` (~150 lines, may be deferred)
+- `message_end` accumulator + `tool_call` cap check (no multi-provider extractor)
+- Tests: usage accumulation, block threshold
 
-**Total**: ~1680 lines code + ~2000 lines tests.
+### Phase 6 — Native compaction adoption (~200 lines)
+- Remove Haiku fallback for PI backend in `/compact` handler
+- Wire `session.compact()` API
+- Optional `session_before_compact` hook for custom summary prompt
+- Update CLAUDE.md gotcha
+- Tests: compaction triggers, result persists in session
+
+### Phase 7 — Persistent PI session (~250 lines)
+- DB migration v4: `pi_session_file TEXT` column
+- `streamingPI.ts`: `SessionManager.create` on first turn, `SessionManager.open` on subsequent
+- Corrupted-file fallback (mirror Claude's `sdk_session_id` retry)
+- `/clear` maps to new-session-file
+- Tests: create, resume, corrupted-fallback, `/clear` behavior
+
+**Total**: ~1750 lines code + ~2000 lines tests. Lines are similar to pre-audit despite module simplifications because Phases 6 and 7 were added.
 
 ### Per-phase completion criteria
 
-- Tests at the appropriate level pass, coverage thresholds met
-- `npm run build` clean
-- `npm test` no regression
+- Tests at appropriate level pass, coverage thresholds met
+- `npm run build` clean, `npm test` no regression
 - Manual smoke passes
-- CHANGELOG updated; `CLAUDE.md` updated if a new gotcha surfaces
+- CHANGELOG + CLAUDE.md updated for new gotchas
 
 ---
 
-## 10. Out of Scope
+## 11. Out of Scope
 
-The following are explicitly **not** in this spec and would require separate specs:
-
-- **Session resume** for PI (currently `SessionManager.inMemory()`). Would require persistent session manager + schema extension in `streamingPI.ts`.
-- **Exact SDK-native usage/cost streaming** (as opposed to estimated via `usageExtractor`). Would need a separate bridge event from the extension back to `streamingPI.ts` for live `usage` chunks.
-- **Claude path migration to the same extension system**. Extension consumes Claude's policies; Claude does not consume PI's extension. Unifying would be a follow-up refactor.
-- **AskUserQuestion tool as a custom PI tool**. Already covered partially by `bridge.emitAskUser`; a proper custom tool wrapper (with schema validation) can be added in a v1.1.
-- **MCP migration from `syncPiMcpForProject` into the extension**. Deemed setup-time (not runtime hook), stays in `streamingPI.ts`.
+- **Claude path migration to the same extension system** — the extension consumes Claude policies; Claude path structure stays.
+- **MCP migration from `syncPiMcpForProject` into the extension** — stays in `streamingPI.ts` (setup time, not runtime hook).
+- **Upstream PI changes** (e.g. a `skills_filter` event for our `disabledSkills` case) — pursued via issue/PR to `pi-mono`, not blocking this spec.
+- **Custom `AskUserQuestion` tool wrapper** — `ctx.ui.*` covers the runtime need. A dedicated tool with schema validation can land post-v1.
 
 ---
 
-## 11. Open Questions / Risks
+## 12. Open Questions / Risks
 
-1. **Real PI process integration tests are slow.** If CI time becomes painful, fall back to a curated mock harness for most tests and keep 2-3 real-PI tests as smoke.
-2. **`pi-coding-agent` version pinning.** Currently `^0.55.1`. Breaking changes in PI's event shape or `ExtensionAPI` contract would require extension updates. Strategy: pin to an exact version in `package.json`, bump deliberately.
-3. **Shared-code pattern for extensions.** The extension imports from `src/core/services/*` via relative paths. Since the extension is bundled as `.ts` and compiled by PI at load time, the import paths must resolve at runtime. This works for same-app bundling but would not work for an external npm-published extension — which is acceptable because Q1 decided on bundled-only.
-4. **`settings_sharedAcrossBackends` semantics for hooks.** Need confirmation that the user-level hooks config path (`~/.claude/settings.json` vs `~/.agent-desktop/hooks.json`) is right. May require adjustment during Phase 3.
-5. **`exitPlanMode` UX.** Claude natively has plan mode semantics recognized by the UI. For PI, the UI needs to detect the `exitPlanMode` custom tool and show similar affordances. May require a small ChatView change in Phase 2.
-6. **Bridge API stability.** The bridge is a public contract between app core and extension package. Future breaking changes (e.g., renaming `emitSystemMessage`) will silently break the bundled extension at runtime. Mitigation: `version: 1` field in `PendingExtensionContext`, typed tests.
-7. **`disabledSkills` filtering in `skillsBridge`.** PI registers `/skill:name` commands automatically during its resource-discovery phase; there is no documented hook to veto individual skills. The extension attempts post-discovery unregistration of matching commands, but `ExtensionAPI` may not expose an unregister method for commands it did not register. If it does not, the fallback is to emit a system message at turn start listing the skills the user *thinks* are disabled but are still visible to the agent, and document the caveat. Long-term: propose an upstream `skills_filter` or `before_command_register` event to `pi-coding-agent`.
+1. **Real PI subprocess integration tests are slow.** Fall back to curated mock harness if CI time suffers; keep 2–3 real-PI tests as smoke.
+2. **`pi-coding-agent` version pinning.** Currently `^0.55.1`. Event shape or `ExtensionAPI` breaking changes require extension updates. Pin exact version, bump deliberately.
+3. **Shared-code imports from `src/core/services/*`.** Works for bundled extension (same app). Would not work for external npm publish — acceptable per Q1.
+4. **`settings_sharedAcrossBackends` path resolution for hooks.** Confirm during Phase 3 whether `~/.claude/settings.json` vs `~/.agent-desktop/hooks.json` is correct.
+5. **`disabledSkills` filtering in `skillsBridge`.** PI does not document an unregister method for skill-registered slash commands. v1 fallback: emit a system message listing undisabled skills. Long-term: propose upstream hook.
+6. **`PiUIContext` adapter completeness.** The existing class implements most of the `ExtensionUIContext` interface. Audit during Phase 2 that all methods used by PI's `plan-mode` example are covered; extend as needed.
+7. **Compaction with custom prompt template.** Whether `session_before_compact` exposes enough to fully customize the summary is TBD during Phase 6 spike.
+8. **`/clear` semantics on PI sessions.** New session file (preserves history on disk) vs truncate existing (loses history). Recommend new-file; confirm during Phase 7.
 
 ---
 
-## 12. Next Step
+## 13. Next Step
 
 Invoke the `writing-plans` skill to produce a detailed phase-by-phase implementation plan.
