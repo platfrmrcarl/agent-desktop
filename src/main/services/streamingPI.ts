@@ -1,4 +1,5 @@
 import { sendChunk, buildPromptWithHistory, abortControllers } from './streaming'
+import { sendChunk as coreSendChunk } from '../../core/services/streaming'
 import { loadPISdk } from './piSdk'
 import { PiUIContext } from './piUIContext'
 import { registerPiUIContext, unregisterPiUIContext } from './piExtensions'
@@ -9,6 +10,13 @@ import type { Static, TSchema } from '@sinclair/typebox'
 import type { AISettings } from './streaming'
 import type { ToolCall } from '../../shared/types'
 import type { AgentToolResult } from '@mariozechner/pi-agent-core'
+import { app } from 'electron'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createBridge, type ExtensionRuntimeContext } from '../../core/services/piExtensionBridge'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // Tool parameters schema for scheduler tool
 const SchedulerToolParams = /* #__PURE__ */ (() =>
@@ -200,12 +208,36 @@ export async function streamMessagePI(
 
     // Build resource loader with extension filtering
     const disabledPaths = new Set(aiSettings?.piDisabledExtensions || [])
+
+    // Bundled extension path: dev uses source tree, packaged uses out/extensions
+    const bundledExtRoot = app.isPackaged
+      ? path.join(app.getAppPath(), 'out/extensions/agent-desktop-parity')
+      : path.resolve(__dirname, '../../../src/extensions/agent-desktop-parity')
+
+    // Runtime context handed to the bundled extension via extensionFactories closure
+    const extensionBridge = createBridge(conversationId ?? -1, { chunkSender: coreSendChunk })
+    const runtimeCtx: ExtensionRuntimeContext = {
+      version: 1,
+      conversationId: conversationId ?? -1,
+      aiSettings: aiSettings ?? ({} as AISettings),
+      db: null,  // Phase 0: modules do not query DB; set from injected dependency in Phase 3+
+      bridge: extensionBridge,
+    }
+
+    // Dynamic import of the bundled extension (path resolved per env via bundledExtRoot)
+    const bundledDefault = (await import(path.join(bundledExtRoot, 'index.ts'))).default as
+      (piApi: unknown, ctx: ExtensionRuntimeContext) => void | Promise<void>
+
     const resourceLoader = new pi.DefaultResourceLoader({
       cwd: aiSettings?.cwd || process.cwd(),
       noSkills: true,
       noPromptTemplates: true,
       noThemes: true,
-      ...(aiSettings?.piExtensionsDir ? { additionalExtensionPaths: [aiSettings.piExtensionsDir] } : {}),
+      additionalExtensionPaths: [
+        bundledExtRoot,
+        ...(aiSettings?.piExtensionsDir ? [aiSettings.piExtensionsDir] : []),
+      ],
+      extensionFactories: [(piApi: unknown) => bundledDefault(piApi, runtimeCtx)],
       ...(disabledPaths.size > 0 ? {
         extensionsOverride: (result: { extensions: Array<{ resolvedPath: string }>; [k: string]: unknown }) => ({
           ...result,

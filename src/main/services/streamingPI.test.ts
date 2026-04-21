@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+vi.mock('electron', () => ({
+  app: { isPackaged: false, getAppPath: () => process.cwd() },
+}))
+
 const mockSendFn = vi.fn()
 vi.mock('../index', () => ({
   getMainWindow: vi.fn(() => ({
@@ -471,14 +475,19 @@ describe('streamMessagePI', () => {
       1
     )
 
-    expect((globalThis as Record<string, unknown>).__lastResourceLoaderOpts).toEqual(
+    const opts = (globalThis as Record<string, unknown>).__lastResourceLoaderOpts as Record<string, unknown>
+    expect(opts).toEqual(
       expect.objectContaining({
-        additionalExtensionPaths: ['/custom/extensions'],
         noSkills: true,
         noPromptTemplates: true,
         noThemes: true,
       })
     )
+    const paths = opts.additionalExtensionPaths as string[]
+    expect(paths).toHaveLength(2)
+    expect(paths[0]).toContain('agent-desktop-parity')
+    expect(paths[1]).toBe('/custom/extensions')
+    expect(typeof (opts.extensionFactories as unknown[])[0]).toBe('function')
   })
 
   it('passes resourceLoader to createAgentSession', async () => {
@@ -499,7 +508,7 @@ describe('streamMessagePI', () => {
     )
   })
 
-  it('does not include additionalExtensionPaths when piExtensionsDir is unset', async () => {
+  it('always includes bundled extension path in additionalExtensionPaths (piExtensionsDir unset)', async () => {
     await streamMessagePI(
       [{ role: 'user', content: 'Hi' }],
       undefined,
@@ -507,7 +516,11 @@ describe('streamMessagePI', () => {
       1
     )
 
-    expect((globalThis as Record<string, unknown>).__lastResourceLoaderOpts).not.toHaveProperty('additionalExtensionPaths')
+    const opts = (globalThis as Record<string, unknown>).__lastResourceLoaderOpts as Record<string, unknown>
+    const paths = opts.additionalExtensionPaths as string[]
+    expect(Array.isArray(paths)).toBe(true)
+    expect(paths).toHaveLength(1)
+    expect(paths[0]).toContain('agent-desktop-parity')
   })
 
   it('passes extensionsOverride callback when piDisabledExtensions is non-empty', async () => {
