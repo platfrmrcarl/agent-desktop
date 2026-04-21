@@ -1,8 +1,12 @@
 import type { ExtensionAPI, ExtensionRuntimeContext } from '../../shared/types'
 import { shouldRequireApproval, type PermissionMode } from '../../../../core/services/guards/permissionPolicy'
 import { createHash } from 'node:crypto'
+import { Type } from '@sinclair/typebox'
 
 const VALID_MODES = ['bypassPermissions', 'acceptEdits', 'default', 'dontAsk', 'plan'] as const
+
+const PLAN_READONLY_TOOLS = ['read', 'grep', 'find', 'ls']
+const DEFAULT_TOOLS = ['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write']
 
 function hashInput(input: unknown): string {
   return createHash('sha1').update(JSON.stringify(input ?? null)).digest('hex').slice(0, 16)
@@ -32,6 +36,35 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
 
   // bypassPermissions: no tool_call handler — default PI behavior allows everything.
   if (mode === 'bypassPermissions') return
+
+  // Plan mode: lock to read-only tools and register exit_plan_mode.
+  if (mode === 'plan') {
+    pi.setActiveTools(PLAN_READONLY_TOOLS)
+
+    const requireApproval = ctx.aiSettings.requirePlanApproval !== false
+
+    pi.registerTool({
+      name: 'exit_plan_mode',
+      label: 'Exit Plan Mode',
+      description: 'Exit plan-only mode and allow mutating tools (write, edit, bash). Call this when the user approves the plan and wants changes to be applied.',
+      parameters: Type.Object({}),
+      execute: async (_toolCallId, _params, _signal, _onUpdate, extCtx) => {
+        if (requireApproval) {
+          const ui = (extCtx as { ui: { confirm: (title: string, message: string) => Promise<boolean> } }).ui
+          const ok = await ui.confirm('Exit Plan Mode?', 'Agent will start making changes to the workspace.')
+          if (!ok) {
+            return { content: [{ type: 'text', text: 'Plan-mode exit denied by user. Staying in plan-only mode.' }] }
+          }
+        }
+        pi.setActiveTools(DEFAULT_TOOLS)
+        ctx.bridge.emitSystemMessage(
+          'Plan mode exited — mutating tools restored.',
+          { hookName: 'permission-modes', hookEvent: 'PreToolUse' },
+        )
+        return { content: [{ type: 'text', text: 'Plan mode exited. Mutating tools are now available.' }] }
+      },
+    })
+  }
 
   // Approval cache for dontAsk mode. Key = `${toolName}:${hashInput}`.
   const approvalCache = new Map<string, boolean>()
@@ -70,6 +103,4 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
     )
     return { block: true, reason }
   })
-
-  // Plan mode handling lands in Task 2 — same factory, additive.
 }

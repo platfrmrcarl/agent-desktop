@@ -164,3 +164,74 @@ describe('permissionModes — dontAsk (caches decisions)', () => {
     expect(uiCtx.ui.confirm).toHaveBeenCalledOnce()
   })
 })
+
+describe('permissionModes — plan', () => {
+  const PLAN_READONLY_TOOLS = ['read', 'grep', 'find', 'ls']
+  const DEFAULT_TOOLS = ['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write']
+
+  it('calls setActiveTools with read-only set on init', () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan')
+    initPermissionModes(pi as never, ctx)
+    expect(pi.activeTools).toEqual(PLAN_READONLY_TOOLS)
+  })
+
+  it('registers an exit_plan_mode custom tool', () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan')
+    initPermissionModes(pi as never, ctx)
+    expect(pi.registeredTools.map(t => t.name)).toContain('exit_plan_mode')
+  })
+
+  it('exit_plan_mode tool restores default tools and flips state', async () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan', { requirePlanApproval: false })
+    initPermissionModes(pi as never, ctx)
+    const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
+    const uiCtx = makeUiCtx()
+    const result = await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx) as { content: Array<{ text: string }> }
+    expect(pi.activeTools).toEqual(DEFAULT_TOOLS)
+    expect(result.content[0].text).toMatch(/Plan mode exited/i)
+  })
+
+  it('exit_plan_mode prompts via ctx.ui.confirm when requirePlanApproval is true', async () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan', { requirePlanApproval: true })
+    initPermissionModes(pi as never, ctx)
+    const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
+    const uiCtx = makeUiCtx(true)
+    await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx)
+    expect(uiCtx.ui.confirm).toHaveBeenCalledOnce()
+    expect(pi.activeTools).toEqual(DEFAULT_TOOLS)
+  })
+
+  it('exit_plan_mode aborts and keeps read-only when user denies approval', async () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan', { requirePlanApproval: true })
+    initPermissionModes(pi as never, ctx)
+    const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
+    const uiCtx = makeUiCtx(false)
+    const result = await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx) as { content: Array<{ text: string }> }
+    expect(pi.activeTools).toEqual(PLAN_READONLY_TOOLS)
+    expect(result.content[0].text).toMatch(/denied/i)
+  })
+
+  it('blocks mutating tools while plan mode is active', async () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan')
+    initPermissionModes(pi as never, ctx)
+    const uiCtx = makeUiCtx()
+    const [result] = await pi.fireToolCall({ toolName: 'write', input: { path: '/x' } }, uiCtx)
+    expect(result).toMatchObject({ block: true })
+    expect(uiCtx.ui.confirm).not.toHaveBeenCalled()
+  })
+
+  it('allows reads while plan mode is active', async () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan')
+    initPermissionModes(pi as never, ctx)
+    const uiCtx = makeUiCtx()
+    const [result] = await pi.fireToolCall({ toolName: 'read', input: { path: '/x' } }, uiCtx)
+    expect(result).toBeUndefined()
+  })
+})
