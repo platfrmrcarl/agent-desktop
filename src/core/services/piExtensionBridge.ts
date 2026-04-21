@@ -73,8 +73,13 @@ export function createBridge(conversationId: number, deps: BridgeDeps): PiExtens
       })
     },
 
-    recordTokenUsage(_usage) {
-      throw new Error('recordTokenUsage — Task 7')
+    recordTokenUsage(usage) {
+      accumulated.totalTokens +=
+        (usage.input ?? 0) +
+        (usage.output ?? 0) +
+        (usage.cacheRead ?? 0) +
+        (usage.cacheWrite ?? 0)
+      accumulated.totalCostUsd += usage.costUsd ?? 0
     },
 
     getAccumulatedUsage() {

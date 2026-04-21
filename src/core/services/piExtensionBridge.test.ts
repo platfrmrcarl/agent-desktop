@@ -66,3 +66,35 @@ describe('createBridge.emitMcpStatus', () => {
     )
   })
 })
+
+describe('createBridge.recordTokenUsage / getAccumulatedUsage', () => {
+  it('accumulates input + output + cacheRead + cacheWrite', () => {
+    const bridge = createBridge(42, { chunkSender: vi.fn() })
+    bridge.recordTokenUsage({ input: 100, output: 50, cacheRead: 1000, cacheWrite: 10 })
+    expect(bridge.getAccumulatedUsage()).toEqual({ totalTokens: 1160, totalCostUsd: 0 })
+  })
+
+  it('accumulates cost across multiple calls', () => {
+    const bridge = createBridge(42, { chunkSender: vi.fn() })
+    bridge.recordTokenUsage({ input: 10, costUsd: 0.001 })
+    bridge.recordTokenUsage({ input: 20, costUsd: 0.002 })
+    const { totalTokens, totalCostUsd } = bridge.getAccumulatedUsage()
+    expect(totalTokens).toBe(30)
+    expect(totalCostUsd).toBeCloseTo(0.003, 6)
+  })
+
+  it('treats missing fields as zero', () => {
+    const bridge = createBridge(42, { chunkSender: vi.fn() })
+    bridge.recordTokenUsage({})
+    expect(bridge.getAccumulatedUsage()).toEqual({ totalTokens: 0, totalCostUsd: 0 })
+  })
+
+  it('each bridge instance has its own accumulator', () => {
+    const bridgeA = createBridge(1, { chunkSender: vi.fn() })
+    const bridgeB = createBridge(2, { chunkSender: vi.fn() })
+    bridgeA.recordTokenUsage({ input: 100, costUsd: 0.5 })
+    bridgeB.recordTokenUsage({ input: 200, costUsd: 1.0 })
+    expect(bridgeA.getAccumulatedUsage()).toEqual({ totalTokens: 100, totalCostUsd: 0.5 })
+    expect(bridgeB.getAccumulatedUsage()).toEqual({ totalTokens: 200, totalCostUsd: 1.0 })
+  })
+})
