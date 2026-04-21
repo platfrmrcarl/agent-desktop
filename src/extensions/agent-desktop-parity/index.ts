@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionRuntimeContext } from './shared/types'
 import { initCwdGuard } from './modules/cwdGuard'
 import { initPermissionModes } from './modules/permissionModes'
+import { initHooksSystem } from './modules/hooksSystem'
 
 /**
  * Default extension factory for the Agent Desktop PI parity extension.
@@ -26,8 +27,8 @@ export default function (pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
   // so a path-based deny cannot be reordered behind a mode-based decision.
   if (!disabled.has('cwd-guard')) initCwdGuard(pi, ctx)
   if (!disabled.has('permission-modes')) initPermissionModes(pi, ctx)
-  // Future modules will be added here in Phases 3-5:
+  if (!disabled.has('hooks-system')) initHooksSystem(pi, ctx)
+  // Future modules will be added here in Phases 4-5:
   //   if (!disabled.has('skills-bridge'))    initSkillsBridge(pi, ctx)
-  //   if (!disabled.has('hooks-system'))     initHooksSystem(pi, ctx)
   //   if (!disabled.has('budget-tracker'))   initBudgetTracker(pi, ctx)
 }
