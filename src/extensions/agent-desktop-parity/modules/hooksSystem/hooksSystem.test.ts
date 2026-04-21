@@ -68,7 +68,11 @@ describe('hooksSystem', () => {
     const ctx = makeCtx()
     initHooksSystem(pi as never, ctx)
     await pi.fire('input', { text: 'hello' })
-    expect(mockRunHooks).toHaveBeenCalledWith('UserPromptSubmit', { prompt: 'hello' }, expect.objectContaining({ cwd: '/project' }))
+    expect(mockRunHooks).toHaveBeenCalledWith(
+      'UserPromptSubmit',
+      expect.objectContaining({ prompt: 'hello', session_id: '42', permission_mode: expect.any(String) }),
+      expect.objectContaining({ cwd: '/project' }),
+    )
     expect((ctx.bridge as ReturnType<typeof makeBridge>).emitSystemMessage).toHaveBeenCalledWith(
       'context!',
       expect.objectContaining({ hookName: 'UserPromptSubmit', hookEvent: 'UserPromptSubmit' }),
@@ -112,12 +116,43 @@ describe('hooksSystem', () => {
     )
   })
 
-  it('SessionStart: fires once per turn', async () => {
-    mockRunHooks.mockResolvedValueOnce([])
+  it('SessionStart: fires on first session_start event of the conversation', async () => {
+    mockRunHooks.mockResolvedValue([])
     const pi = makeMockPi()
     initHooksSystem(pi as never, makeCtx())
     await pi.fire('session_start', { reason: 'startup' })
     expect(mockRunHooks).toHaveBeenCalledWith('SessionStart', expect.any(Object), expect.any(Object))
+  })
+
+  it('SessionStart: does NOT fire again on subsequent session_start events within the same conversation', async () => {
+    mockRunHooks.mockResolvedValue([])
+    const pi = makeMockPi()
+    const ctx = makeCtx()  // shared sessionStore across both fires
+    initHooksSystem(pi as never, ctx)
+    await pi.fire('session_start', { reason: 'startup' })
+    await pi.fire('session_start', { reason: 'reload' })
+    await pi.fire('session_start', { reason: 'startup' })
+    // PI fires session_start every time a session loads — once per streamMessagePI call.
+    // The guard in sessionStore ensures the user-defined hook runs at most once
+    // per conversation lifetime.
+    const sessionStartCalls = mockRunHooks.mock.calls.filter(c => c[0] === 'SessionStart')
+    expect(sessionStartCalls).toHaveLength(1)
+  })
+
+  it('SessionStart: fires again after the sessionStore is cleared (new conversation / /clear)', async () => {
+    mockRunHooks.mockResolvedValue([])
+    const pi = makeMockPi()
+    const ctx = makeCtx()
+    initHooksSystem(pi as never, ctx)
+    await pi.fire('session_start', { reason: 'startup' })
+    // Simulate /clear — sessionStore is reset from the caller side
+    ctx.sessionStore.clear()
+    // Re-init to simulate a new extensionFactories closure on the next turn
+    const pi2 = makeMockPi()
+    initHooksSystem(pi2 as never, { ...ctx, sessionStore: ctx.sessionStore })
+    await pi2.fire('session_start', { reason: 'startup' })
+    const sessionStartCalls = mockRunHooks.mock.calls.filter(c => c[0] === 'SessionStart')
+    expect(sessionStartCalls).toHaveLength(2)
   })
 
   it('Stop: emits any systemMessages', async () => {
@@ -168,5 +203,23 @@ describe('hooksSystem', () => {
     await pi.fire('input', { text: 'hi' })
     const [, , opts] = mockRunHooks.mock.calls[0]
     expect((opts as { settingsPath?: string }).settingsPath).toMatch(/\.agent-desktop[/\\]hooks\.json$/)
+  })
+
+  it('swallows emit errors so a UI-layer bug cannot turn into a silent tool-block', async () => {
+    // If emitSystemMessage throws (disposed bridge, closed window, etc.), the
+    // PreToolUse handler must NOT propagate the rejection — PI would fail-safe
+    // block the tool, producing false denies on a UI issue.
+    mockRunHooks.mockResolvedValueOnce([{ content: 'should be emitted', hookEvent: 'PreToolUse' }])
+    const pi = makeMockPi()
+    const bridge = makeBridge()
+    bridge.emitSystemMessage = vi.fn(() => { throw new Error('bridge disposed') })
+    const ctx: ExtensionRuntimeContext = {
+      ...makeCtx(),
+      bridge,
+    }
+    initHooksSystem(pi as never, ctx)
+    const [result] = await pi.fire('tool_call', { toolName: 'write', input: { path: '/x' } })
+    // No deny from hooks → handler should still return undefined (allow).
+    expect(result).toBeUndefined()
   })
 })

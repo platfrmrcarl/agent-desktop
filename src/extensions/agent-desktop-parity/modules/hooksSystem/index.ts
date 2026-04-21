@@ -15,6 +15,22 @@ import { join } from 'node:path'
  *
  * Plus: fires `aiSettings.webhookCompletionUrl` (if set) on `agent_end`.
  */
+
+// `as never` escapes the strict typing on `pi.on` for events PI has not yet
+// added to its public discriminated-union overloads (input, tool_call for the
+// narrow generic slot, tool_result, session_start, agent_end). Safe because
+// runtime dispatch is string-keyed and our handlers shape the payload
+// themselves. Remove the cast when PI SDK exposes typed overloads for these.
+const on = <E>(
+  pi: ExtensionAPI,
+  event: string,
+  handler: (event: E, extCtx?: unknown) => unknown,
+): void => {
+  ;(pi as unknown as { on: (e: string, h: (e: E, c?: unknown) => unknown) => void }).on(event, handler)
+}
+
+const SESSION_START_FIRED_KEY = 'hooksSystem.sessionStartFired'
+
 export function initHooksSystem(pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
   const cwd = ctx.aiSettings.cwd || process.cwd()
   const sharedHooks = ctx.aiSettings.sharedHooks !== false
@@ -23,28 +39,47 @@ export function initHooksSystem(pi: ExtensionAPI, ctx: ExtensionRuntimeContext):
     : join(homedir(), '.agent-desktop', 'hooks.json')
   const runOpts = { cwd, settingsPath }
 
+  // `msg.content` is empty for deny-only results (decision='deny' with no
+  // systemMessage). Those carry no UI text — caller enforces the block
+  // from the deny field — so the guard is intentional, not an oversight.
   const emit = (msg: HookSystemMessage): void => {
     if (!msg.content) return
-    ctx.bridge.emitSystemMessage(msg.content, {
-      hookName: msg.hookEvent,
-      hookEvent: msg.hookEvent,
-    })
+    try {
+      ctx.bridge.emitSystemMessage(msg.content, {
+        hookName: msg.hookEvent,
+        hookEvent: msg.hookEvent,
+      })
+    } catch (err) {
+      // Never propagate bridge failures out of async PI handlers — PI treats
+      // a thrown handler as a block, which would produce false denies on
+      // UI-layer bugs. Log and continue.
+      console.warn('[hooks-system] emit failed:', err instanceof Error ? err.message : err)
+    }
   }
 
-  // UserPromptSubmit — PI's `input` event, user text
-  pi.on('input' as never, async (event: unknown) => {
-    const text = (event as { text?: string }).text ?? ''
-    const results = await runHooks('UserPromptSubmit', { prompt: text }, runOpts)
+  // UserPromptSubmit — PI's `input` event, user text.
+  // Payload matches Claude's shape (session_id, permission_mode) so hook
+  // scripts that read these fields from stdin work the same on both paths.
+  on<{ text?: string }>(pi, 'input', async (event) => {
+    const text = event.text ?? ''
+    const results = await runHooks(
+      'UserPromptSubmit',
+      {
+        prompt: text,
+        session_id: String(ctx.conversationId),
+        permission_mode: ctx.aiSettings.permissionMode ?? 'default',
+      },
+      runOpts,
+    )
     for (const r of results) emit(r)
     return undefined
   })
 
-  // PreToolUse — PI's `tool_call` event; may block
-  pi.on('tool_call' as never, async (event: unknown) => {
-    const e = event as { toolName: string; input: Record<string, unknown> }
+  // PreToolUse — PI's `tool_call` event; may block.
+  on<{ toolName: string; input: Record<string, unknown> }>(pi, 'tool_call', async (event) => {
     const results = await runHooks(
       'PreToolUse',
-      { tool_name: e.toolName, tool_input: e.input },
+      { tool_name: event.toolName, tool_input: event.input },
       runOpts,
     )
     for (const r of results) emit(r)
@@ -53,28 +88,31 @@ export function initHooksSystem(pi: ExtensionAPI, ctx: ExtensionRuntimeContext):
     return undefined
   })
 
-  // PostToolUse — PI's `tool_result` event; emit-only
-  pi.on('tool_result' as never, async (event: unknown) => {
-    const e = event as { toolName: string; result: unknown }
+  // PostToolUse — PI's `tool_result` event; emit-only.
+  on<{ toolName: string; result: unknown }>(pi, 'tool_result', async (event) => {
     const results = await runHooks(
       'PostToolUse',
-      { tool_name: e.toolName, tool_response: e.result },
+      { tool_name: event.toolName, tool_response: event.result },
       runOpts,
     )
     for (const r of results) emit(r)
     return undefined
   })
 
-  // SessionStart — PI's `session_start` event
-  pi.on('session_start' as never, async (event: unknown) => {
-    const e = event as { reason?: string }
-    const results = await runHooks('SessionStart', { reason: e.reason }, runOpts)
+  // SessionStart — PI fires `session_start` on every session load (every
+  // streamMessagePI call), not once per conversation. Guard with
+  // sessionStore so the user-defined SessionStart hook runs at most once
+  // per conversation lifetime (until /clear or /new resets the store).
+  on<{ reason?: string }>(pi, 'session_start', async (event) => {
+    if (ctx.sessionStore.get(SESSION_START_FIRED_KEY)) return undefined
+    ctx.sessionStore.set(SESSION_START_FIRED_KEY, true)
+    const results = await runHooks('SessionStart', { reason: event.reason }, runOpts)
     for (const r of results) emit(r)
     return undefined
   })
 
-  // Stop + webhook — PI's `agent_end` event
-  pi.on('agent_end' as never, async () => {
+  // Stop + webhook — PI's `agent_end` event.
+  on<unknown>(pi, 'agent_end', async () => {
     const results = await runHooks('Stop', {}, runOpts)
     for (const r of results) emit(r)
 
