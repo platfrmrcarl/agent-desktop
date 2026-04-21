@@ -20,6 +20,9 @@ export default function (pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
       : [],
   )
 
+  // Safety modules first: `tool_call` handlers chain in registration order and
+  // the first `{ block: true }` wins — cwd-guard MUST precede permission-modes
+  // so a path-based deny cannot be reordered behind a mode-based decision.
   if (!disabled.has('cwd-guard')) initCwdGuard(pi, ctx)
   // Future modules will be added here in Phases 2-5:
   //   if (!disabled.has('permission-modes')) initPermissionModes(pi, ctx)
