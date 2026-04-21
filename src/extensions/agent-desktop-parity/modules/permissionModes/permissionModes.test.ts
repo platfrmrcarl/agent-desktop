@@ -57,6 +57,7 @@ function makeCtx(permissionMode: string, extras: Partial<AISettings> = {}): Exte
     } as AISettings,
     db: null,
     bridge: makeBridge(),
+    sessionStore: new Map<string, unknown>(),
   }
 }
 

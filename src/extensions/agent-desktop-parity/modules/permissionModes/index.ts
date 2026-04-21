@@ -29,10 +29,12 @@ function hashInput(input: unknown): string {
  * case normalization internally so the same policy works for Claude too.
  */
 export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
-  const modeRaw = ctx.aiSettings.permissionMode ?? 'bypassPermissions'
+  // Unknown mode → fail-SAFE to 'default' (ask before mutating), not
+  // bypassPermissions. A typo in settings must not silently widen trust.
+  const modeRaw = ctx.aiSettings.permissionMode ?? 'default'
   const mode: PermissionMode = (VALID_MODES as readonly string[]).includes(modeRaw)
     ? (modeRaw as PermissionMode)
-    : 'bypassPermissions'
+    : 'default'
 
   // bypassPermissions: no tool_call handler — default PI behavior allows everything.
   if (mode === 'bypassPermissions') return
@@ -59,15 +61,22 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
         pi.setActiveTools(DEFAULT_TOOLS)
         ctx.bridge.emitSystemMessage(
           'Plan mode exited — mutating tools restored.',
-          { hookName: 'permission-modes', hookEvent: 'PreToolUse' },
+          { hookName: 'permission-modes', hookEvent: 'PostToolUse' },
         )
         return { content: [{ type: 'text', text: 'Plan mode exited. Mutating tools are now available.' }] }
       },
     })
   }
 
-  // Approval cache for dontAsk mode. Key = `${toolName}:${hashInput}`.
-  const approvalCache = new Map<string, boolean>()
+  // Approval cache for dontAsk mode — session-scoped via ctx.sessionStore
+  // so a decision survives across streamMessagePI invocations (i.e. across
+  // user messages within the same conversation). Key = `${toolName}:${hashInput}`.
+  const APPROVAL_CACHE_KEY = 'permissionModes.approvalCache'
+  let approvalCache = ctx.sessionStore?.get(APPROVAL_CACHE_KEY) as Map<string, boolean> | undefined
+  if (!approvalCache) {
+    approvalCache = new Map<string, boolean>()
+    ctx.sessionStore?.set(APPROVAL_CACHE_KEY, approvalCache)
+  }
 
   pi.on('tool_call', async (event, extCtx) => {
     const decision = shouldRequireApproval(event.toolName, mode)
@@ -92,7 +101,14 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
     const ui = (extCtx as { ui: { confirm: (title: string, message: string) => Promise<boolean> } }).ui
     const title = `Allow ${event.toolName}?`
     const message = `Permission mode: ${mode}\nTool input: ${JSON.stringify(event.input).slice(0, 400)}`
-    const allowed = await ui.confirm(title, message)
+    let allowed: boolean
+    try {
+      allowed = await ui.confirm(title, message)
+    } catch (err) {
+      // UI disposed / conversation aborted / PiUIContext gone — default-deny.
+      console.warn('[permission-modes] ui.confirm failed, default-deny:', err instanceof Error ? err.message : err)
+      return { block: true, reason: 'Approval UI unavailable' }
+    }
 
     if (mode === 'dontAsk') approvalCache.set(cacheKey, allowed)
     if (allowed) return undefined

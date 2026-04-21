@@ -23,6 +23,14 @@ export interface ExtensionRuntimeContext {
   /** Read-only handle — v1 modules do not query DB directly, but the option is reserved. */
   db: SqliteDatabase | null
   bridge: PiExtensionBridge
+  /**
+   * Session-scoped key/value store. Persists across all `streamMessagePI`
+   * calls for a given conversationId until the conversation is cleared.
+   * Used e.g. by permissionModes for the dontAsk approval cache so a
+   * user who approved `write` on a path isn't re-asked on the next
+   * user message of the same conversation.
+   */
+  sessionStore: Map<string, unknown>
 }
 
 export interface PiExtensionBridge {

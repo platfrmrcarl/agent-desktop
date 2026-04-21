@@ -42,6 +42,7 @@ function makeCtx(overrides: Partial<AISettings> = {}): ExtensionRuntimeContext {
     } as AISettings,
     db: null,
     bridge: makeBridge(),
+    sessionStore: new Map<string, unknown>(),
   }
 }
 
@@ -143,6 +144,7 @@ describe('cwdGuard module', () => {
       aiSettings: { cwdRestrictionEnabled: true, cwdWhitelist: [] } as AISettings,
       db: null,
       bridge: makeBridge(),
+      sessionStore: new Map<string, unknown>(),
     }
     initCwdGuard(pi as never, ctx)
     const [result] = await pi.fireToolCall({ toolName: 'write', input: { path: '/nonexistent/out-of-tree.xyz' } })

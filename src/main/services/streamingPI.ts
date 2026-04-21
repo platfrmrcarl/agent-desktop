@@ -166,6 +166,27 @@ interface MessageParam {
   content: string
 }
 
+// Session-scoped key/value stores for the parity extension, keyed by
+// conversationId. Persist across multiple streamMessagePI invocations for
+// the same conversation (unlike the factory closure, which is rebuilt per
+// user message). Used for the dontAsk approval cache and any future
+// cross-turn state a module needs.
+const sessionStores = new Map<number, Map<string, unknown>>()
+
+function getOrCreateSessionStore(conversationId: number): Map<string, unknown> {
+  let store = sessionStores.get(conversationId)
+  if (!store) {
+    store = new Map<string, unknown>()
+    sessionStores.set(conversationId, store)
+  }
+  return store
+}
+
+/** Clear the session store for a conversation (called on /clear, /new, regenerate). */
+export function clearExtensionSessionStore(conversationId: number): void {
+  sessionStores.delete(conversationId)
+}
+
 function mapThinkingLevel(maxThinkingTokens?: number): 'off' | 'low' | 'medium' | 'high' {
   if (!maxThinkingTokens || maxThinkingTokens === 0) return 'off'
   if (maxThinkingTokens <= 10000) return 'low'
@@ -214,6 +235,7 @@ export async function streamMessagePI(
       aiSettings: aiSettings ?? ({} as AISettings),
       db: null,  // Phase 0: modules do not query DB; set from injected dependency in Phase 3+
       bridge: extensionBridge,
+      sessionStore: getOrCreateSessionStore(conversationId ?? -1),
     }
 
     const resourceLoader = new pi.DefaultResourceLoader({
