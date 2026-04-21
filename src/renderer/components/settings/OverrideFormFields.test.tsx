@@ -50,13 +50,14 @@ describe('OverrideFormFields — Claude backend (default)', () => {
 })
 
 describe('OverrideFormFields — PI backend (inherited)', () => {
-  it('hides claudeOnly fields when PI is inherited', () => {
+  it('shows previously-Claude-only fields when PI is inherited (modules now handle them)', () => {
     render(<OverrideFormFields {...defaultProps} inheritedValues={{ ai_sdkBackend: 'pi' }} />)
 
-    expect(screen.queryByText('Budget (USD)')).not.toBeInTheDocument()
-    expect(screen.queryByText('Permission Mode')).not.toBeInTheDocument()
-    expect(screen.queryByText('Setting Sources')).not.toBeInTheDocument()
-    expect(screen.queryByText('Skills')).not.toBeInTheDocument()
+    // Phases 1-4 extension modules implement these on PI backend too.
+    expect(screen.getByText('Budget (USD)')).toBeInTheDocument()
+    expect(screen.getByText('Permission Mode')).toBeInTheDocument()
+    expect(screen.getByText('Setting Sources')).toBeInTheDocument()
+    expect(screen.getByText('Skills')).toBeInTheDocument()
   })
 
   it('hides MCP Servers when PI is inherited', () => {
@@ -89,15 +90,18 @@ describe('OverrideFormFields — PI backend (inherited)', () => {
 })
 
 describe('OverrideFormFields — PI backend (overridden in draft)', () => {
-  it('hides claudeOnly fields when PI is set in draft', () => {
+  it('shows previously-Claude-only fields when PI is set in draft (modules now handle them)', () => {
     render(<OverrideFormFields
       {...defaultProps}
       draft={{ ai_sdkBackend: 'pi' }}
       inheritedValues={{ ai_sdkBackend: 'claude-agent-sdk' }}
     />)
 
-    expect(screen.queryByText('Budget (USD)')).not.toBeInTheDocument()
-    expect(screen.queryByText('Permission Mode')).not.toBeInTheDocument()
+    expect(screen.getByText('Budget (USD)')).toBeInTheDocument()
+    expect(screen.getByText('Permission Mode')).toBeInTheDocument()
+    // MCP Servers + CWD Restriction are not in the override form's field
+    // list at all (scoped to global settings or different surface), so
+    // their absence is unrelated to backend selection.
     expect(screen.queryByText('MCP Servers')).not.toBeInTheDocument()
     expect(screen.queryByText('CWD Restriction')).not.toBeInTheDocument()
   })

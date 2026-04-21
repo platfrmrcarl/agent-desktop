@@ -482,8 +482,8 @@ export function AISettings() {
         />
       </div>
 
-      {/* Max Budget USD (Claude only) */}
-      {isClaudeBackend && (
+      {/* Max Budget USD — both backends (PI via budgetTracker module, Phase 5) */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
@@ -513,8 +513,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Permission Mode (Claude only) */}
-      {isClaudeBackend && (
+      {/* Permission Mode — both backends (PI via permissionModes module) */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
@@ -543,8 +543,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Require Plan Approval (Claude only) */}
-      {isClaudeBackend && (
+      {/* Require Plan Approval — both backends */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)', opacity: permissionMode === 'bypassPermissions' ? 1 : 0.5 }}>
@@ -574,8 +574,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Setting Sources (Claude only) */}
-      {isClaudeBackend && (
+      {/* Setting Sources — both backends (PI via skillsBridge module) */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
@@ -604,8 +604,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Skills Toggle (Claude only) */}
-      {isClaudeBackend && (
+      {/* Skills Toggle — both backends */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)', opacity: skills === 'off' ? 0.5 : 1 }}>
@@ -637,8 +637,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Per-Skill List (Claude only) */}
-      {isClaudeBackend && skills !== 'off' && skillsEnabled === 'true' && discoveredSkills.length > 0 && (
+      {/* Per-Skill List — both backends (informational; PI cannot enforce per-skill disable, see skills-bridge) */}
+      {(skills !== 'off' && skillsEnabled === 'true' && discoveredSkills.length > 0) && (
         <div className="py-3 border-b border-[var(--color-text-muted)]/10">
           <span className="text-xs font-medium mb-2 block" style={{ color: 'var(--color-text-muted)' }}>
             Discovered Skills
@@ -676,8 +676,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* CWD Restriction Hook (Claude only) */}
-      {isClaudeBackend && (
+      {/* CWD Restriction — both backends (PI via cwdGuard module) */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
@@ -742,8 +742,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* CWD Whitelist (Claude only) */}
-      {isClaudeBackend && cwdRestriction === 'true' && (
+      {/* CWD Whitelist — both backends */}
+      {cwdRestriction === 'true' && (
         <div className="py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 mb-2">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>

@@ -83,29 +83,29 @@ describe('AISettings — PI backend', () => {
     expect(screen.queryByLabelText('Base URL')).not.toBeInTheDocument()
   })
 
-  it('hides Max Budget when PI is selected', () => {
+  it('shows Max Budget when PI is selected (budgetTracker module, Phase 5)', () => {
     render(<AISettings />)
-    expect(screen.queryByLabelText('Maximum budget in USD')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Maximum budget in USD')).toBeInTheDocument()
   })
 
-  it('hides Permission Mode when PI is selected', () => {
+  it('shows Permission Mode when PI is selected (permissionModes module)', () => {
     render(<AISettings />)
-    expect(screen.queryByLabelText('Select permission mode')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Select permission mode')).toBeInTheDocument()
   })
 
-  it('hides Setting Sources when PI is selected', () => {
+  it('shows Setting Sources when PI is selected (skillsBridge module)', () => {
     render(<AISettings />)
-    expect(screen.queryByLabelText('Select setting sources')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Select setting sources')).toBeInTheDocument()
   })
 
-  it('hides Skills toggle when PI is selected', () => {
+  it('shows Skills toggle when PI is selected', () => {
     render(<AISettings />)
-    expect(screen.queryByLabelText('Toggle skills')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Toggle skills')).toBeInTheDocument()
   })
 
-  it('hides CWD Restriction when PI is selected', () => {
+  it('shows CWD Restriction when PI is selected (cwdGuard module)', () => {
     render(<AISettings />)
-    expect(screen.queryByLabelText('Toggle CWD write restriction')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Toggle CWD write restriction')).toBeInTheDocument()
   })
 
   it('still shows Share Claude Config when PI is selected', () => {
