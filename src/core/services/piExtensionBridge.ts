@@ -47,6 +47,31 @@ export interface BridgeDeps {
   chunkSender: (type: string, content?: string, extra?: Record<string, unknown>) => void
 }
 
-export function createBridge(_conversationId: number, _deps: BridgeDeps): PiExtensionBridge {
-  throw new Error('createBridge not implemented yet — see Task 5')
+export function createBridge(conversationId: number, deps: BridgeDeps): PiExtensionBridge {
+  const accumulated = { totalTokens: 0, totalCostUsd: 0 }
+
+  return {
+    emitSystemMessage(content, meta) {
+      const extra: Record<string, unknown> = { conversationId }
+      if (meta?.hookName) extra.hookName = meta.hookName
+      if (meta?.hookEvent) extra.hookEvent = meta.hookEvent
+      deps.chunkSender('system_message', content, extra)
+    },
+
+    emitTaskNotification(_summary, _meta) {
+      throw new Error('emitTaskNotification — Task 6')
+    },
+
+    emitMcpStatus(_servers) {
+      throw new Error('emitMcpStatus — Task 6')
+    },
+
+    recordTokenUsage(_usage) {
+      throw new Error('recordTokenUsage — Task 7')
+    },
+
+    getAccumulatedUsage() {
+      return { ...accumulated }
+    },
+  }
 }
