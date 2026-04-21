@@ -224,9 +224,18 @@ export async function streamMessagePI(
       bridge: extensionBridge,
     }
 
-    // Dynamic import of the bundled extension (path resolved per env via bundledExtRoot)
-    const bundledDefault = (await import(path.join(bundledExtRoot, 'index.ts'))).default as
-      (piApi: unknown, ctx: ExtensionRuntimeContext) => void | Promise<void>
+    // Dynamic import of the bundled extension. In dev (electron-vite) .ts is transformed;
+    // in packaged builds a raw .ts file cannot be loaded by Node. Soft-fail: if the import
+    // throws, no extension factory is registered and PI runs without parity features.
+    // Phase 1+ will switch the copy rule to produce .js alongside or replace with a compiled
+    // bundle step so packaged builds load correctly.
+    let bundledDefault: ((piApi: unknown, ctx: ExtensionRuntimeContext) => void | Promise<void>) | null = null
+    try {
+      const mod = await import(path.join(bundledExtRoot, 'index.ts'))
+      bundledDefault = mod.default
+    } catch (err) {
+      console.warn('[streamingPI] bundled parity extension failed to load:', err instanceof Error ? err.message : err)
+    }
 
     const resourceLoader = new pi.DefaultResourceLoader({
       cwd: aiSettings?.cwd || process.cwd(),
@@ -237,7 +246,9 @@ export async function streamMessagePI(
         bundledExtRoot,
         ...(aiSettings?.piExtensionsDir ? [aiSettings.piExtensionsDir] : []),
       ],
-      extensionFactories: [(piApi: unknown) => bundledDefault(piApi, runtimeCtx)],
+      ...(bundledDefault
+        ? { extensionFactories: [(piApi: unknown) => bundledDefault!(piApi, runtimeCtx)] }
+        : {}),
       ...(disabledPaths.size > 0 ? {
         extensionsOverride: (result: { extensions: Array<{ resolvedPath: string }>; [k: string]: unknown }) => ({
           ...result,
