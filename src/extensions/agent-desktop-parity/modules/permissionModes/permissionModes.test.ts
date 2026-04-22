@@ -280,4 +280,38 @@ describe('permissionModes — plan', () => {
     const [result] = await pi.fireToolCall({ toolName: 'exit_plan_mode', input: {} }, uiCtx)
     expect(result).toBeUndefined()
   })
+
+  it('exit_plan_mode sets a sessionStore flag so later turns skip lockdown', async () => {
+    const store = new Map<string, unknown>()
+    const pi = makeMockPi()
+    const ctx: ExtensionRuntimeContext = { ...makeCtx('plan', { requirePlanApproval: false }), sessionStore: store }
+    initPermissionModes(pi as never, ctx)
+    const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
+    const uiCtx = makeUiCtx()
+    await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx)
+    expect(store.get('permissionModes.planExited')).toBe(true)
+  })
+
+  it('does NOT set the exited flag when user denies approval', async () => {
+    const store = new Map<string, unknown>()
+    const pi = makeMockPi()
+    const ctx: ExtensionRuntimeContext = { ...makeCtx('plan', { requirePlanApproval: true }), sessionStore: store }
+    initPermissionModes(pi as never, ctx)
+    const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
+    const uiCtx = makeUiCtx(false)  // denies
+    await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx)
+    expect(store.get('permissionModes.planExited')).toBeUndefined()
+  })
+
+  it('lockdown lifecycle hook skips setActiveTools when planExited flag is already set', async () => {
+    const store = new Map<string, unknown>()
+    store.set('permissionModes.planExited', true)  // previous turn exited
+    const pi = makeMockPi()
+    const ctx: ExtensionRuntimeContext = { ...makeCtx('plan'), sessionStore: store }
+    initPermissionModes(pi as never, ctx)
+    // Fire the before_agent_start lockdown handler
+    await pi.handlers['before_agent_start']![0]({} as never)
+    // activeTools should remain null because the lockdown was skipped
+    expect(pi.activeTools).toBeNull()
+  })
 })

@@ -46,11 +46,19 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
   // bypassPermissions: no tool_call handler — default PI behavior allows everything.
   if (mode === 'bypassPermissions') return
 
+  // Plan-mode escape state lives in sessionStore so a successful
+  // exit_plan_mode survives across turns. Without this flag, the
+  // `before_agent_start` lockdown hook would re-apply PLAN_READONLY_TOOLS
+  // on every subsequent turn even though the user already approved exit.
+  const PLAN_EXITED_KEY = 'permissionModes.planExited'
+
   // Plan mode: lock to read-only tools (via lifecycle hooks, since
   // setActiveTools cannot be called at factory init) and register
   // exit_plan_mode as the escape hatch.
   if (mode === 'plan') {
     const lockDown = (): void => {
+      // Skip if the user already exited plan mode on an earlier turn.
+      if (ctx.sessionStore?.get(PLAN_EXITED_KEY)) return
       try { pi.setActiveTools(PLAN_READONLY_TOOLS) }
       catch (err) {
         console.warn('[permission-modes] setActiveTools lockdown failed:', err instanceof Error ? err.message : err)
@@ -77,14 +85,25 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
             return { content: [{ type: 'text', text: 'Plan-mode exit denied by user. Staying in plan-only mode.' }] }
           }
         }
+        // Mark the conversation as exited BEFORE calling setActiveTools —
+        // future turns will read this flag in lockDown() and skip the
+        // lockdown even though permissionMode remains 'plan' in settings.
+        ctx.sessionStore?.set(PLAN_EXITED_KEY, true)
         pi.setActiveTools(DEFAULT_TOOLS)
         ctx.bridge.emitSystemMessage(
-          'Plan mode exited — mutating tools restored.',
+          'Plan mode exited — mutating tools restored for this conversation.',
           { hookName: 'permission-modes', hookEvent: 'PostToolUse' },
         )
         return { content: [{ type: 'text', text: 'Plan mode exited. Mutating tools are now available.' }] }
       },
     })
+
+    // If the user already exited on an earlier turn, DON'T re-apply the
+    // lockdown this turn either — same reason as in lockDown().
+    if (ctx.sessionStore?.get(PLAN_EXITED_KEY)) {
+      // nothing to do here — lockDown self-guards, but we skip the
+      // belt-and-braces path too for clarity.
+    }
   }
 
   // Approval cache for dontAsk mode — session-scoped via ctx.sessionStore
