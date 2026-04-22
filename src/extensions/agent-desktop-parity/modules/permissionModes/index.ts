@@ -5,7 +5,9 @@ import { Type } from '@sinclair/typebox'
 
 const VALID_MODES = ['bypassPermissions', 'acceptEdits', 'default', 'dontAsk', 'plan'] as const
 
-const PLAN_READONLY_TOOLS = ['read', 'grep', 'find', 'ls']
+// Plan mode tool set. MUST include `exit_plan_mode` so the agent can
+// escape the lockdown — omitting it traps the LLM with no way out.
+const PLAN_READONLY_TOOLS = ['read', 'grep', 'find', 'ls', 'exit_plan_mode']
 const DEFAULT_TOOLS = ['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write']
 
 function hashInput(input: unknown): string {
@@ -20,25 +22,22 @@ function hashInput(input: unknown): string {
  * - acceptEdits: auto-allow write/edit, ask for bash
  * - default: ask for write/edit/bash
  * - dontAsk: like default, caches (toolName, hashInput) decisions
- * - plan: read-only lockdown + exit_plan_mode tool (Task 2)
+ * - plan: read-only lockdown (via before_agent_start/session_start
+ *   lifecycle hooks) + exit_plan_mode custom tool
  *
  * Approval prompts use `extCtx.ui.confirm` (native PI) which routes through our
  * `PiUIContext` adapter to the Electron renderer. No new stream protocol.
  *
  * Tool names are lowercase (PI convention); `shouldRequireApproval` handles
  * case normalization internally so the same policy works for Claude too.
+ *
+ * Lockdown timing note: `pi.setActiveTools` is an "action method" that PI
+ * forbids during extension loading (throws "Extension runtime not
+ * initialized"). We defer the call to the lifecycle events that fire AFTER
+ * the session is ready. The `tool_call` handler is the final authority if
+ * any mutating tool still reaches the LLM.
  */
 export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
-  // DIAGNOSTIC — emit the raw received value so we can see exactly what
-  // the cascade delivers to the extension, regardless of any downstream
-  // mode-branch logic.
-  ctx.bridge.emitSystemMessage(
-    `[diag] permission-modes init: aiSettings.permissionMode = ${JSON.stringify(ctx.aiSettings.permissionMode)} (conversationId=${ctx.conversationId})`,
-    { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-  )
-
-  // Unknown mode → fail-SAFE to 'default' (ask before mutating), not
-  // bypassPermissions. A typo in settings must not silently widen trust.
   const modeRaw = ctx.aiSettings.permissionMode ?? 'default'
   const mode: PermissionMode = (VALID_MODES as readonly string[]).includes(modeRaw)
     ? (modeRaw as PermissionMode)
@@ -47,59 +46,25 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
   // bypassPermissions: no tool_call handler — default PI behavior allows everything.
   if (mode === 'bypassPermissions') return
 
-  // Plan mode: lock to read-only tools and register exit_plan_mode.
+  // Plan mode: lock to read-only tools (via lifecycle hooks, since
+  // setActiveTools cannot be called at factory init) and register
+  // exit_plan_mode as the escape hatch.
   if (mode === 'plan') {
-    // DIAGNOSTIC — confirm we entered the plan branch at all.
-    ctx.bridge.emitSystemMessage(
-      '[diag] entered plan branch — about to call setActiveTools',
-      { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-    )
-
-    try {
-      pi.setActiveTools(PLAN_READONLY_TOOLS)
-      ctx.bridge.emitSystemMessage(
-        '[diag] setActiveTools returned — about to register exit_plan_mode',
-        { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-      )
-    } catch (err) {
-      ctx.bridge.emitSystemMessage(
-        `[diag] setActiveTools THREW: ${err instanceof Error ? err.message : String(err)}`,
-        { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-      )
-    }
-
-    try {
-      const lockDown = (): void => { pi.setActiveTools(PLAN_READONLY_TOOLS) }
-      const onLifecycle = <E>(event: string): void => {
-        ;(pi as unknown as { on: (e: string, h: (e: E) => void) => void }).on(event, lockDown)
+    const lockDown = (): void => {
+      try { pi.setActiveTools(PLAN_READONLY_TOOLS) }
+      catch (err) {
+        console.warn('[permission-modes] setActiveTools lockdown failed:', err instanceof Error ? err.message : err)
       }
-      onLifecycle<unknown>('before_agent_start')
-      onLifecycle<unknown>('session_start')
-      ctx.bridge.emitSystemMessage(
-        '[diag] lifecycle lockdown hooks registered',
-        { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-      )
-    } catch (err) {
-      ctx.bridge.emitSystemMessage(
-        `[diag] lifecycle hook registration THREW: ${err instanceof Error ? err.message : String(err)}`,
-        { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-      )
     }
-
-    ctx.bridge.emitSystemMessage(
-      `🔒 plan-mode detected: LLM restricted to ${PLAN_READONLY_TOOLS.join(', ')}. Call exit_plan_mode to unlock.`,
-      { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-    )
-    console.log('[permission-modes] plan mode: locked to', PLAN_READONLY_TOOLS.join(', '))
+    const onLifecycle = <E>(event: string): void => {
+      ;(pi as unknown as { on: (e: string, h: (e: E) => void) => void }).on(event, lockDown)
+    }
+    onLifecycle<unknown>('before_agent_start')
+    onLifecycle<unknown>('session_start')
 
     const requireApproval = ctx.aiSettings.requirePlanApproval !== false
 
-    try {
-      ctx.bridge.emitSystemMessage(
-        '[diag] about to call pi.registerTool(exit_plan_mode)',
-        { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-      )
-      pi.registerTool({
+    pi.registerTool({
       name: 'exit_plan_mode',
       label: 'Exit Plan Mode',
       description: 'Exit plan-only mode and allow mutating tools (write, edit, bash). Call this when the user approves the plan and wants changes to be applied.',
@@ -120,16 +85,6 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
         return { content: [{ type: 'text', text: 'Plan mode exited. Mutating tools are now available.' }] }
       },
     })
-    ctx.bridge.emitSystemMessage(
-      '[diag] pi.registerTool(exit_plan_mode) returned OK',
-      { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-    )
-    } catch (err) {
-      ctx.bridge.emitSystemMessage(
-        `[diag] registerTool THREW: ${err instanceof Error ? err.message : String(err)}`,
-        { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-      )
-    }
   }
 
   // Approval cache for dontAsk mode — session-scoped via ctx.sessionStore
@@ -144,16 +99,6 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
 
   pi.on('tool_call', async (event, extCtx) => {
     const decision = shouldRequireApproval(event.toolName, mode)
-    console.log(`[permission-modes] tool_call tool=${event.toolName} mode=${mode} decision=${decision}`)
-    // DIAGNOSTIC — in plan mode emit a system_message so the user can
-    // confirm from the chat UI that the handler is firing at all and
-    // see what toolName PI is actually dispatching.
-    if (mode === 'plan') {
-      ctx.bridge.emitSystemMessage(
-        `🔍 plan-mode tool_call: tool="${event.toolName}" → decision=${decision}`,
-        { hookName: 'permission-modes', hookEvent: 'PreToolUse' },
-      )
-    }
     if (decision === 'allow') return undefined
     if (decision === 'deny') {
       const reason = `Tool "${event.toolName}" is not allowed in ${mode} mode`

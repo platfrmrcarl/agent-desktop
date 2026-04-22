@@ -167,14 +167,44 @@ describe('permissionModes — dontAsk (caches decisions)', () => {
 })
 
 describe('permissionModes — plan', () => {
-  const PLAN_READONLY_TOOLS = ['read', 'grep', 'find', 'ls']
+  // PLAN_READONLY_TOOLS MUST include exit_plan_mode — otherwise the LLM
+  // is trapped with no way to leave plan mode.
+  const PLAN_READONLY_TOOLS = ['read', 'grep', 'find', 'ls', 'exit_plan_mode']
   const DEFAULT_TOOLS = ['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write']
 
-  it('calls setActiveTools with read-only set on init', () => {
+  it('does NOT call setActiveTools at init (PI forbids action methods during extension loading)', () => {
     const pi = makeMockPi()
     const ctx = makeCtx('plan')
     initPermissionModes(pi as never, ctx)
+    // Factory-time call is deferred — activeTools stays null until a
+    // lifecycle event fires.
+    expect(pi.activeTools).toBeNull()
+  })
+
+  it('registers lifecycle lockdown hooks (before_agent_start, session_start)', () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan')
+    initPermissionModes(pi as never, ctx)
+    expect(pi.handlers['before_agent_start']).toHaveLength(1)
+    expect(pi.handlers['session_start']).toHaveLength(1)
+  })
+
+  it('sets PLAN_READONLY_TOOLS when before_agent_start fires', async () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan')
+    initPermissionModes(pi as never, ctx)
+    const handler = pi.handlers['before_agent_start']![0]
+    await handler({} as never)
     expect(pi.activeTools).toEqual(PLAN_READONLY_TOOLS)
+  })
+
+  it('includes exit_plan_mode in the plan-mode active tool set', async () => {
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan')
+    initPermissionModes(pi as never, ctx)
+    const handler = pi.handlers['session_start']![0]
+    await handler({} as never)
+    expect(pi.activeTools).toContain('exit_plan_mode')
   })
 
   it('registers an exit_plan_mode custom tool', () => {
@@ -210,6 +240,8 @@ describe('permissionModes — plan', () => {
     const pi = makeMockPi()
     const ctx = makeCtx('plan', { requirePlanApproval: true })
     initPermissionModes(pi as never, ctx)
+    // Fire the lifecycle lockdown first so activeTools is populated
+    await pi.handlers['before_agent_start']![0]({} as never)
     const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
     const uiCtx = makeUiCtx(false)
     const result = await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx) as { content: Array<{ text: string }> }
