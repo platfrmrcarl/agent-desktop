@@ -52,6 +52,7 @@ export function AISettings() {
   const agentPersonality = settings['agent_personality'] ?? ''
   const agentLanguage = settings['agent_language'] ?? ''
   const skillsEnabled = settings['ai_skillsEnabled'] ?? 'true'
+  const skillsIncludePlugins = settings['ai_skillsIncludePlugins'] ?? 'false'
   const disabledSkills: string[] = (() => {
     try { const arr = JSON.parse(settings['ai_disabledSkills'] || '[]'); return Array.isArray(arr) ? arr : [] } catch { return [] }
   })()
@@ -636,6 +637,35 @@ export function AISettings() {
           </button>
         </div>
       )}
+
+      {/* Include Installed Plugin Skills — both backends (PI: skillsBridge contributes paths; Claude: informational, SDK loads natively) */}
+      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div className="flex flex-col gap-0.5 pr-4">
+          <span className="text-sm font-medium" style={{ color: 'var(--color-text)', opacity: skills === 'off' || skillsEnabled !== 'true' ? 0.5 : 1 }}>
+            Include Installed Plugin Skills
+          </span>
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)', opacity: skills === 'off' || skillsEnabled !== 'true' ? 0.5 : 1 }}>
+            Expose skills from installed Claude plugins (read from ~/.claude/plugins/installed_plugins.json). Excludes marketplace catalogs and cached versions. On PI backend this activates the plugin-skills bridge; on Claude the SDK loads installed-plugin skills natively regardless.
+          </span>
+        </div>
+        <button
+          onClick={() => setSetting('ai_skillsIncludePlugins', skillsIncludePlugins === 'true' ? 'false' : 'true')}
+          disabled={skills === 'off' || skillsEnabled !== 'true'}
+          className="relative w-10 h-5 rounded-full transition-colors"
+          style={{
+            backgroundColor: skillsIncludePlugins === 'true' && skills !== 'off' && skillsEnabled === 'true' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+            opacity: skills === 'off' || skillsEnabled !== 'true' ? 0.3 : (skillsIncludePlugins === 'true' ? 1 : 0.4),
+          }}
+          role="switch"
+          aria-checked={skillsIncludePlugins === 'true' && skills !== 'off' && skillsEnabled === 'true'}
+          aria-label="Include installed plugin skills"
+        >
+          <span
+            className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+            style={{ left: skillsIncludePlugins === 'true' && skills !== 'off' && skillsEnabled === 'true' ? '1.25rem' : '0.125rem' }}
+          />
+        </button>
+      </div>
 
       {/* Per-Skill List — both backends (informational; PI cannot enforce per-skill disable, see skills-bridge) */}
       {(skills !== 'off' && skillsEnabled === 'true' && discoveredSkills.length > 0) && (
