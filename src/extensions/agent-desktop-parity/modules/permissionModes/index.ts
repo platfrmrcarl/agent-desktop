@@ -59,6 +59,14 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
     onLifecycle<unknown>('before_agent_start')
     onLifecycle<unknown>('session_start')
 
+    // DIAGNOSTIC — emit a system_message at factory init so the user can
+    // confirm from the chat UI that plan-mode was detected for this turn.
+    // Without this, the factory's detection is invisible to the user
+    // unless they have the main-process terminal open.
+    ctx.bridge.emitSystemMessage(
+      `🔒 plan-mode detected: LLM restricted to ${PLAN_READONLY_TOOLS.join(', ')}. Call exit_plan_mode to unlock.`,
+      { hookName: 'permission-modes', hookEvent: 'SessionStart' },
+    )
     console.log('[permission-modes] plan mode: locked to', PLAN_READONLY_TOOLS.join(', '))
 
     const requireApproval = ctx.aiSettings.requirePlanApproval !== false
@@ -99,6 +107,15 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
   pi.on('tool_call', async (event, extCtx) => {
     const decision = shouldRequireApproval(event.toolName, mode)
     console.log(`[permission-modes] tool_call tool=${event.toolName} mode=${mode} decision=${decision}`)
+    // DIAGNOSTIC — in plan mode emit a system_message so the user can
+    // confirm from the chat UI that the handler is firing at all and
+    // see what toolName PI is actually dispatching.
+    if (mode === 'plan') {
+      ctx.bridge.emitSystemMessage(
+        `🔍 plan-mode tool_call: tool="${event.toolName}" → decision=${decision}`,
+        { hookName: 'permission-modes', hookEvent: 'PreToolUse' },
+      )
+    }
     if (decision === 'allow') return undefined
     if (decision === 'deny') {
       const reason = `Tool "${event.toolName}" is not allowed in ${mode} mode`
