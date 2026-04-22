@@ -303,15 +303,31 @@ describe('permissionModes — plan', () => {
     expect(store.get('permissionModes.planExited')).toBeUndefined()
   })
 
-  it('lockdown lifecycle hook skips setActiveTools when planExited flag is already set', async () => {
+  it('post-exit: factory short-circuits on subsequent turns (no handler, no tool)', () => {
+    // After exit_plan_mode succeeded on a previous turn, planExited is set
+    // in sessionStore. The NEXT factory init should treat effective mode
+    // as bypassPermissions and return early: no tool_call handler, no
+    // lifecycle lockdown, no exit_plan_mode re-registration. This ensures
+    // the LLM's default tool set (write/edit/bash included) is untouched.
     const store = new Map<string, unknown>()
-    store.set('permissionModes.planExited', true)  // previous turn exited
+    store.set('permissionModes.planExited', true)
     const pi = makeMockPi()
     const ctx: ExtensionRuntimeContext = { ...makeCtx('plan'), sessionStore: store }
     initPermissionModes(pi as never, ctx)
-    // Fire the before_agent_start lockdown handler
-    await pi.handlers['before_agent_start']![0]({} as never)
-    // activeTools should remain null because the lockdown was skipped
-    expect(pi.activeTools).toBeNull()
+    expect(pi.handlers['tool_call']).toBeUndefined()
+    expect(pi.handlers['before_agent_start']).toBeUndefined()
+    expect(pi.handlers['session_start']).toBeUndefined()
+    expect(pi.registeredTools).toHaveLength(0)
+  })
+
+  it('post-exit: a tool_call for write is not blocked (handler does not exist)', async () => {
+    const store = new Map<string, unknown>()
+    store.set('permissionModes.planExited', true)
+    const pi = makeMockPi()
+    const ctx: ExtensionRuntimeContext = { ...makeCtx('plan'), sessionStore: store }
+    initPermissionModes(pi as never, ctx)
+    // No tool_call handler registered → fireToolCall returns empty results.
+    const results = await pi.fireToolCall({ toolName: 'write', input: { path: '/x' } }, makeUiCtx())
+    expect(results).toEqual([])
   })
 })

@@ -38,27 +38,42 @@ function hashInput(input: unknown): string {
  * any mutating tool still reaches the LLM.
  */
 export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
+  // Plan-mode escape state lives in sessionStore so a successful
+  // exit_plan_mode survives across turns. Read BEFORE mode resolution so
+  // the entire plan branch short-circuits when the user already exited.
+  const PLAN_EXITED_KEY = 'permissionModes.planExited'
+
   const modeRaw = ctx.aiSettings.permissionMode ?? 'default'
-  const mode: PermissionMode = (VALID_MODES as readonly string[]).includes(modeRaw)
+  let mode: PermissionMode = (VALID_MODES as readonly string[]).includes(modeRaw)
     ? (modeRaw as PermissionMode)
     : 'default'
 
-  // bypassPermissions: no tool_call handler — default PI behavior allows everything.
-  if (mode === 'bypassPermissions') return
+  // If the user already exited plan mode on an earlier turn of this
+  // conversation, treat the effective mode as bypassPermissions. This
+  // ensures EVERY downstream check (tool_call handler, lockdown hook,
+  // exit_plan_mode re-registration) short-circuits consistently, rather
+  // than each one needing to re-check the flag individually.
+  //
+  // This was the architectural mistake of fix #4: two separate states
+  // (captured `mode` + sessionStore flag) drifted apart, so the
+  // tool_call handler still denied writes even after setActiveTools
+  // restored them. Now there's one source of truth: the computed `mode`.
+  if (mode === 'plan' && ctx.sessionStore?.get(PLAN_EXITED_KEY)) {
+    mode = 'bypassPermissions'
+  }
 
-  // Plan-mode escape state lives in sessionStore so a successful
-  // exit_plan_mode survives across turns. Without this flag, the
-  // `before_agent_start` lockdown hook would re-apply PLAN_READONLY_TOOLS
-  // on every subsequent turn even though the user already approved exit.
-  const PLAN_EXITED_KEY = 'permissionModes.planExited'
+  // bypassPermissions (either explicit setting OR post-exit plan):
+  // no handler registered, no lockdown, PI default behavior preserved.
+  if (mode === 'bypassPermissions') return
 
   // Plan mode: lock to read-only tools (via lifecycle hooks, since
   // setActiveTools cannot be called at factory init) and register
   // exit_plan_mode as the escape hatch.
   if (mode === 'plan') {
+    // No flag re-check here: the factory top-level already downgraded
+    // mode to bypassPermissions (and early-returned) when planExited is
+    // set. If we reach this lockDown, plan mode is genuinely active.
     const lockDown = (): void => {
-      // Skip if the user already exited plan mode on an earlier turn.
-      if (ctx.sessionStore?.get(PLAN_EXITED_KEY)) return
       try { pi.setActiveTools(PLAN_READONLY_TOOLS) }
       catch (err) {
         console.warn('[permission-modes] setActiveTools lockdown failed:', err instanceof Error ? err.message : err)
@@ -97,13 +112,6 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
         return { content: [{ type: 'text', text: 'Plan mode exited. Mutating tools are now available.' }] }
       },
     })
-
-    // If the user already exited on an earlier turn, DON'T re-apply the
-    // lockdown this turn either — same reason as in lockDown().
-    if (ctx.sessionStore?.get(PLAN_EXITED_KEY)) {
-      // nothing to do here — lockDown self-guards, but we skip the
-      // belt-and-braces path too for clarity.
-    }
   }
 
   // Approval cache for dontAsk mode — session-scoped via ctx.sessionStore
