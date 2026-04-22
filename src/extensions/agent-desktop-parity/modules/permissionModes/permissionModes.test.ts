@@ -267,4 +267,17 @@ describe('permissionModes — plan', () => {
     const [result] = await pi.fireToolCall({ toolName: 'read', input: { path: '/x' } }, uiCtx)
     expect(result).toBeUndefined()
   })
+
+  it('allows exit_plan_mode tool_call even though it is not in READ_TOOLS', async () => {
+    // exit_plan_mode is OUR escape hatch. The shouldRequireApproval policy
+    // would return 'deny' in plan mode for any tool not in READ_TOOLS —
+    // including exit_plan_mode. Without the special-case in the handler,
+    // calling exit_plan_mode from the LLM would deadlock the session.
+    const pi = makeMockPi()
+    const ctx = makeCtx('plan')
+    initPermissionModes(pi as never, ctx)
+    const uiCtx = makeUiCtx()
+    const [result] = await pi.fireToolCall({ toolName: 'exit_plan_mode', input: {} }, uiCtx)
+    expect(result).toBeUndefined()
+  })
 })

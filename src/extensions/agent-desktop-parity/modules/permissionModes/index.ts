@@ -98,6 +98,12 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
   }
 
   pi.on('tool_call', async (event, extCtx) => {
+    // Our own escape-hatch tool always passes straight through — the
+    // exit_plan_mode tool is the only legal way OUT of plan mode, and
+    // its execute() handler enforces the requirePlanApproval gate
+    // itself. Blocking it here would trap the agent.
+    if (event.toolName === 'exit_plan_mode') return undefined
+
     const decision = shouldRequireApproval(event.toolName, mode)
     if (decision === 'allow') return undefined
     if (decision === 'deny') {
