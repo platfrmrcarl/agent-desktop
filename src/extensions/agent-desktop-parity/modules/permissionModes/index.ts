@@ -41,7 +41,25 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
 
   // Plan mode: lock to read-only tools and register exit_plan_mode.
   if (mode === 'plan') {
+    // Defense in depth — call setActiveTools THREE times:
+    // 1) at factory init (may be no-op if session not built yet)
+    // 2) on before_agent_start (runs after session creation, just before
+    //    the LLM sees the tool list)
+    // 3) on session_start (belt-and-braces; only fires once per session
+    //    but ensures lockdown even if event ordering changes in future
+    //    PI versions)
+    // The tool_call handler below is the FINAL authority if any tool
+    // still reaches the LLM and gets called.
     pi.setActiveTools(PLAN_READONLY_TOOLS)
+
+    const lockDown = (): void => { pi.setActiveTools(PLAN_READONLY_TOOLS) }
+    const onLifecycle = <E>(event: string): void => {
+      ;(pi as unknown as { on: (e: string, h: (e: E) => void) => void }).on(event, lockDown)
+    }
+    onLifecycle<unknown>('before_agent_start')
+    onLifecycle<unknown>('session_start')
+
+    console.log('[permission-modes] plan mode: locked to', PLAN_READONLY_TOOLS.join(', '))
 
     const requireApproval = ctx.aiSettings.requirePlanApproval !== false
 
@@ -80,6 +98,7 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
 
   pi.on('tool_call', async (event, extCtx) => {
     const decision = shouldRequireApproval(event.toolName, mode)
+    console.log(`[permission-modes] tool_call tool=${event.toolName} mode=${mode} decision=${decision}`)
     if (decision === 'allow') return undefined
     if (decision === 'deny') {
       const reason = `Tool "${event.toolName}" is not allowed in ${mode} mode`
