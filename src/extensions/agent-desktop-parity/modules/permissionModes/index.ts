@@ -29,6 +29,14 @@ function hashInput(input: unknown): string {
  * case normalization internally so the same policy works for Claude too.
  */
 export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
+  // DIAGNOSTIC — emit the raw received value so we can see exactly what
+  // the cascade delivers to the extension, regardless of any downstream
+  // mode-branch logic.
+  ctx.bridge.emitSystemMessage(
+    `[diag] permission-modes init: aiSettings.permissionMode = ${JSON.stringify(ctx.aiSettings.permissionMode)} (conversationId=${ctx.conversationId})`,
+    { hookName: 'permission-modes', hookEvent: 'SessionStart' },
+  )
+
   // Unknown mode → fail-SAFE to 'default' (ask before mutating), not
   // bypassPermissions. A typo in settings must not silently widen trust.
   const modeRaw = ctx.aiSettings.permissionMode ?? 'default'
