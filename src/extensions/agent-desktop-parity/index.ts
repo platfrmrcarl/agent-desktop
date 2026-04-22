@@ -3,6 +3,7 @@ import { initCwdGuard } from './modules/cwdGuard'
 import { initPermissionModes } from './modules/permissionModes'
 import { initHooksSystem } from './modules/hooksSystem'
 import { initSkillsBridge } from './modules/skillsBridge'
+import { initBudgetTracker } from './modules/budgetTracker'
 
 /**
  * Default extension factory for the Agent Desktop PI parity extension.
@@ -23,13 +24,13 @@ export default function (pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
       : [],
   )
 
-  // Safety modules first: `tool_call` handlers chain in registration order and
-  // the first `{ block: true }` wins — cwd-guard MUST precede permission-modes
-  // so a path-based deny cannot be reordered behind a mode-based decision.
+  // Safety modules first: `tool_call` handlers chain in registration order
+  // and the first `{ block: true }` wins. cwd-guard → permission-modes →
+  // hooks-system → budget-tracker. budget-tracker is last: a budget block
+  // only fires if no upstream guard already denied.
   if (!disabled.has('cwd-guard')) initCwdGuard(pi, ctx)
   if (!disabled.has('permission-modes')) initPermissionModes(pi, ctx)
   if (!disabled.has('hooks-system')) initHooksSystem(pi, ctx)
   if (!disabled.has('skills-bridge')) initSkillsBridge(pi, ctx)
-  // Future modules will be added here in Phase 5:
-  //   if (!disabled.has('budget-tracker')) initBudgetTracker(pi, ctx)
+  if (!disabled.has('budget-tracker')) initBudgetTracker(pi, ctx)
 }
