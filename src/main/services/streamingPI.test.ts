@@ -50,6 +50,33 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
 }))
 
+// Mock MCP client module
+vi.mock('./mcpClient', () => ({
+  createMcpClient: vi.fn(),
+  McpConnectError: class McpConnectError extends Error {
+    serverName: string
+    constructor(name: string, cause: unknown) {
+      const causeMessage = cause instanceof Error ? cause.message : String(cause)
+      super(`MCP server '${name}' failed to connect: ${causeMessage}`)
+      this.name = 'McpConnectError'
+      this.serverName = name
+    }
+  },
+}))
+
+// Mock mcpToPiTools
+vi.mock('./mcpToPiTools', () => ({
+  mcpServerToPiTools: vi.fn((handle: { name: string; tools: Array<{ name: string }> }) =>
+    handle.tools.map((t) => ({
+      name: `mcp__${handle.name}__${t.name}`,
+      label: `${handle.name}: ${t.name}`,
+      description: '',
+      parameters: {},
+      execute: vi.fn(),
+    }))
+  ),
+}))
+
 // Mock session object
 const mockSession = {
   subscribe: vi.fn(),
@@ -710,5 +737,180 @@ describe('session persistence', () => {
     expect(pi.SessionManager.open).not.toHaveBeenCalled()
     // No DB writes for one-shot
     expect(setConversationPiSessionFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('streamMessagePI — MCP integration', () => {
+  beforeEach(async () => {
+    mockSendFn.mockClear()
+    mockCreateAgentSession.mockClear()
+    mockSession.subscribe.mockClear()
+    mockSession.prompt.mockClear()
+    mockSession.abort.mockClear()
+    mockSession.dispose.mockClear()
+    mockSession.bindExtensions.mockClear()
+    mockDispose.mockClear()
+
+    mockSession.subscribe.mockReturnValue(vi.fn())
+    mockSession.prompt.mockResolvedValue(undefined)
+
+    vi.mocked(getConversationPiSessionFile).mockReturnValue(null)
+    vi.mocked(setConversationPiSessionFile).mockReset()
+    vi.mocked(nodeFs.existsSync).mockReturnValue(false)
+    vi.mocked(getDatabase).mockReturnValue({ __sentinel: true } as unknown as ReturnType<typeof getDatabase>)
+
+    // Reset MCP mocks
+    const { createMcpClient } = await import('./mcpClient')
+    vi.mocked(createMcpClient).mockReset()
+    const { mcpServerToPiTools } = await import('./mcpToPiTools')
+    vi.mocked(mcpServerToPiTools).mockReset()
+    vi.mocked(mcpServerToPiTools).mockImplementation((handle: { name: string; tools: Array<{ name: string }> }) =>
+      handle.tools.map((t) => ({
+        name: `mcp__${handle.name}__${t.name}`,
+        label: `${handle.name}: ${t.name}`,
+        description: '',
+        parameters: {},
+        execute: vi.fn(),
+      })) as never
+    )
+  })
+
+  it('spawns a client per configured MCP server and appends their tools to customTools', async () => {
+    const { createMcpClient } = await import('./mcpClient')
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'fs',
+      tools: [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
+      callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] }),
+      close: closeSpy,
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test', mcpServers: { fs: { command: 'fs-server', args: [] } } },
+      1,
+    )
+
+    expect(createMcpClient).toHaveBeenCalledWith('fs', { command: 'fs-server', args: [] })
+    const callArg = mockCreateAgentSession.mock.calls[0][0] as { customTools: Array<{ name: string }> }
+    expect(callArg.customTools.some((t) => t.name === 'mcp__fs__read')).toBe(true)
+  })
+
+  it('closes clients in finally block on success path', async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    const { createMcpClient } = await import('./mcpClient')
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'fs',
+      tools: [],
+      callTool: vi.fn(),
+      close: closeSpy,
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test', mcpServers: { fs: { command: 'fs-server', args: [] } } },
+      1,
+    )
+
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes clients in finally block on abort path', async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    const { createMcpClient } = await import('./mcpClient')
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'fs',
+      tools: [],
+      callTool: vi.fn(),
+      close: closeSpy,
+    })
+
+    mockSession.prompt.mockRejectedValueOnce(
+      Object.assign(new Error('aborted'), { name: 'AbortError' })
+    )
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test', mcpServers: { fs: { command: 'fs-server', args: [] } } },
+      1,
+    )
+
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips server names containing __ defensively', async () => {
+    const { createMcpClient } = await import('./mcpClient')
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'good',
+      tools: [],
+      callTool: vi.fn(),
+      close: closeSpy,
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      {
+        cwd: '/tmp/test',
+        mcpServers: {
+          good: { command: 'good-server', args: [] },
+          'bad__name': { command: 'bad-server', args: [] },
+        },
+      },
+      1,
+    )
+
+    expect(createMcpClient).toHaveBeenCalledWith('good', expect.anything())
+    expect(createMcpClient).not.toHaveBeenCalledWith('bad__name', expect.anything())
+  })
+
+  it('emits system_message chunk and continues when a server fails to spawn', async () => {
+    const { createMcpClient, McpConnectError } = await import('./mcpClient')
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(createMcpClient).mockImplementation((name: string) => {
+      if (name === 'broken') {
+        return Promise.reject(new McpConnectError('broken', new Error('spawn failed')))
+      }
+      return Promise.resolve({
+        name,
+        tools: [],
+        callTool: vi.fn(),
+        close: closeSpy,
+      })
+    })
+
+    const result = await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      {
+        cwd: '/tmp/test',
+        mcpServers: {
+          broken: { command: 'bad', args: [] },
+          ok: { command: 'good', args: [] },
+        },
+      },
+      1,
+    )
+
+    // A system_message chunk mentioning 'broken' was emitted
+    const sysChunks = mockSendFn.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'messages:stream' && (c[1] as { type: string }).type === 'system_message'
+    )
+    expect(sysChunks).toHaveLength(1)
+    expect((sysChunks[0][1] as { content: string }).content).toContain('broken')
+
+    // Stream finished normally (not aborted, no error chunk)
+    expect(result.aborted).toBe(false)
+    const errorChunks = mockSendFn.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'messages:stream' && (c[1] as { type: string }).type === 'error'
+    )
+    expect(errorChunks).toHaveLength(0)
+
+    // The ok server's client was still closed
+    expect(closeSpy).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,5 +1,7 @@
 import { sendChunk, buildPromptWithHistory, abortControllers } from './streaming'
 import { sendChunk as coreSendChunk } from '../../core/services/streaming'
+import { createMcpClient, McpConnectError, type McpClientHandle } from './mcpClient'
+import { mcpServerToPiTools } from './mcpToPiTools'
 import { loadPISdk } from './piSdk'
 import { PiUIContext } from './piUIContext'
 import { registerPiUIContext, unregisterPiUIContext } from './piExtensions'
@@ -278,6 +280,8 @@ export async function streamMessagePI(
   const abortController = new AbortController()
   abortControllers.set(convKey, abortController)
 
+  const mcpHandles: McpClientHandle[] = []
+
   try {
     sendChunk('text', '', convExtra)
 
@@ -324,6 +328,31 @@ export async function streamMessagePI(
         customTools.push(createSchedulerTool())
       }
     }
+
+    // --- MCP native integration ---
+    const mcpServers = aiSettings?.mcpServers ?? {}
+    if (Object.keys(mcpServers).length > 0) {
+      const spawnResults = await Promise.allSettled(
+        Object.entries(mcpServers)
+          .filter(([name]) => !name.includes('__'))
+          .map(async ([name, config]) => ({ name, handle: await createMcpClient(name, config) }))
+      )
+      for (const r of spawnResults) {
+        if (r.status === 'fulfilled') {
+          mcpHandles.push(r.value.handle)
+          customTools.push(...mcpServerToPiTools(r.value.handle) as pi.ToolDefinition[])
+        } else {
+          const serverName = r.reason instanceof McpConnectError ? r.reason.serverName : 'unknown'
+          const errMsg = r.reason instanceof Error ? r.reason.message : String(r.reason)
+          sendChunk('system_message', `MCP server '${serverName}' failed to start: ${errMsg}`, {
+            hookName: 'mcp',
+            hookEvent: 'spawn_failed',
+            ...convExtra,
+          })
+        }
+      }
+    }
+    // --- end MCP ---
 
     const { sessionManager, persistAfterCreate } = await resolveSessionManager(
       pi,
@@ -462,6 +491,8 @@ export async function streamMessagePI(
       sendChunk('error', errorMsg, convExtra)
     }
   } finally {
+    // Close all MCP clients regardless of how the stream ended
+    await Promise.allSettled(mcpHandles.map((h) => h.close()))
     // Only delete if this is still our controller
     if (abortControllers.get(convKey) === abortController) {
       abortControllers.delete(convKey)
