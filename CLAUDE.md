@@ -42,13 +42,14 @@
 - **`hooks_cwdWhitelist` cascade**: replace semantics (most specific level wins); empty whitelist = backward compat (reads unrestricted, writes restricted to CWD)
 - **NOT cascaded** (per-conversation only): `cwd`, `kb_enabled`, `cleared_at`
 - **NOT cascaded** (global only): `tts_summaryModel` — model selection for TTS summary generation; UI provides Haiku/Sonnet/Opus presets + Custom free text; backend defaults to Haiku if unset
+- **NOT cascaded** (global only): `ai_compactModel`, `ai_titleModel` — model overrides for `/compact` and auto-title; empty = Auto (inherits conversation's active model → `HAIKU_MODEL` fallback)
 - **NOT cascaded** (global only): `server_passwordHash`, `server_sessionSecret`, `server_sessionDurationDays`, `server_rememberDurationDays` — server-scoped, not per-conversation
 - **Folder color**: nullable TEXT `#rrggbb` validated server-side; `null` = no tint; applied via `color-mix` like theme tinting
 - **Default folder**: `is_default = 1` on `folders`; auto-created at startup as "Unsorted" with `position = -1`; non-deletable, renamable; all new/imported conversations assigned to it; no `folder_id = NULL` in system
 - **Heatmap**: `heatmap_enabled`, `heatmap_mode` (`'relative'`|`'fixed'`), `heatmap_min`, `heatmap_max` stored as strings; color via `hsvToHex(120 * (1-t), 70, 80)` applied same way; manual color takes precedence
 - **Bulk IPC ops**: `deleteMany`/`moveMany` wrap per-row statements in `db.transaction()` — no `WHERE id IN (...)` (sql.js parameter binding limitation)
 - **Multi-select `visibleOrder`**: store receives flat ID array from component — store cannot compute it (doesn't know folder expansion state)
-- **`/compact`**: uses Haiku to summarize conversation; summary stored in `compact_summary` column on conversations table
+- **`/compact`**: summarizes via `summarizeWithModel` helper — routes `claude-*` to Claude SDK, others to PI SDK; model resolved as `ai_compactModel` → `aiSettings.model` → `HAIKU_MODEL`; summary stored in `compact_summary` column on conversations table
 - **`/clear`**: just sets `cleared_at` with no AI call
 - **`allowedTools` wildcards** (`mcp__<name>__*`) REQUIRED — MCP tools unusable without them, even with bypass
 - **`bypassPermissions`** is the only mode that sets `allowDangerouslySkipPermissions`
@@ -91,7 +92,7 @@
 - **Scheduler MCP**: removed from `aiSettings.mcpServers` during unattended execution — prevents recursive task creation
 - **MCP names**: must not contain `__` — conflicts with SDK tool naming `mcp__name__tool`
 - **CWD hooks**: return `'deny'` not `'ask'` — bypass mode auto-approves `'ask'` decisions
-- **Auto-title**: no `outputFormat: json_schema` — causes SDK internal tool_use cycle exhausting `maxTurns: 1`
+- **Auto-title**: no `outputFormat: json_schema` — causes SDK internal tool_use cycle exhausting `maxTurns: 1`; model resolved as `ai_titleModel` → `aiSettings.model` → `HAIKU_MODEL`
 - **Stream isolation**: `streamBuffers` dict keyed by conversationId — a conversation is streaming iff its ID is a key (no separate flag)
 - **SDK session retry**: if `resume` fails (corrupted/deleted session), `streamAndSave` catches, clears `sdk_session_id`, and retries with full history — transparent to user
 - **SDK session invalidation**: regenerate, edit, compact, clear all set `sdk_session_id = NULL` — SDK's internal history no longer matches SQLite

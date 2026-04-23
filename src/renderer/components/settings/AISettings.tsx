@@ -48,6 +48,10 @@ export function AISettings() {
     try { return JSON.parse(cwdWhitelistRaw) } catch { return [] }
   })()
   const defaultSystemPrompt = settings['ai_defaultSystemPrompt'] ?? ''
+  const compactModel = settings['ai_compactModel'] ?? ''
+  const titleModel = settings['ai_titleModel'] ?? ''
+  const isCompactModelCustom = compactModel !== '' && !fetchedModels.some(o => o.value === compactModel)
+  const isTitleModelCustom = titleModel !== '' && !fetchedModels.some(o => o.value === titleModel)
   const agentName = settings['agent_name'] ?? ''
   const agentPersonality = settings['agent_personality'] ?? ''
   const agentLanguage = settings['agent_language'] ?? ''
@@ -854,6 +858,88 @@ export function AISettings() {
           }}
           aria-label="Default system prompt"
         />
+      </div>
+
+      {/* Compact Model (global only) */}
+      <div className="flex flex-col gap-1.5 py-3 border-b border-[var(--color-text-muted)]/10">
+        <label className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+          Compact Model
+        </label>
+        <select
+          value={isCompactModelCustom ? '__custom__' : compactModel}
+          onChange={(e) => {
+            const val = e.target.value
+            if (val === '__custom__') {
+              setSetting('ai_compactModel', compactModel || '')
+            } else {
+              setSetting('ai_compactModel', val)
+            }
+          }}
+          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
+          style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+          aria-label="Compact model"
+        >
+          <option value="">Auto (current model)</option>
+          {fetchedModels.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+          <option value="__custom__">Custom...</option>
+        </select>
+        {isCompactModelCustom && (
+          <input
+            type="text"
+            value={compactModel}
+            onChange={(e) => setSetting('ai_compactModel', e.target.value)}
+            placeholder="model-id"
+            className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
+            style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+            aria-label="Custom compact model"
+          />
+        )}
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          Model used when running <code>/compact</code>. Auto = uses the conversation&apos;s active model.
+        </span>
+      </div>
+
+      {/* Title Model (global only) */}
+      <div className="flex flex-col gap-1.5 py-3 border-b border-[var(--color-text-muted)]/10">
+        <label className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+          Title Model
+        </label>
+        <select
+          value={isTitleModelCustom ? '__custom__' : titleModel}
+          onChange={(e) => {
+            const val = e.target.value
+            if (val === '__custom__') {
+              setSetting('ai_titleModel', titleModel || '')
+            } else {
+              setSetting('ai_titleModel', val)
+            }
+          }}
+          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
+          style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+          aria-label="Title model"
+        >
+          <option value="">Auto (current model)</option>
+          {fetchedModels.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+          <option value="__custom__">Custom...</option>
+        </select>
+        {isTitleModelCustom && (
+          <input
+            type="text"
+            value={titleModel}
+            onChange={(e) => setSetting('ai_titleModel', e.target.value)}
+            placeholder="model-id"
+            className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
+            style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+            aria-label="Custom title model"
+          />
+        )}
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          Model used to auto-generate conversation titles. Auto = uses the conversation&apos;s active model.
+        </span>
       </div>
 
       {showPromptEditor && (

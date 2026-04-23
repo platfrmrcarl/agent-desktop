@@ -123,3 +123,62 @@ describe('AISettings — PI backend', () => {
     expect(screen.getByLabelText('Default system prompt')).toBeInTheDocument()
   })
 })
+
+describe('AISettings — Compact Model and Title Model sections', () => {
+  it('shows Compact Model and Title Model selects', () => {
+    render(<AISettings />)
+
+    expect(screen.getByLabelText('Compact model')).toBeInTheDocument()
+    expect(screen.getByLabelText('Title model')).toBeInTheDocument()
+  })
+
+  it('Compact Model defaults to Auto (empty value)', () => {
+    render(<AISettings />)
+
+    const select = screen.getByLabelText('Compact model') as HTMLSelectElement
+    expect(select.value).toBe('')
+  })
+
+  it('Title Model defaults to Auto (empty value)', () => {
+    render(<AISettings />)
+
+    const select = screen.getByLabelText('Title model') as HTMLSelectElement
+    expect(select.value).toBe('')
+  })
+
+  it('shows custom text input when Compact Model is a non-preset value', () => {
+    useSettingsStore.setState({
+      settings: { ai_compactModel: 'my-custom-model' },
+      setSetting: vi.fn().mockResolvedValue(undefined),
+      loadSettings: vi.fn().mockResolvedValue(undefined),
+    })
+
+    render(<AISettings />)
+
+    expect(screen.getByLabelText('Custom compact model')).toBeInTheDocument()
+  })
+
+  it('shows custom text input when Title Model is a non-preset value', () => {
+    useSettingsStore.setState({
+      settings: { ai_titleModel: 'my-custom-model' },
+      setSetting: vi.fn().mockResolvedValue(undefined),
+      loadSettings: vi.fn().mockResolvedValue(undefined),
+    })
+
+    render(<AISettings />)
+
+    expect(screen.getByLabelText('Custom title model')).toBeInTheDocument()
+  })
+
+  it('does not show custom input when Compact Model is empty (Auto)', () => {
+    render(<AISettings />)
+
+    expect(screen.queryByLabelText('Custom compact model')).not.toBeInTheDocument()
+  })
+
+  it('does not show custom input when Title Model is empty (Auto)', () => {
+    render(<AISettings />)
+
+    expect(screen.queryByLabelText('Custom title model')).not.toBeInTheDocument()
+  })
+})
