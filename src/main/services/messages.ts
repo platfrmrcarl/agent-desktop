@@ -504,6 +504,15 @@ function clearConversationSdkSessionId(db: Database.Database, conversationId: nu
   db.prepare('UPDATE conversations SET sdk_session_id = NULL WHERE id = ?').run(conversationId)
 }
 
+export function getConversationPiSessionFile(db: Database.Database, conversationId: number): string | null {
+  const row = db.prepare('SELECT pi_session_file FROM conversations WHERE id = ?').get(conversationId) as { pi_session_file: string | null } | undefined
+  return row?.pi_session_file ?? null
+}
+
+export function setConversationPiSessionFile(db: Database.Database, conversationId: number, filepath: string | null): void {
+  db.prepare('UPDATE conversations SET pi_session_file = ? WHERE id = ?').run(filepath, conversationId)
+}
+
 export function saveConversationUsage(
   db: Database.Database,
   conversationId: number,

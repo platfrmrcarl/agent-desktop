@@ -524,6 +524,15 @@ function clearConversationSdkSessionId(db: SqlJsAdapter, conversationId: number)
   (db as any).prepare('UPDATE conversations SET sdk_session_id = NULL WHERE id = ?').run(conversationId)
 }
 
+function getConversationPiSessionFile(db: SqlJsAdapter, conversationId: number): string | null {
+  const row = (db as any).prepare('SELECT pi_session_file FROM conversations WHERE id = ?').get(conversationId) as { pi_session_file: string | null } | undefined
+  return row?.pi_session_file ?? null
+}
+
+function setConversationPiSessionFile(db: SqlJsAdapter, conversationId: number, filepath: string | null): void {
+  (db as any).prepare('UPDATE conversations SET pi_session_file = ? WHERE id = ?').run(filepath, conversationId)
+}
+
 function saveConversationUsage(
   db: SqlJsAdapter,
   conversationId: number,

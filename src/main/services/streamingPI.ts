@@ -5,6 +5,9 @@ import { PiUIContext } from './piUIContext'
 import { registerPiUIContext, unregisterPiUIContext } from './piExtensions'
 import { getMainWindow } from '../index'
 import { getSchedulerMcpConfig, socketPath as schedSocketPath, authToken as schedAuthToken } from './schedulerBridge'
+import { existsSync } from 'node:fs'
+import { getConversationPiSessionFile, setConversationPiSessionFile } from './messages'
+import { getDatabase } from '../../core/db/database'
 import { Type } from '@sinclair/typebox'
 import type { Static, TSchema } from '@sinclair/typebox'
 import type { AISettings } from './streaming'
@@ -187,6 +190,64 @@ export function clearExtensionSessionStore(conversationId: number): void {
   sessionStores.delete(conversationId)
 }
 
+type PiSdk = Awaited<ReturnType<typeof loadPISdk>>
+
+async function resolveSessionManager(
+  pi: PiSdk,
+  conversationId: number | undefined,
+  cwd: string,
+): Promise<{ sessionManager: unknown; persistAfterCreate: () => void }> {
+  // No conversationId (one-shot) → in-memory, no persistence
+  if (conversationId == null) {
+    return {
+      sessionManager: pi.SessionManager.inMemory(cwd),
+      persistAfterCreate: () => {},
+    }
+  }
+
+  let db: ReturnType<typeof getDatabase> | null = null
+  try {
+    db = getDatabase()
+  } catch {
+    // DB not yet initialised (unlikely in production, but guard for tests)
+  }
+
+  if (!db) {
+    return {
+      sessionManager: pi.SessionManager.inMemory(cwd),
+      persistAfterCreate: () => {},
+    }
+  }
+
+  // Try to resume from an existing file
+  const existingFile = getConversationPiSessionFile(db, conversationId)
+  if (existingFile && existsSync(existingFile)) {
+    try {
+      const sm = pi.SessionManager.open(existingFile)
+      return { sessionManager: sm, persistAfterCreate: () => {} }
+    } catch (err) {
+      console.warn(
+        '[streamingPI] SessionManager.open failed, falling back to create:',
+        err instanceof Error ? err.message : err,
+      )
+      setConversationPiSessionFile(db, conversationId, null)
+      // fall through to create
+    }
+  }
+
+  // Create fresh — sessionFile is assigned inside newSession() on construction,
+  // so getSessionFile() is populated immediately after create() returns.
+  const sm = pi.SessionManager.create(cwd)
+  const capturedDb = db
+  return {
+    sessionManager: sm,
+    persistAfterCreate: () => {
+      const filepath = (sm as { getSessionFile?: () => string | undefined }).getSessionFile?.()
+      if (filepath) setConversationPiSessionFile(capturedDb, conversationId, filepath)
+    },
+  }
+}
+
 function mapThinkingLevel(maxThinkingTokens?: number): 'off' | 'low' | 'medium' | 'high' {
   if (!maxThinkingTokens || maxThinkingTokens === 0) return 'off'
   if (maxThinkingTokens <= 10000) return 'low'
@@ -264,14 +325,21 @@ export async function streamMessagePI(
       }
     }
 
+    const { sessionManager, persistAfterCreate } = await resolveSessionManager(
+      pi,
+      conversationId,
+      aiSettings?.cwd || process.cwd(),
+    )
+
     const { session } = await pi.createAgentSession({
       cwd: aiSettings?.cwd || process.cwd(),
-      sessionManager: pi.SessionManager.inMemory(),
+      sessionManager,
       thinkingLevel,
       tools: pi.codingTools,
       customTools,
       resourceLoader,
     })
+    persistAfterCreate()
 
     // Create UI context and bind to session for extension UI support
     const uiContext = new PiUIContext(
