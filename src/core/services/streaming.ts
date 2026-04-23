@@ -184,6 +184,8 @@ export interface AISettings {
   ttsAutoWordLimit?: number
   ttsSummaryPrompt?: string
   ttsSummaryModel?: string
+  compactModel?: string
+  titleModel?: string
   piDisabledExtensions?: string[]
   piExtensionsDir?: string
   webhookCompletionUrl?: string

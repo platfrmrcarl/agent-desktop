@@ -5,7 +5,7 @@ import type { HookRunner } from '../ports/hookRunner'
 import type { AISettings } from '../services/streaming'
 import type { Message, Attachment, ToolCall, ToolApprovalResponse, AskUserResponse, KnowledgeSelection, CwdWhitelistEntry } from '../types/types'
 import { streamMessage, abortStream, respondToApproval, sendChunk, notifyConversationUpdated, injectApiKeyEnv } from '../services/streaming'
-import { loadAgentSDK } from '../services/anthropic'
+import { summarizeWithModel } from '../services/summarization'
 import { validateString, validatePositiveInt, validatePathSafe } from '../utils/validate'
 import { safeJsonParse } from '../utils/json'
 import { HAIKU_MODEL } from '../types/constants'
@@ -344,7 +344,7 @@ function filterMcpServers(
 
 export function getAISettings(db: SqlJsAdapter, conversationId: number, opts?: { sessionsBase: string; knowledgesDir?: string; getSchedulerMcpConfig?: (id: number) => Record<string, unknown> | null }): AISettings {
   const sessionsBase = opts?.sessionsBase ?? ''
-  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_requirePlanApproval', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'webhook_completionUrl']
+  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_requirePlanApproval', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'ai_compactModel', 'ai_titleModel', 'webhook_completionUrl']
   const rows = (db as any)
     .prepare(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`)
     .all(...keys) as { key: string; value: string }[]
@@ -470,6 +470,8 @@ export function getAISettings(db: SqlJsAdapter, conversationId: number, opts?: {
     ttsAutoWordLimit: map['tts_autoWordLimit'] ? Number(map['tts_autoWordLimit']) : undefined,
     ttsSummaryPrompt: map['tts_summaryPrompt'] || undefined,
     ttsSummaryModel: map['tts_summaryModel'] || undefined,
+    compactModel: map['ai_compactModel'] || undefined,
+    titleModel: map['ai_titleModel'] || undefined,
     piDisabledExtensions: safeJsonParse<string[]>(map['pi_disabledExtensions'] || '[]', []),
     piExtensionsDir: globalPiExtensionsDir,
     webhookCompletionUrl: map['webhook_completionUrl'] || undefined,
@@ -757,40 +759,22 @@ async function generateConversationTitle(
   const userSnippet = userContent.slice(0, 200)
   const assistantSnippet = cleanAssistant.slice(0, 200)
 
-  const apiKeyRow = (db as any).prepare("SELECT key, value FROM settings WHERE key IN ('ai_apiKey', 'ai_baseUrl')").all() as { key: string; value: string }[]
-  const apiMap: Record<string, string> = {}
-  for (const r of apiKeyRow) apiMap[r.key] = r.value
-  const restoreEnv = injectApiKeyEnv(apiMap['ai_apiKey'] || undefined, apiMap['ai_baseUrl'] || undefined)
+  const aiSettings = getAISettings(db, conversationId, {
+    sessionsBase: options.sessionsBase,
+    knowledgesDir: options.knowledgesDir,
+    getSchedulerMcpConfig: options.getSchedulerMcpConfig,
+  })
+  const effectiveModel = aiSettings.titleModel || aiSettings.model || HAIKU_MODEL
+  const restoreEnv = injectApiKeyEnv(aiSettings.apiKey, aiSettings.baseUrl)
 
   try {
-    const sdk = await loadAgentSDK()
+    const rawTitle = await summarizeWithModel(
+      `Generate a very short title (3-6 words) for this conversation. Reply with ONLY the title — no quotes, no explanation.\nUser: ${userSnippet}\nAssistant: ${assistantSnippet}`,
+      effectiveModel,
+      { cwd: aiSettings.cwd || process.cwd(), apiKey: aiSettings.apiKey, baseUrl: aiSettings.baseUrl },
+    )
 
-    let title = ''
-    const agentQuery = sdk.query({
-      prompt: `Generate a very short title (3-6 words) for this conversation. Reply with ONLY the title — no quotes, no explanation.\nUser: ${userSnippet}\nAssistant: ${assistantSnippet}`,
-      options: {
-        model: HAIKU_MODEL,
-        maxTurns: 1,
-        allowDangerouslySkipPermissions: true,
-        permissionMode: 'bypassPermissions',
-        tools: [],
-        persistSession: false,
-      },
-    })
-
-    for await (const message of agentQuery) {
-      const msg = message as { type: string; subtype?: string; result?: string; message?: { content?: Array<{ type: string; text?: string }> } }
-      if (msg.type === 'assistant' && msg.message?.content) {
-        for (const block of msg.message.content) {
-          if (block.type === 'text' && block.text) {
-            title = block.text.trim().replace(/^["']|["']$/g, '').slice(0, 80)
-          }
-        }
-      }
-      if (msg.type === 'result' && msg.subtype === 'success' && typeof msg.result === 'string' && msg.result.trim()) {
-        title = msg.result.trim().replace(/^["']|["']$/g, '').slice(0, 80)
-      }
-    }
+    const title = rawTitle.trim().replace(/^["']|["']$/g, '').slice(0, 80)
 
     if (!title) {
       console.warn('[messages] Auto-title: empty title generated for conversation', conversationId)
@@ -825,40 +809,20 @@ export async function compactConversation(
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
     .join('\n\n')
 
-  const apiKeyRow = (db as any).prepare("SELECT key, value FROM settings WHERE key IN ('ai_apiKey', 'ai_baseUrl')").all() as { key: string; value: string }[]
-  const apiMap: Record<string, string> = {}
-  for (const r of apiKeyRow) apiMap[r.key] = r.value
-  const restoreEnv = injectApiKeyEnv(apiMap['ai_apiKey'] || undefined, apiMap['ai_baseUrl'] || undefined)
+  const aiSettings = getAISettings(db, conversationId, {
+    sessionsBase: options.sessionsBase,
+    knowledgesDir: options.knowledgesDir,
+    getSchedulerMcpConfig: options.getSchedulerMcpConfig,
+  })
+  const effectiveModel = aiSettings.compactModel || aiSettings.model || HAIKU_MODEL
+  const restoreEnv = injectApiKeyEnv(aiSettings.apiKey, aiSettings.baseUrl)
 
   try {
-    const sdk = await loadAgentSDK()
-
-    let summary = ''
-    const agentQuery = sdk.query({
-      prompt: `Summarize the following conversation into a concise context summary that preserves all key information, decisions, code changes, file paths, and important details. The summary will replace the full conversation history, so it must capture everything needed to continue the conversation seamlessly. Write the summary as a factual recap, not as a conversation. Do NOT wrap it in quotes or add a preamble.\n\n${conversationText}`,
-      options: {
-        model: HAIKU_MODEL,
-        maxTurns: 1,
-        allowDangerouslySkipPermissions: true,
-        permissionMode: 'bypassPermissions',
-        tools: [],
-        persistSession: false,
-      },
-    })
-
-    for await (const message of agentQuery) {
-      const msg = message as { type: string; subtype?: string; result?: string; message?: { content?: Array<{ type: string; text?: string }> } }
-      if (msg.type === 'assistant' && msg.message?.content) {
-        for (const block of msg.message.content) {
-          if (block.type === 'text' && block.text) {
-            summary = block.text.trim()
-          }
-        }
-      }
-      if (msg.type === 'result' && msg.subtype === 'success' && typeof msg.result === 'string' && msg.result.trim()) {
-        summary = msg.result.trim()
-      }
-    }
+    const summary = await summarizeWithModel(
+      `Summarize the following conversation into a concise context summary that preserves all key information, decisions, code changes, file paths, and important details. The summary will replace the full conversation history, so it must capture everything needed to continue the conversation seamlessly. Write the summary as a factual recap, not as a conversation. Do NOT wrap it in quotes or add a preamble.\n\n${conversationText}`,
+      effectiveModel,
+      { cwd: aiSettings.cwd || process.cwd(), apiKey: aiSettings.apiKey, baseUrl: aiSettings.baseUrl },
+    )
 
     const clearedAt = new Date().toISOString()
     ;(db as any).prepare('UPDATE conversations SET cleared_at = ?, compact_summary = ?, sdk_session_id = NULL, updated_at = ? WHERE id = ?')
