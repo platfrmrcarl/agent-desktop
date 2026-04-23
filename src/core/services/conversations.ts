@@ -119,7 +119,7 @@ export class ConversationService {
       const c = data.color as string
       if (!/^#[0-9a-fA-F]{6}$/.test(c)) throw new Error('color must be a valid hex color (#rrggbb)')
     }
-    const allowed = ['title', 'folder_id', 'position', 'model', 'system_prompt', 'kb_enabled', 'cwd', 'ai_overrides', 'cleared_at', 'compact_summary', 'sdk_session_id', 'color']
+    const allowed = ['title', 'folder_id', 'position', 'model', 'system_prompt', 'kb_enabled', 'cwd', 'ai_overrides', 'cleared_at', 'compact_summary', 'sdk_session_id', 'pi_session_file', 'color']
     if (data.cleared_at !== undefined && data.cleared_at !== null) {
       data.sdk_session_id = null
     }

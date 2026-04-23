@@ -770,7 +770,7 @@ export async function compactConversation(
   const history = buildMessageHistory(db, conversationId)
   if (history.length === 0) {
     const clearedAt = new Date().toISOString()
-    db.prepare('UPDATE conversations SET cleared_at = ?, compact_summary = NULL, updated_at = ? WHERE id = ?')
+    db.prepare('UPDATE conversations SET cleared_at = ?, compact_summary = NULL, pi_session_file = NULL, updated_at = ? WHERE id = ?')
       .run(clearedAt, clearedAt, conversationId)
     return { summary: '', clearedAt }
   }
@@ -792,7 +792,7 @@ export async function compactConversation(
     )).trim()
 
     const clearedAt = new Date().toISOString()
-    db.prepare('UPDATE conversations SET cleared_at = ?, compact_summary = ?, sdk_session_id = NULL, updated_at = ? WHERE id = ?')
+    db.prepare('UPDATE conversations SET cleared_at = ?, compact_summary = ?, sdk_session_id = NULL, pi_session_file = NULL, updated_at = ? WHERE id = ?')
       .run(clearedAt, summary || null, clearedAt, conversationId)
     invalidateSession(conversationId)
 

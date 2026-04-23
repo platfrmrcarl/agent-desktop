@@ -146,6 +146,12 @@ describe('chatStore', () => {
     expect(mockAgent.conversations.update).toHaveBeenCalledWith(42, expect.objectContaining({ compact_summary: null }))
   })
 
+  it('clearContext includes pi_session_file: null in update payload', async () => {
+    await useChatStore.getState().clearContext(42)
+
+    expect(mockAgent.conversations.update).toHaveBeenCalledWith(42, expect.objectContaining({ pi_session_file: null }))
+  })
+
   it('compactContext sets isCompacting then resolves with summary', async () => {
     mockAgent.messages.compact.mockResolvedValueOnce({ summary: 'Compacted summary', clearedAt: '2025-06-01T00:00:00.000Z' })
 

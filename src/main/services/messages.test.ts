@@ -35,6 +35,7 @@ import {
   getAISettings,
   saveMessage,
   copyAttachmentsToSession,
+  compactConversation,
 } from './messages'
 import type Database from 'better-sqlite3'
 
@@ -668,6 +669,15 @@ describe('Messages Service', () => {
       const history = buildMessageHistory(db, convId)
       expect(history[0].content).toBe('Hello world')
       expect(history[0].content).not.toContain('[')
+    })
+  })
+
+  describe('compactConversation nulls pi_session_file', () => {
+    it('nulls pi_session_file on empty-history compact', async () => {
+      db.prepare('UPDATE conversations SET pi_session_file = ? WHERE id = ?').run('/tmp/old-session.jsonl', convId)
+      await compactConversation(db, convId)
+      const row = db.prepare('SELECT pi_session_file FROM conversations WHERE id = ?').get(convId) as { pi_session_file: string | null }
+      expect(row.pi_session_file).toBeNull()
     })
   })
 

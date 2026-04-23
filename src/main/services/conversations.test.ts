@@ -163,6 +163,16 @@ describe('Conversations Service', () => {
     expect(updated.sdk_session_id).toBe('my-session-abc')
   })
 
+  it('update pi_session_file sets and clears the PI session path', async () => {
+    const conv = await ipc.invoke('conversations:create', 'PI Session') as any
+    await ipc.invoke('conversations:update', conv.id, { pi_session_file: '/tmp/pi-session.jsonl' })
+    const withFile = await ipc.invoke('conversations:get', conv.id) as any
+    expect(withFile.pi_session_file).toBe('/tmp/pi-session.jsonl')
+    await ipc.invoke('conversations:update', conv.id, { pi_session_file: null })
+    const cleared = await ipc.invoke('conversations:get', conv.id) as any
+    expect(cleared.pi_session_file).toBeNull()
+  })
+
   it('update cleared_at to null clears the boundary', async () => {
     const conv = await ipc.invoke('conversations:create', 'Clear Reset') as any
     await ipc.invoke('conversations:update', conv.id, { cleared_at: '2024-01-01T00:00:00Z' })

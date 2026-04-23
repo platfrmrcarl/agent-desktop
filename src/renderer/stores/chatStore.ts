@@ -423,7 +423,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   clearContext: async (conversationId: number) => {
     const clearedAt = new Date().toISOString()
-    await window.agent.conversations.update(conversationId, { cleared_at: clearedAt, compact_summary: null } as any)
+    await window.agent.conversations.update(conversationId, { cleared_at: clearedAt, compact_summary: null, pi_session_file: null } as any)
     set({ clearedAt, compactSummary: null })
   },
 
