@@ -8,6 +8,7 @@ import { streamMessage, abortStream, respondToApproval, injectApiKeyEnv, notifyC
 import { invalidateSession } from './sessionManager'
 import { runUserPromptSubmitHooks } from './hookRunner'
 import { loadAgentSDK } from './anthropic'
+import { summarizeWithModel } from '../../core/services/summarization'
 import { getMainWindow } from '../index'
 import { broadcast } from '../utils/broadcast'
 import type { AISettings } from './streaming'
@@ -321,7 +322,7 @@ function filterMcpServers(
 }
 
 export function getAISettings(db: Database.Database, conversationId: number): AISettings {
-  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'ai_skillsIncludePlugins', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'webhook_completionUrl']
+  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'ai_skillsIncludePlugins', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'ai_compactModel', 'ai_titleModel', 'webhook_completionUrl']
   const rows = db
     .prepare(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`)
     .all(...keys) as { key: string; value: string }[]
@@ -453,6 +454,8 @@ export function getAISettings(db: Database.Database, conversationId: number): AI
     ttsAutoWordLimit: map['tts_autoWordLimit'] ? Number(map['tts_autoWordLimit']) : undefined,
     ttsSummaryPrompt: map['tts_summaryPrompt'] || undefined,
     ttsSummaryModel: map['tts_summaryModel'] || undefined,
+    compactModel: map['ai_compactModel'] || undefined,
+    titleModel: map['ai_titleModel'] || undefined,
     piDisabledExtensions: safeJsonParse<string[]>(map['pi_disabledExtensions'] || '[]', []),
     piExtensionsDir: globalPiExtensionsDir,
     webhookCompletionUrl: map['webhook_completionUrl'] || undefined,
@@ -712,62 +715,40 @@ async function generateConversationTitle(
   userContent: string,
   assistantContent: string
 ): Promise<void> {
-  // Strip hook system message tags — they pollute the snippet sent to Haiku
+  // Strip hook system message tags — they pollute the snippet sent to the model
   const cleanAssistant = assistantContent
     .replace(/<hook-system-message>[\s\S]*?<\/hook-system-message>\n?/g, '')
     .trimStart()
   const userSnippet = userContent.slice(0, 200)
   const assistantSnippet = cleanAssistant.slice(0, 200)
 
-  // Inject API key env vars for title generation (same provider as main streaming)
-  const apiKeyRow = db.prepare("SELECT key, value FROM settings WHERE key IN ('ai_apiKey', 'ai_baseUrl')").all() as { key: string; value: string }[]
-  const apiMap: Record<string, string> = {}
-  for (const r of apiKeyRow) apiMap[r.key] = r.value
-  const restoreEnv = injectApiKeyEnv(apiMap['ai_apiKey'] || undefined, apiMap['ai_baseUrl'] || undefined)
+  const aiSettings = getAISettings(db, conversationId)
+  const effectiveModel = aiSettings.titleModel || aiSettings.model || HAIKU_MODEL
+
+  // Inject API key env vars (Claude SDK path still relies on process.env; PI path ignores it)
+  const restoreEnv = injectApiKeyEnv(aiSettings.apiKey, aiSettings.baseUrl)
 
   try {
-  const sdk = await loadAgentSDK()
+    const rawTitle = await summarizeWithModel(
+      `Generate a very short title (3-6 words) for this conversation. Reply with ONLY the title — no quotes, no explanation.\nUser: ${userSnippet}\nAssistant: ${assistantSnippet}`,
+      effectiveModel,
+      { cwd: aiSettings.cwd || process.cwd(), apiKey: aiSettings.apiKey, baseUrl: aiSettings.baseUrl },
+    )
+    const title = rawTitle.trim().replace(/^["']|["']$/g, '').slice(0, 80)
 
-  let title = ''
-  const agentQuery = sdk.query({
-    prompt: `Generate a very short title (3-6 words) for this conversation. Reply with ONLY the title — no quotes, no explanation.\nUser: ${userSnippet}\nAssistant: ${assistantSnippet}`,
-    options: {
-      model: HAIKU_MODEL,
-      maxTurns: 1,
-      allowDangerouslySkipPermissions: true,
-      permissionMode: 'bypassPermissions',
-      tools: [],
-      persistSession: false,
-    },
-  })
-
-  for await (const message of agentQuery) {
-    const msg = message as { type: string; subtype?: string; result?: string; message?: { content?: Array<{ type: string; text?: string }> } }
-    if (msg.type === 'assistant' && msg.message?.content) {
-      for (const block of msg.message.content) {
-        if (block.type === 'text' && block.text) {
-          title = block.text.trim().replace(/^["']|["']$/g, '').slice(0, 80)
-        }
-      }
+    if (!title) {
+      console.warn('[messages] Auto-title: empty title generated for conversation', conversationId)
+      return
     }
-    if (msg.type === 'result' && msg.subtype === 'success' && typeof msg.result === 'string' && msg.result.trim()) {
-      title = msg.result.trim().replace(/^["']|["']$/g, '').slice(0, 80)
+
+    console.log('[messages] Auto-title:', title, 'for conversation', conversationId, `(model: ${effectiveModel})`)
+    db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId)
+
+    const win = getMainWindow()
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('conversations:titleUpdated', { id: conversationId, title })
     }
-  }
-
-  if (!title) {
-    console.warn('[messages] Auto-title: empty title generated for conversation', conversationId)
-    return
-  }
-
-  console.log('[messages] Auto-title:', title, 'for conversation', conversationId)
-  db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId)
-
-  const win = getMainWindow()
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('conversations:titleUpdated', { id: conversationId, title })
-  }
-  broadcast('conversations:titleUpdated', { id: conversationId, title })
+    broadcast('conversations:titleUpdated', { id: conversationId, title })
   } finally {
     restoreEnv?.()
   }
@@ -790,41 +771,16 @@ export async function compactConversation(
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
     .join('\n\n')
 
-  // Inject API key env vars (same pattern as generateConversationTitle)
-  const apiKeyRow = db.prepare("SELECT key, value FROM settings WHERE key IN ('ai_apiKey', 'ai_baseUrl')").all() as { key: string; value: string }[]
-  const apiMap: Record<string, string> = {}
-  for (const r of apiKeyRow) apiMap[r.key] = r.value
-  const restoreEnv = injectApiKeyEnv(apiMap['ai_apiKey'] || undefined, apiMap['ai_baseUrl'] || undefined)
+  const aiSettings = getAISettings(db, conversationId)
+  const effectiveModel = aiSettings.compactModel || aiSettings.model || HAIKU_MODEL
+  const restoreEnv = injectApiKeyEnv(aiSettings.apiKey, aiSettings.baseUrl)
 
   try {
-    const sdk = await loadAgentSDK()
-
-    let summary = ''
-    const agentQuery = sdk.query({
-      prompt: `Summarize the following conversation into a concise context summary that preserves all key information, decisions, code changes, file paths, and important details. The summary will replace the full conversation history, so it must capture everything needed to continue the conversation seamlessly. Write the summary as a factual recap, not as a conversation. Do NOT wrap it in quotes or add a preamble.\n\n${conversationText}`,
-      options: {
-        model: HAIKU_MODEL,
-        maxTurns: 1,
-        allowDangerouslySkipPermissions: true,
-        permissionMode: 'bypassPermissions',
-        tools: [],
-        persistSession: false,
-      },
-    })
-
-    for await (const message of agentQuery) {
-      const msg = message as { type: string; subtype?: string; result?: string; message?: { content?: Array<{ type: string; text?: string }> } }
-      if (msg.type === 'assistant' && msg.message?.content) {
-        for (const block of msg.message.content) {
-          if (block.type === 'text' && block.text) {
-            summary = block.text.trim()
-          }
-        }
-      }
-      if (msg.type === 'result' && msg.subtype === 'success' && typeof msg.result === 'string' && msg.result.trim()) {
-        summary = msg.result.trim()
-      }
-    }
+    const summary = (await summarizeWithModel(
+      `Summarize the following conversation into a concise context summary that preserves all key information, decisions, code changes, file paths, and important details. The summary will replace the full conversation history, so it must capture everything needed to continue the conversation seamlessly. Write the summary as a factual recap, not as a conversation. Do NOT wrap it in quotes or add a preamble.\n\n${conversationText}`,
+      effectiveModel,
+      { cwd: aiSettings.cwd || process.cwd(), apiKey: aiSettings.apiKey, baseUrl: aiSettings.baseUrl },
+    )).trim()
 
     const clearedAt = new Date().toISOString()
     db.prepare('UPDATE conversations SET cleared_at = ?, compact_summary = ?, sdk_session_id = NULL, updated_at = ? WHERE id = ?')
