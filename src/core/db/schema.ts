@@ -270,6 +270,14 @@ function runMigrations(db: Database.Database): void {
     try { db.exec('ALTER TABLE conversations ADD COLUMN last_context_window INTEGER') } catch (e) { console.warn('[migration] conversations.last_context_window:', e) }
   }
 
+  // Content-only token count (system prompt + messages + compact + tool exchanges + skills),
+  // matches the /context bubble headline so the status-line bar and bubble stay consistent.
+  // Populated alongside last_*_tokens on every turn end in handlers/messages.ts.
+  const convCols8 = db.pragma('table_info(conversations)') as { name: string }[]
+  if (!convCols8.some((c) => c.name === 'last_content_tokens')) {
+    try { db.exec('ALTER TABLE conversations ADD COLUMN last_content_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_content_tokens:', e) }
+  }
+
   // Ensure exactly one default folder exists
   const hasDefault = db.prepare('SELECT id FROM folders WHERE is_default = 1').get()
   if (!hasDefault) {

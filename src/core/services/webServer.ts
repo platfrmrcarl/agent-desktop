@@ -11,6 +11,7 @@ import { ensureSelfSignedCert } from '../utils/cert'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createRateLimiter, type RateLimiter, type WebPasswordService } from '../auth'
 import { renderLoginPage } from './webServer/loginPage'
+import { addBroadcastHandler } from '../utils/broadcast'
 
 // ─── State ───────────────────────────────────────────
 
@@ -29,6 +30,7 @@ const COOKIE_NAME = 'agent_session'
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 const clientAlive = new WeakMap<WebSocket, boolean>()
 const HEARTBEAT_INTERVAL = 30_000
+let unsubBroadcast: (() => void) | null = null
 
 // Injectable state set when startServer() is called
 let serverDispatch: DispatchRegistry | null = null
@@ -263,6 +265,10 @@ function generateShim(token: string): string {
     },
     commands: {
       list: function(cwd, sm) { return invoke('commands:list', [cwd, sm]); },
+    },
+    context: {
+      getBreakdown: function(cid) { return invoke('context:getBreakdown', [cid]); },
+      getSkillsOverhead: function(cwd) { return invoke('context:getSkillsOverhead', [cwd]); },
     },
     macros: {
       load: function(name) { return invoke('macros:load', [name]); },
@@ -719,6 +725,13 @@ export async function startServer(port: number, options?: ServerStartOptions): P
   serverAccessMode = options?.accessMode === 'all' ? 'all' : 'lan'
   const shimScript = generateShim(serverToken)
 
+  // Route all `broadcast()` calls (stream chunks, conversationUpdated, title
+  // updates…) to connected WS clients. `broadcastEvent` is safe to register
+  // before any client connects — it no-ops when `authenticatedClients` is empty.
+  if (!unsubBroadcast) {
+    unsubBroadcast = addBroadcastHandler(broadcastEvent)
+  }
+
   const devUrl = process.env.ELECTRON_RENDERER_URL
 
   // Shared request handler — works identically for HTTP and HTTPS
@@ -950,6 +963,11 @@ export async function stopServer(): Promise<void> {
   serverDispatch = null
   webPassword = null
   rendererDir = ''
+
+  if (unsubBroadcast) {
+    unsubBroadcast()
+    unsubBroadcast = null
+  }
 
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer)

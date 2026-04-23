@@ -53,6 +53,8 @@ export interface Conversation {
   last_cache_creation_tokens: number | null
   last_usage_updated_at: string | null
   last_context_window: number | null
+  /** Content-only token total matching the /context bubble headline. */
+  last_content_tokens: number | null
   message_count?: number
   created_at: string
   updated_at: string

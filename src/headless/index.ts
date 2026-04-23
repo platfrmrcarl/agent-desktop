@@ -16,7 +16,7 @@ import { resolve, join } from 'path'
 import { homedir } from 'os'
 import { AgentEngine, noopHookRunner, noopPlatformIO, noopSystemUI } from '../core'
 import type { Broadcaster } from '../core'
-import { addBroadcastHandler } from '../core/utils/broadcast'
+import { broadcast as coreBroadcast } from '../core/utils/broadcast'
 import { enrichHeadlessEnv } from './headlessEnv'
 import { loadAndRegisterSDK } from './loadSdk'
 
@@ -86,13 +86,14 @@ async function runServices(): Promise<void> {
   console.log(`[headless] Starting Agent Engine...`)
   console.log(`[headless] DB: ${dbPath}`)
 
-  // WS broadcaster — wired after server starts
-  let wsBroadcast: ((channel: string, ...args: unknown[]) => void) | null = null
   const cleanups: Array<() => void> = []
 
+  // Engine Broadcaster port — forwards `broadcaster.broadcast(…)` calls from
+  // handlers (e.g. title updates) through the same fanout utility that
+  // `startServer()` hooks to WS clients.
   const broadcaster: Broadcaster = {
     broadcast(channel: string, ...args: unknown[]): void {
-      wsBroadcast?.(channel, ...args)
+      coreBroadcast(channel, ...args)
     },
   }
 
@@ -111,7 +112,7 @@ async function runServices(): Promise<void> {
   const dispatch = engine.dispatch
 
   if (flags.server) {
-    const { startServer, getWsBroadcaster } = await import('../core/services/webServer')
+    const { startServer } = await import('../core/services/webServer')
 
     // Read server settings from DB, CLI flags override
     const settings = engine.settings.getAll()
@@ -122,6 +123,7 @@ async function runServices(): Promise<void> {
       || (settings.server_accessMode === 'all' ? 'all' : 'lan')
     const serverShortCode = settings.server_shortCode || undefined
 
+    // `startServer` now wires `broadcast()` → WS clients internally.
     const result = await startServer(serverPort, {
       sslDir,
       rendererDir,
@@ -130,12 +132,6 @@ async function runServices(): Promise<void> {
       accessMode: serverAccessMode,
       webPassword: engine.webPassword,
     })
-    wsBroadcast = getWsBroadcaster() ?? null
-
-    // Wire stream chunks (sendChunk → broadcast utility → WS clients)
-    cleanups.push(addBroadcastHandler((channel, ...args) => {
-      wsBroadcast?.(channel, ...args)
-    }))
 
     console.log(`[headless] Web server running at ${result.url}`)
     console.log(`[headless] Access token: ${result.token}`)

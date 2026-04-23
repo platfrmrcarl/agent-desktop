@@ -559,6 +559,40 @@ function updateConversationTimestamp(db: SqlJsAdapter, conversationId: number): 
   )
 }
 
+/**
+ * Compute the content-only token total (same math as the /context bubble
+ * headline) and persist it on the conversation row. The status-line bar
+ * reads this column so bubble and bar stay consistent by construction.
+ *
+ * Runs `buildContextBreakdown` in 'local' mode — cheap (BPE tokenizer on
+ * already-materialized messages; optional skills scan). Failures are
+ * non-fatal: a stale `last_content_tokens` just means the bar lags by one
+ * turn, which is better than aborting the whole response persistence.
+ */
+async function saveConversationContentTokens(
+  db: SqlJsAdapter,
+  conversationId: number,
+  systemPrompt: string,
+  aiSettings: AISettings,
+): Promise<void> {
+  const { buildContextBreakdown } = await import('../services/contextBreakdown')
+  const skillsMode = aiSettings.skillsEnabled === false
+    ? 'off'
+    : (aiSettings.skills ?? 'off')
+  const breakdown = await buildContextBreakdown({
+    db,
+    conversationId,
+    systemPrompt,
+    mode: 'local',
+    skillsMode,
+    cwd: aiSettings.cwd,
+  })
+  ;(db as any).prepare('UPDATE conversations SET last_content_tokens = ? WHERE id = ?').run(
+    breakdown.total,
+    conversationId
+  )
+}
+
 // ─── Last User Message ────────────────────────────────────────
 
 function buildLastUserMessage(
@@ -650,6 +684,10 @@ async function streamAndSave(
       if (usage) {
         try {
           saveConversationUsage(db, conversationId, usage)
+          // Persist content-only total BEFORE notifying the client, so the
+          // refetch triggered by `notifyConversationUpdated` already sees it.
+          await saveConversationContentTokens(db, conversationId, systemPrompt, aiSettings)
+            .catch((e) => console.warn('[messages] saveConversationContentTokens:', e))
           notifyConversationUpdated(conversationId)
         } catch (e) { console.warn('[messages] saveConversationUsage:', e) }
       }

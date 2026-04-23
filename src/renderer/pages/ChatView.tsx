@@ -166,12 +166,18 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
   )
   const contextUsed = useMemo(() => {
     if (!conversation?.last_usage_updated_at) return null
+    // Prefer the content-only total (matches /context bubble headline). Fall
+    // back to the raw SDK-reported sum for conversations whose last turn
+    // predates the migration — they'll self-heal on their next turn.
+    if (typeof conversation.last_content_tokens === 'number') {
+      return conversation.last_content_tokens
+    }
     return computeUsedTokens({
       input: conversation.last_input_tokens,
       cacheRead: conversation.last_cache_read_tokens,
       cacheCreation: conversation.last_cache_creation_tokens,
     })
-  }, [conversation?.last_usage_updated_at, conversation?.last_input_tokens, conversation?.last_cache_read_tokens, conversation?.last_cache_creation_tokens])
+  }, [conversation?.last_usage_updated_at, conversation?.last_content_tokens, conversation?.last_input_tokens, conversation?.last_cache_read_tokens, conversation?.last_cache_creation_tokens])
   const mcpDisabledList = useMemo(() => parseMcpDisabledList(effectiveSettings['ai_mcpDisabled']), [effectiveSettings])
   const mcpServerEntries = useMemo(() => {
     const disabledSet = new Set(mcpDisabledList)
