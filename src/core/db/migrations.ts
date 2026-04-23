@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 
-const CURRENT_VERSION = 3
+const CURRENT_VERSION = 4
 
 export function runMigrations(db: Database.Database): void {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'db_version'").get() as
@@ -24,6 +24,13 @@ export function runMigrations(db: Database.Database): void {
     // ai_customModels, conversations.model, conversations.ai_overrides.ai_model,
     // folders.ai_overrides.ai_model.
     normalizeStaleClaudeModelIds(db)
+  }
+
+  if (currentVersion < 4) {
+    // Version 4: add pi_session_file column to conversations table.
+    // Column addition handled in schema.ts runMigrations (idempotent ALTER).
+    // PI stores session state as JSONL under ~/.pi/agent/sessions/; this
+    // column remembers which file to `SessionManager.open()` on resume.
   }
 
   if (currentVersion < CURRENT_VERSION) {
