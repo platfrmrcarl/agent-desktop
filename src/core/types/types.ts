@@ -326,7 +326,7 @@ export type UpdateStatus =
 // ─── IPC / Runtime Types ──────────────────────────────────────
 
 export interface StreamChunk {
-  type: 'text' | 'tool_start' | 'tool_input' | 'tool_result' | 'tool_approval' | 'ask_user' | 'mcp_status' | 'system_message' | 'task_notification' | 'retry' | 'error' | 'done'
+  type: 'text' | 'tool_start' | 'tool_input' | 'tool_result' | 'tool_approval' | 'ask_user' | 'plan_approval_request' | 'mcp_status' | 'system_message' | 'task_notification' | 'retry' | 'error' | 'done'
   content?: string
   toolName?: string
   toolId?: string
@@ -352,6 +352,7 @@ export type StreamPart =
   | { type: 'tool'; name: string; id: string; status: 'running' | 'done'; summary?: string; input?: Record<string, unknown>; output?: string }
   | { type: 'tool_approval'; requestId: string; toolName: string; toolInput: Record<string, unknown> }
   | { type: 'ask_user'; requestId: string; questions: AskUserQuestion[] }
+  | { type: 'plan_approval_request'; conversationId: number; plan: string }
   | { type: 'mcp_status'; servers: McpConnectionStatus[] }
   | { type: 'system_message'; content: string; hookName?: string; hookEvent?: string }
   | { type: 'task_notification'; summary: string; taskId?: string; taskStatus?: string; outputFile?: string }

@@ -2,6 +2,7 @@ import { MarkdownRenderer } from './MarkdownRenderer'
 import { ToolUseBlock } from './ToolUseBlock'
 import { TaskGroupBlock } from './TaskGroupBlock'
 import { ToolApprovalBlock } from './ToolApprovalBlock'
+import { PlanApprovalBlock } from './PlanApprovalBlock'
 import { AskUserBlock } from './AskUserBlock'
 import { McpStatusBlock } from './McpStatusBlock'
 import { groupStreamParts } from '../../utils/groupStreamParts'
@@ -46,6 +47,9 @@ export function StreamingIndicator({ streamParts, onStop, effectiveAgentName, ef
               }
               if (part.type === 'tool_approval') {
                 return <ToolApprovalBlock key={part.requestId} approval={part} />
+              }
+              if (part.type === 'plan_approval_request') {
+                return <PlanApprovalBlock key={`plan_approval_${part.conversationId}_${idx}`} approval={part} />
               }
               if (part.type === 'ask_user') {
                 return <AskUserBlock key={part.requestId} askUser={part} />

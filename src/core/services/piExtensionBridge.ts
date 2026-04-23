@@ -1,7 +1,5 @@
-import { randomUUID } from 'node:crypto'
 import type { AISettings } from './streaming'
 import { getConversationOverridesWriter } from './streaming'
-import type { ToolApprovalResponse } from '../types'
 
 // `better-sqlite3` is imported only as a TYPE — avoids a runtime dep surface
 // in the renderer bundle. Actual DB interactions happen in main-process code.
@@ -62,29 +60,21 @@ export interface PiExtensionBridge {
   updateConversationSetting(key: string, value: string): void
 
   /**
-   * Blocks the caller until the user approves or rejects the plan.
-   * Emits a `tool_approval` stream chunk with `toolName: 'ExitPlanMode'`
-   * and `toolInput.plan` set to the provided markdown. The renderer's
-   * existing `ToolApprovalBlock` component already special-cases this
-   * tool name to render the plan as markdown and offer Approve / Reject
-   * buttons (with an optional rejection-feedback textarea).
-   *
-   * Resolves with `{ approved: true }` on allow, or
-   * `{ approved: false, rejectReason }` on deny.
+   * Fire-and-forget: emits a `plan_approval_request` chunk carrying the
+   * plan markdown. The renderer displays a dedicated PlanApprovalBlock
+   * inline with the agent's output. On user click:
+   *  - Approve: renderer flips ai_permissionMode to 'bypassPermissions'
+   *    and sends a new user message "Plan approved — proceed."
+   *  - Reject: renderer sends "Plan rejected. Feedback: <text>"
+   * Either click starts a NEW turn — the agent that called
+   * exit_plan_mode is NOT blocked waiting for a response.
    */
-  requestPlanApproval(plan: string): Promise<{ approved: boolean; rejectReason?: string }>
+  emitPlanApprovalRequest(plan: string): void
 }
 
 export interface BridgeDeps {
   /** Injected at construction; same signature as `core/streaming.ts#sendChunk`. */
   chunkSender: (type: string, content?: string, extra?: Record<string, unknown>) => void
-  /**
-   * Registers a pending approval/ask-user entry keyed by requestId.
-   * When the renderer responds via `respondToApproval`, the resolver
-   * is invoked with the user's response. Optional — bridges used in
-   * non-streaming contexts (tests) can omit this.
-   */
-  registerPending?: (requestId: string, resolve: (value: unknown) => void, conversationId: number) => void
 }
 
 export function createBridge(conversationId: number, deps: BridgeDeps): PiExtensionBridge {
@@ -135,28 +125,12 @@ export function createBridge(conversationId: number, deps: BridgeDeps): PiExtens
       writer(conversationId, { [key]: value })
     },
 
-    requestPlanApproval(plan) {
-      if (!deps.registerPending) {
-        // No registerPending injection — cannot wire the renderer response.
-        // Fail-safe: return rejected so the caller treats it as "no approval".
-        return Promise.resolve({ approved: false, rejectReason: 'Approval infrastructure unavailable' })
-      }
-      const requestId = randomUUID()
-      return new Promise<{ approved: boolean; rejectReason?: string }>((resolve) => {
-        deps.registerPending!(requestId, (response) => {
-          const resp = response as ToolApprovalResponse
-          if (resp.behavior === 'allow') {
-            resolve({ approved: true })
-          } else {
-            resolve({ approved: false, rejectReason: resp.message })
-          }
-        }, conversationId)
-        deps.chunkSender('tool_approval', undefined, {
-          conversationId,
-          requestId,
-          toolName: 'ExitPlanMode',
-          toolInput: JSON.stringify({ plan }),
-        })
+    emitPlanApprovalRequest(plan) {
+      // Non-blocking — agent's turn ends after exit_plan_mode's execute
+      // returns. The renderer handles the user's Approve/Reject click
+      // and starts a brand-new turn with an appropriate user message.
+      deps.chunkSender('plan_approval_request', plan, {
+        conversationId,
       })
     },
   }

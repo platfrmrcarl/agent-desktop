@@ -68,41 +68,22 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
     pi.registerTool({
       name: 'exit_plan_mode',
       label: 'Exit Plan Mode',
-      description: 'Signal that your plan is ready for the user to review. Provide the plan text as the `plan` parameter in markdown. The user will approve (unlocking mutating tools from the next message) or reject with feedback so you can revise.',
+      description: 'Signal that your plan is ready for user review. Provide the plan as markdown in the `plan` parameter. This ENDS YOUR TURN — the user will review via UI buttons and either approve (you will receive a new "Plan approved — proceed" user message with mutating tools unlocked) or reject with feedback (you will receive the feedback as a new user message and should iterate on the plan).',
       parameters: Type.Object({
         plan: Type.String({ description: 'The proposed plan in markdown format.' }),
       }),
       execute: async (_toolCallId, params, _signal, _onUpdate, _extCtx) => {
         const plan = (params as { plan?: string }).plan ?? ''
-        // Emits a tool_approval chunk with toolName='ExitPlanMode' that the
-        // existing renderer ToolApprovalBlock component special-cases —
-        // renders the plan as markdown, offers Approve / Reject buttons,
-        // and captures a rejection-feedback textarea. Blocks until the
-        // user responds via respondToApproval IPC.
-        const result = await ctx.bridge.requestPlanApproval(plan)
-        if (result.approved) {
-          // Persist the flip to ai_overrides — cascade delivers
-          // bypassPermissions on next turn, factory early-returns, mutating
-          // tools intact in the default codingTools set. Status bar updates
-          // immediately via notifyConversationUpdated.
-          ctx.bridge.updateConversationSetting('ai_permissionMode', 'bypassPermissions')
-          return {
-            content: [{
-              type: 'text',
-              text:
-                'Plan approved. The user has unlocked mutating tools. ' +
-                'Mutating tools (write, edit, bash) will be available from the user\'s next message — ' +
-                'briefly acknowledge the approval and wait for the user to send the next instruction.',
-            }],
-          }
-        }
-        const feedback = result.rejectReason && result.rejectReason.trim().length > 0
-          ? result.rejectReason
-          : '(no specific feedback provided)'
+        // Fire-and-forget: emit the approval request chunk. The renderer
+        // displays a dedicated PlanApprovalBlock with Approve / Reject
+        // buttons. Each button click starts a NEW turn via a user message.
+        // This execute() returns immediately — no blocking, no mid-turn
+        // tool-list refresh issues, matches PI's between-turns idiom.
+        ctx.bridge.emitPlanApprovalRequest(plan)
         return {
           content: [{
             type: 'text',
-            text: `Plan rejected by user. Feedback:\n\n${feedback}\n\nRevise the plan accordingly, then call exit_plan_mode again when ready.`,
+            text: 'Plan submitted to user. End your turn now — the user will reply via Approve or Reject buttons.',
           }],
         }
       },

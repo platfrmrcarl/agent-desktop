@@ -31,10 +31,10 @@ function makeMockPi() {
   }
 }
 
-function makeBridge(planApprovalResponse: { approved: boolean; rejectReason?: string } = { approved: true }): PiExtensionBridge & {
+function makeBridge(): PiExtensionBridge & {
   emitSystemMessage: ReturnType<typeof vi.fn>
   updateConversationSetting: ReturnType<typeof vi.fn>
-  requestPlanApproval: ReturnType<typeof vi.fn>
+  emitPlanApprovalRequest: ReturnType<typeof vi.fn>
 } {
   return {
     emitSystemMessage: vi.fn(),
@@ -43,7 +43,7 @@ function makeBridge(planApprovalResponse: { approved: boolean; rejectReason?: st
     recordTokenUsage: vi.fn(),
     getAccumulatedUsage: vi.fn(() => ({ totalTokens: 0, totalCostUsd: 0 })),
     updateConversationSetting: vi.fn(),
-    requestPlanApproval: vi.fn(async () => planApprovalResponse),
+    emitPlanApprovalRequest: vi.fn(),
   }
 }
 
@@ -220,50 +220,30 @@ describe('permissionModes — plan', () => {
     expect(pi.registeredTools.map(t => t.name)).toContain('exit_plan_mode')
   })
 
-  it('exit_plan_mode routes approval through bridge.requestPlanApproval with the plan markdown', async () => {
+  it('exit_plan_mode emits plan_approval_request chunk carrying the plan markdown', async () => {
     const pi = makeMockPi()
     const ctx = makeCtx('plan')
-    // default makeBridge returns approved: true
     initPermissionModes(pi as never, ctx)
     const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
     const uiCtx = makeUiCtx()
     await exitTool.execute('call-1', { plan: '# My Plan\n1. Step' }, new AbortController().signal, vi.fn(), uiCtx)
     const bridge = ctx.bridge as ReturnType<typeof makeBridge>
-    expect(bridge.requestPlanApproval).toHaveBeenCalledWith('# My Plan\n1. Step')
+    expect(bridge.emitPlanApprovalRequest).toHaveBeenCalledWith('# My Plan\n1. Step')
   })
 
-  it('exit_plan_mode persists ai_permissionMode=bypassPermissions when approved', async () => {
+  it('exit_plan_mode returns immediately (non-blocking) — agent turn can end', async () => {
     const pi = makeMockPi()
-    const bridge = makeBridge({ approved: true })
-    const ctx: ExtensionRuntimeContext = {
-      ...makeCtx('plan'),
-      bridge,
-    }
+    const ctx = makeCtx('plan')
     initPermissionModes(pi as never, ctx)
     const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
     const uiCtx = makeUiCtx()
     const result = await exitTool.execute('call-1', { plan: 'plan' }, new AbortController().signal, vi.fn(), uiCtx) as { content: Array<{ text: string }> }
-    expect(bridge.updateConversationSetting).toHaveBeenCalledWith('ai_permissionMode', 'bypassPermissions')
-    // Tool-result text still instructs the agent to wait for next user message.
-    expect(result.content[0].text).toMatch(/approved/i)
-    expect(result.content[0].text).toMatch(/next message/i)
-  })
-
-  it('exit_plan_mode does NOT persist the setting when user rejects', async () => {
-    const pi = makeMockPi()
-    const bridge = makeBridge({ approved: false, rejectReason: 'skip step 2 please' })
-    const ctx: ExtensionRuntimeContext = {
-      ...makeCtx('plan'),
-      bridge,
-    }
-    initPermissionModes(pi as never, ctx)
-    const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
-    const uiCtx = makeUiCtx()
-    const result = await exitTool.execute('call-1', { plan: 'plan' }, new AbortController().signal, vi.fn(), uiCtx) as { content: Array<{ text: string }> }
+    // The tool does NOT flip the setting itself — that happens on Approve
+    // click in the renderer, not inside execute. It returns a text that
+    // tells the agent to end its turn.
+    const bridge = ctx.bridge as ReturnType<typeof makeBridge>
     expect(bridge.updateConversationSetting).not.toHaveBeenCalled()
-    // Feedback text is passed to the agent so it can iterate on the plan.
-    expect(result.content[0].text).toMatch(/skip step 2/i)
-    expect(result.content[0].text).toMatch(/reject/i)
+    expect(result.content[0].text).toMatch(/submitted|end your turn/i)
   })
 
   it('blocks mutating tools while plan mode is active', async () => {

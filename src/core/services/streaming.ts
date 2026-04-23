@@ -92,20 +92,6 @@ export const abortControllers = new Map<number, AbortController>()
 // Deferred promise map for tool approval / ask-user responses from the renderer
 const pendingRequests = new Map<string, { resolve: (value: unknown) => void; conversationId: string | number | null }>()
 
-/**
- * Register a pending approval/ask-user resolver keyed by requestId.
- * Used by the PI parity extension's bridge to wire `requestPlanApproval`
- * into the same renderer round-trip as Claude's tool_approval chunks.
- * The matching `respondToApproval` call resolves the promise.
- */
-export function registerPendingApproval(
-  requestId: string,
-  resolve: (value: unknown) => void,
-  conversationId: number | string | null,
-): void {
-  pendingRequests.set(requestId, { resolve, conversationId })
-}
-
 export function respondToApproval(requestId: string, response: ToolApprovalResponse | AskUserResponse): void {
   const pending = pendingRequests.get(requestId)
   if (pending) {

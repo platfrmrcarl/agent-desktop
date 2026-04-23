@@ -99,54 +99,23 @@ describe('createBridge.recordTokenUsage / getAccumulatedUsage', () => {
   })
 })
 
-describe('createBridge.requestPlanApproval', () => {
-  it('emits a tool_approval chunk with toolName=ExitPlanMode and the plan as toolInput.plan', async () => {
+describe('createBridge.emitPlanApprovalRequest', () => {
+  it('emits a plan_approval_request chunk carrying the plan markdown in content', () => {
     const chunkSender = vi.fn()
-    const registerPending = vi.fn()
-    const bridge = createBridge(42, { chunkSender, registerPending })
-    void bridge.requestPlanApproval('# My plan')
+    const bridge = createBridge(42, { chunkSender })
+    bridge.emitPlanApprovalRequest('# My plan\n1. Step')
     expect(chunkSender).toHaveBeenCalledWith(
-      'tool_approval',
-      undefined,
-      expect.objectContaining({
-        conversationId: 42,
-        toolName: 'ExitPlanMode',
-        toolInput: JSON.stringify({ plan: '# My plan' }),
-      }),
-    )
-    expect(registerPending).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(Function),
-      42,
+      'plan_approval_request',
+      '# My plan\n1. Step',
+      { conversationId: 42 },
     )
   })
 
-  it('resolves with { approved: true } when registerPending resolver is called with behavior=allow', async () => {
-    const chunkSender = vi.fn()
-    let resolver: ((v: unknown) => void) | null = null
-    const registerPending = vi.fn((_id, resolve) => { resolver = resolve })
-    const bridge = createBridge(42, { chunkSender, registerPending })
-    const promise = bridge.requestPlanApproval('plan')
-    resolver!({ behavior: 'allow' })
-    const result = await promise
-    expect(result).toEqual({ approved: true })
-  })
-
-  it('resolves with { approved: false, rejectReason } when resolver is called with behavior=deny + message', async () => {
-    const chunkSender = vi.fn()
-    let resolver: ((v: unknown) => void) | null = null
-    const registerPending = vi.fn((_id, resolve) => { resolver = resolve })
-    const bridge = createBridge(42, { chunkSender, registerPending })
-    const promise = bridge.requestPlanApproval('plan')
-    resolver!({ behavior: 'deny', message: 'missing tests' })
-    const result = await promise
-    expect(result).toEqual({ approved: false, rejectReason: 'missing tests' })
-  })
-
-  it('fails safe (rejected) when registerPending is not injected', async () => {
+  it('returns synchronously (non-blocking, agent turn continues)', () => {
     const bridge = createBridge(42, { chunkSender: vi.fn() })
-    const result = await bridge.requestPlanApproval('plan')
-    expect(result.approved).toBe(false)
+    const result = bridge.emitPlanApprovalRequest('plan')
+    // Method signature is void — this confirms no Promise is returned.
+    expect(result).toBeUndefined()
   })
 })
 
