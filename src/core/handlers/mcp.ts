@@ -15,7 +15,6 @@ export function registerMcpHandlers(registrar: HandleRegistrar, db: SqlJsAdapter
 
   registrar.handle('mcp:addServer', async (_event, config: unknown) => {
     try {
-      // Omit Electron-specific side effect: syncPiMcpGlobal
       return service.addServer(config as any)
     } catch (err) {
       throw new Error(`Failed to add MCP server: ${(err as Error).message}`)
@@ -24,7 +23,6 @@ export function registerMcpHandlers(registrar: HandleRegistrar, db: SqlJsAdapter
 
   registrar.handle('mcp:updateServer', async (_event, id: unknown, config: unknown) => {
     try {
-      // Omit Electron-specific side effect: syncPiMcpGlobal
       service.updateServer(id as number, config as any)
     } catch (err) {
       throw new Error(`Failed to update MCP server: ${(err as Error).message}`)
@@ -33,7 +31,6 @@ export function registerMcpHandlers(registrar: HandleRegistrar, db: SqlJsAdapter
 
   registrar.handle('mcp:removeServer', async (_event, id: unknown) => {
     try {
-      // Omit Electron-specific side effect: syncPiMcpGlobal
       service.removeServer(id as number)
     } catch (err) {
       throw new Error(`Failed to remove MCP server: ${(err as Error).message}`)
@@ -42,7 +39,6 @@ export function registerMcpHandlers(registrar: HandleRegistrar, db: SqlJsAdapter
 
   registrar.handle('mcp:toggleServer', async (_event, id: unknown) => {
     try {
-      // Omit Electron-specific side effect: syncPiMcpGlobal
       service.toggleServer(id as number)
     } catch (err) {
       throw new Error(`Failed to toggle MCP server: ${(err as Error).message}`)

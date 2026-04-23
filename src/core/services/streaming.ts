@@ -59,12 +59,6 @@ let _streamMessagePI: StreamMessagePIFn | null = null
 /** Inject PI backend streaming implementation. */
 export function setPIBackend(fn: StreamMessagePIFn): void { _streamMessagePI = fn }
 
-type SyncPiMcpFn = (servers: AISettings['mcpServers'], cwd?: string) => Promise<void>
-let _syncPiMcpForProject: SyncPiMcpFn | null = null
-
-/** Inject PI MCP sync function. */
-export function setPiMcpSync(fn: SyncPiMcpFn): void { _syncPiMcpForProject = fn }
-
 type EnsureFreshTokenFn = () => Promise<void>
 let _ensureFreshMacOSToken: EnsureFreshTokenFn | null = null
 
@@ -271,14 +265,11 @@ export async function streamMessage(
   sdkSessionId?: string | null,
   persistSession?: boolean
 ): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string; stopReason?: string; usage?: TurnUsage }> {
-  // PI backend: sync MCP config then delegate
+  // PI backend
   if (aiSettings?.sdkBackend === 'pi') {
     if (!_streamMessagePI) {
       return { content: '', toolCalls: [], aborted: false, sessionId: null, error: 'PI backend not configured' }
     }
-    const convCwd = aiSettings.cwd
-    const isProjectCwd = convCwd && !convCwd.includes('/sessions-folder/')
-    await _syncPiMcpForProject?.(aiSettings.mcpServers, isProjectCwd ? convCwd : undefined)
     return _streamMessagePI(messages, systemPrompt, aiSettings, conversationId)
   }
 
