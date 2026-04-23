@@ -2,7 +2,9 @@ import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { MessageBubble } from './MessageBubble'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { StreamingIndicator } from './StreamingIndicator'
+import { PlanApprovalBlock } from './PlanApprovalBlock'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useChatStore } from '../../stores/chatStore'
 import type { Message, StreamPart } from '../../../shared/types'
 import type { TaskNotification, ContextDisplay } from '../../stores/chatStore'
 
@@ -162,6 +164,7 @@ interface MessageListProps {
   effectiveTtsResponseMode?: string
   effectiveAgentName?: string
   effectiveSdkBackend?: string
+  conversationId?: number | null
   onEdit: (messageId: number, content: string) => void
   onRegenerate: () => void
   onFork: (messageId: number) => void
@@ -183,11 +186,15 @@ export function MessageList({
   effectiveTtsResponseMode,
   effectiveAgentName,
   effectiveSdkBackend,
+  conversationId,
   onEdit,
   onRegenerate,
   onFork,
   onStopGeneration,
 }: MessageListProps) {
+  const pendingPlanApproval = useChatStore(
+    (s) => (conversationId != null ? s.pendingPlanApprovals[conversationId] : undefined),
+  )
   const containerRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const isNearBottom = useRef(true)
@@ -314,6 +321,21 @@ export function MessageList({
               onStop={onStopGeneration}
               effectiveAgentName={effectiveAgentName}
               effectiveSdkBackend={effectiveSdkBackend}
+            />
+          )}
+
+          {/* PI plan-approval UI — persists across turn boundaries via
+              chatStore.pendingPlanApprovals until the user clicks. When
+              streaming, the SAME block is also rendered inline via
+              StreamingIndicator; this second render takes over once the
+              stream buffer is cleaned up on 'done'. */}
+          {!isStreaming && pendingPlanApproval && conversationId != null && (
+            <PlanApprovalBlock
+              approval={{
+                type: 'plan_approval_request',
+                conversationId,
+                plan: pendingPlanApproval.plan,
+              }}
             />
           )}
         </div>

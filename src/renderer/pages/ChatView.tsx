@@ -557,6 +557,7 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
           effectiveTtsResponseMode={effectiveSettings['tts_responseMode']}
           effectiveAgentName={effectiveSettings['agent_name']}
           effectiveSdkBackend={effectiveSettings['ai_sdkBackend']}
+          conversationId={conversationId}
           onEdit={editMessage}
           onRegenerate={handleRegenerate}
           onFork={handleFork}

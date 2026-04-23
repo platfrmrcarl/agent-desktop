@@ -92,7 +92,7 @@ describe('runMigrations v3 — stale Claude model IDs', () => {
     expect(JSON.parse(f.ai_overrides).ai_model).toBe('claude-opus-4-7')
   })
 
-  it('is idempotent — second run is a no-op once db_version is 3', async () => {
+  it('is idempotent — second run is a no-op once db_version is current', async () => {
     const db = await createTestDb()
     db.prepare("INSERT INTO settings (key, value) VALUES ('ai_model', 'claude-sonnet-4-6-20250514')").run()
 
@@ -100,9 +100,16 @@ describe('runMigrations v3 — stale Claude model IDs', () => {
     runMigrations(db as any)
 
     const v = db.prepare("SELECT value FROM settings WHERE key='db_version'").get() as { value: string }
-    expect(v.value).toBe('3')
+    expect(v.value).toBe('4')
     const ai = db.prepare("SELECT value FROM settings WHERE key='ai_model'").get() as { value: string }
     expect(ai.value).toBe('claude-sonnet-4-6')
+  })
+
+  it('sets db_version to 4 after running migrations on a fresh DB', async () => {
+    const db = await createTestDb()
+    runMigrations(db as any)
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'db_version'").get() as { value: string } | undefined
+    expect(row?.value).toBe('4')
   })
 
   it('handles malformed JSON in ai_overrides gracefully', async () => {

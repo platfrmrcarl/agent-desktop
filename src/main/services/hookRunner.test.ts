@@ -1,19 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock fs.promises before importing hookRunner
+// Mock node:fs/promises — core delegates use node: prefix specifiers
 const mockReadFile = vi.fn()
-vi.mock('fs', () => ({
-  promises: { readFile: (...args: unknown[]) => mockReadFile(...args) },
+vi.mock('node:fs/promises', () => ({
+  default: { readFile: (...args: unknown[]) => mockReadFile(...args) },
+  readFile: (...args: unknown[]) => mockReadFile(...args),
 }))
 
-// Mock electron app
+// Mock electron app (satisfies static import in main/services/hookRunner.ts wrapper)
 vi.mock('electron', () => ({
   app: { getPath: () => '/home/testuser' },
 }))
 
-// Mock child_process.exec
+// Mock node:child_process — core delegates use node: prefix specifiers
 const mockExec = vi.fn()
-vi.mock('child_process', () => ({
+vi.mock('node:child_process', () => ({
   exec: (...args: unknown[]) => mockExec(...args),
 }))
 

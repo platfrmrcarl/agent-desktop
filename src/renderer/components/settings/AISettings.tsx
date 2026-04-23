@@ -67,10 +67,15 @@ export function AISettings() {
     try { return JSON.parse(cwdWhitelistRaw) } catch { return [] }
   })()
   const defaultSystemPrompt = settings['ai_defaultSystemPrompt'] ?? ''
+  const compactModel = settings['ai_compactModel'] ?? ''
+  const titleModel = settings['ai_titleModel'] ?? ''
+  const isCompactModelCustom = compactModel !== '' && !fetchedModels.some(o => o.value === compactModel)
+  const isTitleModelCustom = titleModel !== '' && !fetchedModels.some(o => o.value === titleModel)
   const agentName = settings['agent_name'] ?? ''
   const agentPersonality = settings['agent_personality'] ?? ''
   const agentLanguage = settings['agent_language'] ?? ''
   const skillsEnabled = settings['ai_skillsEnabled'] ?? 'true'
+  const skillsIncludePlugins = settings['ai_skillsIncludePlugins'] ?? 'false'
   const disabledSkills: string[] = (() => {
     try { const arr = JSON.parse(settings['ai_disabledSkills'] || '[]'); return Array.isArray(arr) ? arr : [] } catch { return [] }
   })()
@@ -554,8 +559,8 @@ export function AISettings() {
         />
       </div>
 
-      {/* Max Budget USD (Claude only) */}
-      {isClaudeBackend && (
+      {/* Max Budget USD — both backends (PI via budgetTracker module, Phase 5) */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
@@ -585,8 +590,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Permission Mode (Claude only) */}
-      {isClaudeBackend && (
+      {/* Permission Mode — both backends (PI via permissionModes module) */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
@@ -615,8 +620,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Require Plan Approval (Claude only) */}
-      {isClaudeBackend && (
+      {/* Require Plan Approval — both backends */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)', opacity: permissionMode === 'bypassPermissions' ? 1 : 0.5 }}>
@@ -646,8 +651,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Setting Sources (Claude only) */}
-      {isClaudeBackend && (
+      {/* Setting Sources — both backends (PI via skillsBridge module, Phase 4) */}
+      {(
         <div className="flex flex-col gap-2 py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-0.5 pr-4">
@@ -655,7 +660,7 @@ export function AISettings() {
                 Setting Sources
               </span>
               <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Scopes the Claude Agent SDK scans for settings.json, CLAUDE.md, skills and commands. Larger scopes load more skill frontmatters into the system prompt.
+                Load Claude Code configuration from filesystem (settings.json, CLAUDE.md, skills, commands, hooks). Larger scopes load more skill frontmatters into the system prompt.
               </span>
             </div>
             <select
@@ -714,8 +719,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Skills Toggle (Claude only) */}
-      {isClaudeBackend && (
+      {/* Skills Toggle — both backends */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)', opacity: skills === 'off' ? 0.5 : 1 }}>
@@ -747,8 +752,37 @@ export function AISettings() {
         </div>
       )}
 
-      {/* Per-Skill List (Claude only) */}
-      {isClaudeBackend && skills !== 'off' && skillsEnabled === 'true' && discoveredSkills.length > 0 && (
+      {/* Include Installed Plugin Skills — both backends (PI: skillsBridge contributes paths; Claude: informational, SDK loads natively) */}
+      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div className="flex flex-col gap-0.5 pr-4">
+          <span className="text-sm font-medium" style={{ color: 'var(--color-text)', opacity: skills === 'off' || skillsEnabled !== 'true' ? 0.5 : 1 }}>
+            Include Installed Plugin Skills
+          </span>
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)', opacity: skills === 'off' || skillsEnabled !== 'true' ? 0.5 : 1 }}>
+            Expose skills from installed Claude plugins (read from ~/.claude/plugins/installed_plugins.json). Excludes marketplace catalogs and cached versions. On PI backend this activates the plugin-skills bridge; on Claude the SDK loads installed-plugin skills natively regardless.
+          </span>
+        </div>
+        <button
+          onClick={() => setSetting('ai_skillsIncludePlugins', skillsIncludePlugins === 'true' ? 'false' : 'true')}
+          disabled={skills === 'off' || skillsEnabled !== 'true'}
+          className="relative w-10 h-5 rounded-full transition-colors"
+          style={{
+            backgroundColor: skillsIncludePlugins === 'true' && skills !== 'off' && skillsEnabled === 'true' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+            opacity: skills === 'off' || skillsEnabled !== 'true' ? 0.3 : (skillsIncludePlugins === 'true' ? 1 : 0.4),
+          }}
+          role="switch"
+          aria-checked={skillsIncludePlugins === 'true' && skills !== 'off' && skillsEnabled === 'true'}
+          aria-label="Include installed plugin skills"
+        >
+          <span
+            className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+            style={{ left: skillsIncludePlugins === 'true' && skills !== 'off' && skillsEnabled === 'true' ? '1.25rem' : '0.125rem' }}
+          />
+        </button>
+      </div>
+
+      {/* Per-Skill List — both backends (informational; PI cannot enforce per-skill disable, see skills-bridge) */}
+      {(skills !== 'off' && skillsEnabled === 'true' && discoveredSkills.length > 0) && (
         <div className="py-3 border-b border-[var(--color-text-muted)]/10">
           <span className="text-xs font-medium mb-2 block" style={{ color: 'var(--color-text-muted)' }}>
             Discovered Skills
@@ -786,8 +820,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* CWD Restriction Hook (Claude only) */}
-      {isClaudeBackend && (
+      {/* CWD Restriction — both backends (PI via cwdGuard module) */}
+      {(
         <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
@@ -852,8 +886,8 @@ export function AISettings() {
         </div>
       )}
 
-      {/* CWD Whitelist (Claude only) */}
-      {isClaudeBackend && cwdRestriction === 'true' && (
+      {/* CWD Whitelist — both backends */}
+      {cwdRestriction === 'true' && (
         <div className="py-3 border-b border-[var(--color-text-muted)]/10">
           <div className="flex flex-col gap-0.5 mb-2">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
@@ -934,6 +968,88 @@ export function AISettings() {
           }}
           aria-label="Default system prompt"
         />
+      </div>
+
+      {/* Compact Model (global only) */}
+      <div className="flex flex-col gap-1.5 py-3 border-b border-[var(--color-text-muted)]/10">
+        <label className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+          Compact Model
+        </label>
+        <select
+          value={isCompactModelCustom ? '__custom__' : compactModel}
+          onChange={(e) => {
+            const val = e.target.value
+            if (val === '__custom__') {
+              setSetting('ai_compactModel', compactModel || '')
+            } else {
+              setSetting('ai_compactModel', val)
+            }
+          }}
+          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
+          style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+          aria-label="Compact model"
+        >
+          <option value="">Auto (current model)</option>
+          {fetchedModels.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+          <option value="__custom__">Custom...</option>
+        </select>
+        {isCompactModelCustom && (
+          <input
+            type="text"
+            value={compactModel}
+            onChange={(e) => setSetting('ai_compactModel', e.target.value)}
+            placeholder="model-id"
+            className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
+            style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+            aria-label="Custom compact model"
+          />
+        )}
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          Model used when running <code>/compact</code>. Auto = uses the conversation&apos;s active model.
+        </span>
+      </div>
+
+      {/* Title Model (global only) */}
+      <div className="flex flex-col gap-1.5 py-3 border-b border-[var(--color-text-muted)]/10">
+        <label className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+          Title Model
+        </label>
+        <select
+          value={isTitleModelCustom ? '__custom__' : titleModel}
+          onChange={(e) => {
+            const val = e.target.value
+            if (val === '__custom__') {
+              setSetting('ai_titleModel', titleModel || '')
+            } else {
+              setSetting('ai_titleModel', val)
+            }
+          }}
+          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
+          style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+          aria-label="Title model"
+        >
+          <option value="">Auto (current model)</option>
+          {fetchedModels.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+          <option value="__custom__">Custom...</option>
+        </select>
+        {isTitleModelCustom && (
+          <input
+            type="text"
+            value={titleModel}
+            onChange={(e) => setSetting('ai_titleModel', e.target.value)}
+            placeholder="model-id"
+            className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
+            style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+            aria-label="Custom title model"
+          />
+        )}
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          Model used to auto-generate conversation titles. Auto = uses the conversation&apos;s active model.
+        </span>
       </div>
 
       {showPromptEditor && (

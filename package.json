@@ -32,7 +32,7 @@
   "author": "Agent Desktop Contributors",
   "license": "AGPL-3.0-only",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.37",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.118",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@mariozechner/pi-ai": "^0.55.1",
     "@mariozechner/pi-coding-agent": "^0.55.1",
@@ -58,6 +58,7 @@
     "sql.js": "^1.14.0",
     "three": "^0.183.0",
     "typescript": "^5.7.3",
+    "without": "^1.2.3",
     "ws": "^8.19.0",
     "zustand": "^5.0.3"
   },

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockSendFn = vi.fn()
 vi.mock('../index', () => ({
@@ -34,6 +34,22 @@ vi.mock('./schedulerBridge', () => ({
   authToken: null,
 }))
 
+// Mock DB helpers from messages.ts — tests don't need a real sqlite instance
+vi.mock('./messages', () => ({
+  getConversationPiSessionFile: vi.fn().mockReturnValue(null),
+  setConversationPiSessionFile: vi.fn(),
+}))
+
+// Mock getDatabase — returns a sentinel; actual queries go through messages mock above
+vi.mock('../../core/db/database', () => ({
+  getDatabase: vi.fn().mockReturnValue({ __sentinel: true }),
+}))
+
+// Mock node:fs existsSync — controlled per test
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn().mockReturnValue(false),
+}))
+
 // Mock session object
 const mockSession = {
   subscribe: vi.fn(),
@@ -56,7 +72,11 @@ vi.mock('./piSdk', () => {
   return {
     loadPISdk: vi.fn().mockResolvedValue({
       createAgentSession: (...args: unknown[]) => mockCreateAgentSession(...args),
-      SessionManager: { inMemory: vi.fn().mockReturnValue({}) },
+      SessionManager: {
+        inMemory: vi.fn().mockReturnValue({}),
+        create: vi.fn().mockReturnValue({ getSessionFile: () => '/tmp/pi-sessions/new.jsonl' }),
+        open: vi.fn().mockReturnValue({ getSessionFile: () => '/tmp/pi-sessions/existing.jsonl' }),
+      },
       DefaultResourceLoader: function DefaultResourceLoader(opts: Record<string, unknown>) {
         ;(globalThis as Record<string, unknown>).__lastResourceLoaderOpts = opts
         return { reload: _mockReload, getExtensions: _mockGetExtensions }
@@ -67,6 +87,10 @@ vi.mock('./piSdk', () => {
 })
 
 import { streamMessagePI } from './streamingPI'
+import { getConversationPiSessionFile, setConversationPiSessionFile } from './messages'
+import { getDatabase } from '../../core/db/database'
+import * as nodeFs from 'node:fs'
+import { loadPISdk } from './piSdk'
 
 describe('streamMessagePI', () => {
   beforeEach(() => {
@@ -84,6 +108,12 @@ describe('streamMessagePI', () => {
     // Default: subscribe captures the listener, prompt resolves immediately
     mockSession.subscribe.mockReturnValue(vi.fn()) // returns unsubscribe fn
     mockSession.prompt.mockResolvedValue(undefined)
+
+    // Reset session persistence mocks to safe defaults
+    vi.mocked(getConversationPiSessionFile).mockReturnValue(null)
+    vi.mocked(setConversationPiSessionFile).mockReset()
+    vi.mocked(nodeFs.existsSync).mockReturnValue(false)
+    vi.mocked(getDatabase).mockReturnValue({ __sentinel: true } as unknown as ReturnType<typeof getDatabase>)
   })
 
   it('returns correct shape with sessionId: null', async () => {
@@ -471,14 +501,17 @@ describe('streamMessagePI', () => {
       1
     )
 
-    expect((globalThis as Record<string, unknown>).__lastResourceLoaderOpts).toEqual(
+    const opts = (globalThis as Record<string, unknown>).__lastResourceLoaderOpts as Record<string, unknown>
+    expect(opts).toEqual(
       expect.objectContaining({
-        additionalExtensionPaths: ['/custom/extensions'],
         noSkills: true,
         noPromptTemplates: true,
         noThemes: true,
       })
     )
+    const paths = opts.additionalExtensionPaths as string[]
+    expect(paths).toEqual(['/custom/extensions'])
+    expect(typeof (opts.extensionFactories as unknown[])[0]).toBe('function')
   })
 
   it('passes resourceLoader to createAgentSession', async () => {
@@ -499,7 +532,7 @@ describe('streamMessagePI', () => {
     )
   })
 
-  it('does not include additionalExtensionPaths when piExtensionsDir is unset', async () => {
+  it('omits additionalExtensionPaths when piExtensionsDir is unset (bundled factory is registered inline)', async () => {
     await streamMessagePI(
       [{ role: 'user', content: 'Hi' }],
       undefined,
@@ -507,7 +540,9 @@ describe('streamMessagePI', () => {
       1
     )
 
-    expect((globalThis as Record<string, unknown>).__lastResourceLoaderOpts).not.toHaveProperty('additionalExtensionPaths')
+    const opts = (globalThis as Record<string, unknown>).__lastResourceLoaderOpts as Record<string, unknown>
+    expect(opts.additionalExtensionPaths).toBeUndefined()
+    expect(typeof (opts.extensionFactories as unknown[])[0]).toBe('function')
   })
 
   it('passes extensionsOverride callback when piDisabledExtensions is non-empty', async () => {
@@ -549,5 +584,131 @@ describe('streamMessagePI', () => {
     )
 
     expect((globalThis as Record<string, unknown>).__lastResourceLoaderOpts).not.toHaveProperty('extensionsOverride')
+  })
+})
+
+describe('session persistence', () => {
+  beforeEach(async () => {
+    mockSendFn.mockClear()
+    mockCreateAgentSession.mockClear()
+    mockSession.subscribe.mockClear()
+    mockSession.prompt.mockClear()
+    mockSession.abort.mockClear()
+    mockSession.dispose.mockClear()
+    mockSession.bindExtensions.mockClear()
+    mockDispose.mockClear()
+
+    mockSession.subscribe.mockReturnValue(vi.fn())
+    mockSession.prompt.mockResolvedValue(undefined)
+
+    // Safe defaults for persistence mocks
+    vi.mocked(getConversationPiSessionFile).mockReturnValue(null)
+    vi.mocked(setConversationPiSessionFile).mockReset()
+    vi.mocked(nodeFs.existsSync).mockReturnValue(false)
+    vi.mocked(getDatabase).mockReturnValue({ __sentinel: true } as unknown as ReturnType<typeof getDatabase>)
+
+    // Reset and configure SessionManager factory spies
+    const pi = await loadPISdk()
+    vi.mocked(pi.SessionManager.inMemory).mockClear().mockReturnValue({})
+    vi.mocked(pi.SessionManager.create).mockClear().mockReturnValue({ getSessionFile: () => '/tmp/pi-sessions/new.jsonl' } as unknown as ReturnType<typeof pi.SessionManager.create>)
+    vi.mocked(pi.SessionManager.open).mockClear().mockReturnValue({ getSessionFile: () => '/tmp/pi-sessions/existing.jsonl' } as unknown as ReturnType<typeof pi.SessionManager.open>)
+  })
+
+  it('uses SessionManager.open when pi_session_file exists and file is present', async () => {
+    const pi = await loadPISdk()
+    vi.mocked(getConversationPiSessionFile).mockReturnValue('/tmp/pi-sessions/existing.jsonl')
+    vi.mocked(nodeFs.existsSync).mockReturnValue(true)
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test' },
+      42,
+    )
+
+    expect(pi.SessionManager.open).toHaveBeenCalledWith('/tmp/pi-sessions/existing.jsonl')
+    expect(pi.SessionManager.create).not.toHaveBeenCalled()
+    expect(pi.SessionManager.inMemory).not.toHaveBeenCalled()
+    // open path does not write back — file already persisted
+    expect(setConversationPiSessionFile).not.toHaveBeenCalled()
+  })
+
+  it('falls back to SessionManager.create when pi_session_file is null', async () => {
+    const pi = await loadPISdk()
+    vi.mocked(getConversationPiSessionFile).mockReturnValue(null)
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test' },
+      42,
+    )
+
+    expect(pi.SessionManager.create).toHaveBeenCalledWith('/tmp/test')
+    expect(pi.SessionManager.open).not.toHaveBeenCalled()
+    expect(pi.SessionManager.inMemory).not.toHaveBeenCalled()
+  })
+
+  it('falls back to create when SessionManager.open throws', async () => {
+    const pi = await loadPISdk()
+    vi.mocked(getConversationPiSessionFile).mockReturnValue('/tmp/pi-sessions/corrupt.jsonl')
+    vi.mocked(nodeFs.existsSync).mockReturnValue(true)
+    vi.mocked(pi.SessionManager.open).mockImplementationOnce(() => {
+      throw new Error('corrupted session')
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test' },
+      42,
+    )
+
+    // Clears the stale DB entry
+    expect(setConversationPiSessionFile).toHaveBeenCalledWith(
+      expect.anything(),
+      42,
+      null,
+    )
+    // Falls through to create
+    expect(pi.SessionManager.create).toHaveBeenCalledWith('/tmp/test')
+  })
+
+  it('persists session file path back to DB after create', async () => {
+    const pi = await loadPISdk()
+    vi.mocked(getConversationPiSessionFile).mockReturnValue(null)
+    vi.mocked(pi.SessionManager.create).mockReturnValue({
+      getSessionFile: () => '/tmp/pi-sessions/2025-01-01_abc.jsonl',
+    } as unknown as ReturnType<typeof pi.SessionManager.create>)
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test' },
+      42,
+    )
+
+    expect(setConversationPiSessionFile).toHaveBeenCalledWith(
+      expect.anything(),
+      42,
+      '/tmp/pi-sessions/2025-01-01_abc.jsonl',
+    )
+  })
+
+  it('uses SessionManager.inMemory when conversationId is undefined (one-shot)', async () => {
+    const pi = await loadPISdk()
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test' },
+      undefined,
+    )
+
+    expect(pi.SessionManager.inMemory).toHaveBeenCalled()
+    expect(pi.SessionManager.create).not.toHaveBeenCalled()
+    expect(pi.SessionManager.open).not.toHaveBeenCalled()
+    // No DB writes for one-shot
+    expect(setConversationPiSessionFile).not.toHaveBeenCalled()
   })
 })

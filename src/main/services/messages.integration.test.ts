@@ -14,9 +14,13 @@ vi.mock('../index', () => ({
   getMainWindow: vi.fn(() => null),
 }))
 
-vi.mock('./anthropic', () => ({
-  loadAgentSDK: vi.fn(),
-}))
+// Shared mock between `./anthropic` (main re-export) and `../../core/services/anthropic`
+// (canonical). Both paths must resolve to the same mock so tests setting up
+// mockLoadAgentSDK intercept both older call sites (main re-export) and newer
+// ones routing through summarizeWithModel (canonical).
+const { _loadAgentSDK } = vi.hoisted(() => ({ _loadAgentSDK: vi.fn() }))
+vi.mock('./anthropic', () => ({ loadAgentSDK: _loadAgentSDK }))
+vi.mock('../../core/services/anthropic', () => ({ loadAgentSDK: _loadAgentSDK }))
 
 const mockStreamMessage = vi.fn().mockResolvedValue({ content: 'AI response', toolCalls: [], aborted: false, sessionId: null })
 vi.mock('./streaming', () => ({

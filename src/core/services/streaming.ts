@@ -71,6 +71,19 @@ let _ensureFreshMacOSToken: EnsureFreshTokenFn | null = null
 /** Inject macOS OAuth token refresh function. */
 export function setEnsureFreshToken(fn: EnsureFreshTokenFn): void { _ensureFreshMacOSToken = fn }
 
+// ─── Conversation overrides writer injection ─────────
+// Used by the PI parity extension (permission-modes' exit_plan_mode)
+// to persist mode changes back to the conversation's ai_overrides.
+// Implemented by the adapter (main) which has the db handle.
+type UpdateConversationOverridesFn = (conversationId: number, patch: Record<string, string>) => void
+let _updateConversationOverrides: UpdateConversationOverridesFn | null = null
+export function setConversationOverridesWriter(fn: UpdateConversationOverridesFn): void {
+  _updateConversationOverrides = fn
+}
+export function getConversationOverridesWriter(): UpdateConversationOverridesFn | null {
+  return _updateConversationOverrides
+}
+
 // Per-conversation abort controllers: Map<conversationId, AbortController>
 // Allows aborting a specific stream without affecting others
 // Exported for use by alternative backend implementations (e.g. streamingPI)
@@ -152,12 +165,27 @@ export interface AISettings {
   skills?: 'off' | 'user' | 'project' | 'local'
   skillsEnabled?: boolean
   disabledSkills?: string[]
+  /**
+   * When true, also expose skills from CLAUDE-INSTALLED plugins
+   * (`~/.claude/plugins/installed_plugins.json` → each entry's `<installPath>/skills`).
+   *
+   * - PI backend: `skillsBridge` reads the manifest and contributes the
+   *   skill dirs via `resources_discover`.
+   * - Claude backend: the SDK loads installed-plugin skills natively
+   *   when `settingSources` is set; this flag is informational (no
+   *   extra code path). Turning the flag OFF does NOT disable plugin
+   *   skills on Claude — the SDK has no fine-grained toggle. Remove
+   *   plugins via `claude plugin uninstall ...` if you need them gone.
+   */
+  skillsIncludePlugins?: boolean
   apiKey?: string
   baseUrl?: string
   ttsResponseMode?: 'off' | 'full' | 'summary' | 'auto'
   ttsAutoWordLimit?: number
   ttsSummaryPrompt?: string
   ttsSummaryModel?: string
+  compactModel?: string
+  titleModel?: string
   piDisabledExtensions?: string[]
   piExtensionsDir?: string
   webhookCompletionUrl?: string
@@ -319,6 +347,12 @@ async function streamMessageOneShot(
     // Resolve node executable explicitly so the SDK can spawn cli.js even when
     // the app is launched from Finder/Dock (minimal PATH, no shell init scripts).
     const nodeExecutable = findBinaryInPath('node') ?? 'node'
+    // Force the Claude Code CLI binary from PATH. Without this, the SDK's
+    // bundled platform detection may pick the musl native variant on glibc
+    // systems (`claude-agent-sdk-linux-x64-musl/claude`) and fail with
+    // "Claude Code native binary not found". System claude (via `claude login`)
+    // is the canonical install path on Linux.
+    const claudeExecutable = findBinaryInPath('claude')
 
     const queryOptions: Record<string, unknown> = {
       model: aiSettings?.model || undefined,
@@ -331,6 +365,7 @@ async function streamMessageOneShot(
       permissionMode: permMode,
       abortController,
       executable: nodeExecutable,
+      ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
       ...(persistSession === false ? { persistSession: false } : {}),
     }
 

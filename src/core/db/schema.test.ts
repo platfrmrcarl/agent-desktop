@@ -114,6 +114,17 @@ describe('schema', () => {
     db.close()
   })
 
+  it('conversations table has pi_session_file column (v4)', async () => {
+    const db = await createTestDb()
+    createTables(db as any)
+
+    const cols = db.pragma('table_info(conversations)') as { name: string; type: string }[]
+    const piCol = cols.find(c => c.name === 'pi_session_file')
+    expect(piCol).toBeDefined()
+    expect(piCol?.type).toBe('TEXT')
+    db.close()
+  })
+
   it('conversations has last_*_tokens + last_usage_updated_at columns after migration', async () => {
     const db = await createTestDb()
     createTables(db as any)

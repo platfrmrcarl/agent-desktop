@@ -237,6 +237,12 @@ function runMigrations(db: Database.Database): void {
     try { db.exec('ALTER TABLE conversations ADD COLUMN sdk_session_id TEXT') } catch (e) { console.warn('[migration] conversations.sdk_session_id:', e) }
   }
 
+  // Add pi_session_file column to conversations (PI native session resumption via JSONL files under ~/.pi/agent/sessions/)
+  const convColsPi = db.pragma('table_info(conversations)') as { name: string }[]
+  if (!convColsPi.some((c) => c.name === 'pi_session_file')) {
+    try { db.exec('ALTER TABLE conversations ADD COLUMN pi_session_file TEXT') } catch (e) { console.warn('[migration] conversations.pi_session_file:', e) }
+  }
+
   // Add color column to conversations (visual conversation tinting in sidebar)
   const convCols5 = db.pragma('table_info(conversations)') as { name: string }[]
   if (!convCols5.some((c) => c.name === 'color')) {

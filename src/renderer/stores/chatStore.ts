@@ -42,6 +42,13 @@ interface ChatState {
   queueEditLocked: Record<number, boolean>
   taskNotifications: Record<number, TaskNotification[]>
   contextDisplay: ContextDisplay | null
+  /**
+   * PI-only: pending plan-approval request per conversation. Emitted by the
+   * agent-desktop-parity extension when the agent calls exit_plan_mode.
+   * Persists across turn boundaries (unlike streamParts) so the approval
+   * UI stays visible after the agent's turn ends — until the user clicks.
+   */
+  pendingPlanApprovals: Record<number, { plan: string } | undefined>
 
   loadMessages: (conversationId: number) => Promise<void>
   sendMessage: (conversationId: number, content: string, attachments?: Attachment[]) => Promise<void>
@@ -63,6 +70,11 @@ interface ChatState {
   resumeQueue: (conversationId: number) => void
   lockQueueForEdit: (conversationId: number) => void
   unlockQueueForEdit: (conversationId: number) => void
+  /**
+   * Dismiss the PI plan-approval UI for a conversation. Called by
+   * PlanApprovalBlock after the user clicks Approve or Reject.
+   */
+  clearPendingPlanApproval: (conversationId: number) => void
 }
 
 // --- Module-level stream buffer map (non-reactive) ---
@@ -265,6 +277,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   queueEditLocked: {},
   taskNotifications: {},
   contextDisplay: null,
+  pendingPlanApprovals: {},
 
   loadMessages: async (conversationId: number) => {
     set((s) => ({ isLoading: true, error: s.error ?? null }))
@@ -403,7 +416,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   clearContext: async (conversationId: number) => {
     const clearedAt = new Date().toISOString()
-    await window.agent.conversations.update(conversationId, { cleared_at: clearedAt, compact_summary: null } as any)
+    await window.agent.conversations.update(conversationId, { cleared_at: clearedAt, compact_summary: null, pi_session_file: null } as any)
     set({ clearedAt, compactSummary: null })
   },
 
@@ -537,6 +550,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
     }
+  },
+
+  clearPendingPlanApproval: (conversationId) => {
+    const { [conversationId]: _, ...rest } = get().pendingPlanApprovals
+    set({ pendingPlanApprovals: rest })
   },
 }))
 
@@ -759,6 +777,26 @@ window.agent.messages.onStream((chunk: StreamChunk) => {
         try { questions = JSON.parse(chunk.questions) as AskUserQuestion[] } catch { /* invalid JSON */ }
         parts.push({ type: 'ask_user', requestId: chunk.requestId, questions })
         commitParts(parts)
+      }
+      break
+    }
+
+    case 'plan_approval_request': {
+      // PI-specific: emitted by the bundled agent-desktop-parity extension
+      // when the agent calls exit_plan_mode(plan). We store in TWO places:
+      //   (1) streamParts buffer — renders inline during streaming (via
+      //       StreamingIndicator).
+      //   (2) pendingPlanApprovals state — persists across 'done' so the
+      //       approval UI stays visible after the agent's turn ends,
+      //       until the user clicks Approve or Reject.
+      if (chunk.content && chunk.conversationId != null) {
+        const parts = [...(streamBuffersMap.get(bufferKey) || [])]
+        parts.push({ type: 'plan_approval_request', conversationId: chunk.conversationId, plan: chunk.content })
+        commitParts(parts)
+        const existing = useChatStore.getState().pendingPlanApprovals
+        useChatStore.setState({
+          pendingPlanApprovals: { ...existing, [chunk.conversationId]: { plan: chunk.content } },
+        })
       }
       break
     }
