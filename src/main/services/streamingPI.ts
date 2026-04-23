@@ -360,17 +360,19 @@ export async function streamMessagePI(
       }
 
       // Gate only MCP tools — scheduler is a trusted internal customTool and must not go through canUseTool.
-      const bypass = aiSettings?.permissionMode === 'bypassPermissions'
+      const resolvedPermissionMode = aiSettings?.permissionMode ?? 'bypassPermissions'
+      const bypass = resolvedPermissionMode === 'bypassPermissions'
       const canUseTool = createCanUseTool({
         aiSettings: {
           requirePlanApproval: aiSettings?.requirePlanApproval,
           disabledSkills: aiSettings?.disabledSkills,
         },
-        permissionMode: aiSettings?.permissionMode ?? 'bypassPermissions',
+        permissionMode: resolvedPermissionMode,
         chunkConversationId: conversationId ?? null,
         pendingRequestsKey: convKey,
         pendingRequests,
         sendChunk: coreSendChunk,
+        // PI backend is event-based; no subprocess stream to suspend during approval
         onApprovalStart: () => {},
         onApprovalEnd: () => {},
       })

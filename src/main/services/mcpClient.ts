@@ -33,7 +33,7 @@ function buildTransport(config: McpServerConfig) {
     return new StdioClientTransport({
       command: config.command,
       args: config.args,
-      env: config.env,
+      env: config.env ? ({ ...process.env, ...config.env } as Record<string, string>) : undefined,
     })
   }
   const url = new URL(config.url)
@@ -48,9 +48,9 @@ export async function createMcpClient(
   config: McpServerConfig
 ): Promise<McpClientHandle> {
   const client = new Client({ name: 'agent-desktop', version: '0.1.0' }, { capabilities: {} })
-  const transport = buildTransport(config)
   let toolList: Awaited<ReturnType<typeof client.listTools>>
   try {
+    const transport = buildTransport(config)
     await client.connect(transport)
     toolList = await client.listTools()
   } catch (err) {

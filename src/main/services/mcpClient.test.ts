@@ -64,11 +64,11 @@ describe('createMcpClient — stdio', () => {
       env: { FOO: 'bar' },
     })
 
-    expect(mockStdioCtor).toHaveBeenCalledWith({
-      command: '/usr/bin/node',
-      args: ['server.js'],
-      env: { FOO: 'bar' },
-    })
+    const passedOpts = mockStdioCtor.mock.calls[0][0] as { command: string; args: string[]; env: Record<string, string> }
+    expect(passedOpts.command).toBe('/usr/bin/node')
+    expect(passedOpts.args).toEqual(['server.js'])
+    expect(passedOpts.env.FOO).toBe('bar')
+    expect(passedOpts.env.PATH).toBe(process.env.PATH)
     expect(mockConnect).toHaveBeenCalledTimes(1)
     expect(handle.name).toBe('fs')
     expect(handle.tools).toHaveLength(1)
@@ -82,6 +82,14 @@ describe('createMcpClient — stdio', () => {
       args: [],
       env: undefined,
     })
+  })
+
+  it('merges process.env with config.env when env is provided', async () => {
+    const originalPath = process.env.PATH
+    await createMcpClient('fs', { command: 'x', args: [], env: { API_KEY: 'test' } })
+    const passedEnv = (mockStdioCtor.mock.calls[0][0] as { env: Record<string, string> }).env
+    expect(passedEnv.API_KEY).toBe('test')
+    expect(passedEnv.PATH).toBe(originalPath) // inherited from process.env
   })
 })
 
@@ -125,6 +133,12 @@ describe('createMcpClient — error handling', () => {
     mockListTools.mockRejectedValueOnce(new Error('enumeration failed'))
     await expect(createMcpClient('enum-broken', { command: 'x', args: [] }))
       .rejects.toMatchObject({ name: 'McpConnectError', serverName: 'enum-broken' })
+  })
+
+  it('wraps malformed URL failure in McpConnectError', async () => {
+    await expect(
+      createMcpClient('bad-url', { type: 'http', url: 'not a url' })
+    ).rejects.toMatchObject({ name: 'McpConnectError', serverName: 'bad-url' })
   })
 })
 

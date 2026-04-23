@@ -103,6 +103,7 @@
 - **CWD whitelist read restriction**: only enforced when whitelist is non-empty; covers Read, Glob, Grep, Bash read commands (cat, head, tail, less, find, ls, tree, file, stat, wc, diff, strings, xxd)
 - **PI native MCP**: `streamingPI.ts` spawns MCP clients via `mcpClient.ts` (wraps `@modelcontextprotocol/sdk`) per stream, converts their tools to PI `ToolDefinition`s via `mcpToPiTools.ts` using `mcp__<server>__<tool>` naming (parity with Claude SDK's `allowedTools` wildcards), and tears them down in `finally`. Spawn failures emit `system_message` chunks without aborting the stream. No external `pi-mcp-adapter` extension needed.
 - **PI permission gate**: `piPermissionGate.ts` wraps MCP tool `execute()` with `createCanUseTool()` — same approval path + same shared `pendingRequests` Map as the Claude SDK. `permissionMode === 'bypassPermissions'` skips the gate (returns input reference unchanged). Scheduler tool is NOT gated (trusted internal customTool).
+- **PI MCP per-turn cost**: `streamMessagePI` spawns and tears down all MCP servers on every prompt. The PI SDK has no cross-turn session object to hold persistent handles; the Claude SDK does this internally. Long-lived or slow-to-start MCP servers incur full startup cost per message on PI.
 
 ## Web Server Auth Gotchas
 - **Password opt-in**: `server_passwordHash` null = current behavior (URL token). Non-null = HTML login gate + cookie; WS cookie-authed at upgrade, no `{type:'auth'}` needed.

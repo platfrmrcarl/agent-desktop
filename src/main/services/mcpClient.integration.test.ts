@@ -12,8 +12,8 @@ describe('mcpClient — integration with real stdio MCP server', () => {
     let handle: McpClientHandle | undefined
     try {
       handle = await createMcpClient('mock', {
-        command: 'npx',
-        args: ['tsx', fixturePath],
+        command: 'node_modules/.bin/tsx',
+        args: [fixturePath],
       })
 
       expect(handle.tools).toHaveLength(1)
