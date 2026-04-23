@@ -31,13 +31,17 @@ function makeMockPi() {
   }
 }
 
-function makeBridge(): PiExtensionBridge & { emitSystemMessage: ReturnType<typeof vi.fn> } {
+function makeBridge(): PiExtensionBridge & {
+  emitSystemMessage: ReturnType<typeof vi.fn>
+  updateConversationSetting: ReturnType<typeof vi.fn>
+} {
   return {
     emitSystemMessage: vi.fn(),
     emitTaskNotification: vi.fn(),
     emitMcpStatus: vi.fn(),
     recordTokenUsage: vi.fn(),
     getAccumulatedUsage: vi.fn(() => ({ totalTokens: 0, totalCostUsd: 0 })),
+    updateConversationSetting: vi.fn(),
   }
 }
 
@@ -214,17 +218,17 @@ describe('permissionModes — plan', () => {
     expect(pi.registeredTools.map(t => t.name)).toContain('exit_plan_mode')
   })
 
-  it('exit_plan_mode tool restores default tools and flips state', async () => {
+  it('exit_plan_mode persists ai_permissionMode=bypassPermissions via bridge', async () => {
     const pi = makeMockPi()
     const ctx = makeCtx('plan', { requirePlanApproval: false })
     initPermissionModes(pi as never, ctx)
     const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
     const uiCtx = makeUiCtx()
     const result = await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx) as { content: Array<{ text: string }> }
-    expect(pi.activeTools).toEqual(DEFAULT_TOOLS)
-    // The tool's return text must tell the agent to stop and wait for
-    // the user's next message — mid-turn tool-list refresh is unreliable
-    // in PI, so mutating tools only reliably land on the NEXT turn.
+    const bridge = ctx.bridge as ReturnType<typeof makeBridge>
+    expect(bridge.updateConversationSetting).toHaveBeenCalledWith('ai_permissionMode', 'bypassPermissions')
+    // Tool-result text still instructs the agent to stop — mid-turn refresh
+    // of tools is unreliable in PI, so Write lands on the NEXT turn.
     expect(result.content[0].text).toMatch(/stop/i)
     expect(result.content[0].text).toMatch(/next message/i)
   })
@@ -237,19 +241,19 @@ describe('permissionModes — plan', () => {
     const uiCtx = makeUiCtx(true)
     await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx)
     expect(uiCtx.ui.confirm).toHaveBeenCalledOnce()
-    expect(pi.activeTools).toEqual(DEFAULT_TOOLS)
+    const bridge = ctx.bridge as ReturnType<typeof makeBridge>
+    expect(bridge.updateConversationSetting).toHaveBeenCalledWith('ai_permissionMode', 'bypassPermissions')
   })
 
-  it('exit_plan_mode aborts and keeps read-only when user denies approval', async () => {
+  it('exit_plan_mode does NOT persist the setting when user denies approval', async () => {
     const pi = makeMockPi()
     const ctx = makeCtx('plan', { requirePlanApproval: true })
     initPermissionModes(pi as never, ctx)
-    // Fire the lifecycle lockdown first so activeTools is populated
-    await pi.handlers['before_agent_start']![0]({} as never)
     const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
-    const uiCtx = makeUiCtx(false)
+    const uiCtx = makeUiCtx(false)  // denies
     const result = await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx) as { content: Array<{ text: string }> }
-    expect(pi.activeTools).toEqual(PLAN_READONLY_TOOLS)
+    const bridge = ctx.bridge as ReturnType<typeof makeBridge>
+    expect(bridge.updateConversationSetting).not.toHaveBeenCalled()
     expect(result.content[0].text).toMatch(/denied/i)
   })
 
@@ -285,53 +289,17 @@ describe('permissionModes — plan', () => {
     expect(result).toBeUndefined()
   })
 
-  it('exit_plan_mode sets a sessionStore flag so later turns skip lockdown', async () => {
-    const store = new Map<string, unknown>()
+  it('post-exit: next turn arrives with bypassPermissions and short-circuits', () => {
+    // After exit_plan_mode succeeded, the cascade delivers
+    // permissionMode='bypassPermissions' on the next turn. Factory
+    // early-returns: no handlers, no lockdown, no exit_plan_mode tool.
+    // Default codingTools intact for the LLM.
     const pi = makeMockPi()
-    const ctx: ExtensionRuntimeContext = { ...makeCtx('plan', { requirePlanApproval: false }), sessionStore: store }
-    initPermissionModes(pi as never, ctx)
-    const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
-    const uiCtx = makeUiCtx()
-    await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx)
-    expect(store.get('permissionModes.planExited')).toBe(true)
-  })
-
-  it('does NOT set the exited flag when user denies approval', async () => {
-    const store = new Map<string, unknown>()
-    const pi = makeMockPi()
-    const ctx: ExtensionRuntimeContext = { ...makeCtx('plan', { requirePlanApproval: true }), sessionStore: store }
-    initPermissionModes(pi as never, ctx)
-    const exitTool = pi.registeredTools.find(t => t.name === 'exit_plan_mode')!
-    const uiCtx = makeUiCtx(false)  // denies
-    await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx)
-    expect(store.get('permissionModes.planExited')).toBeUndefined()
-  })
-
-  it('post-exit: factory short-circuits on subsequent turns (no handler, no tool)', () => {
-    // After exit_plan_mode succeeded on a previous turn, planExited is set
-    // in sessionStore. The NEXT factory init should treat effective mode
-    // as bypassPermissions and return early: no tool_call handler, no
-    // lifecycle lockdown, no exit_plan_mode re-registration. This ensures
-    // the LLM's default tool set (write/edit/bash included) is untouched.
-    const store = new Map<string, unknown>()
-    store.set('permissionModes.planExited', true)
-    const pi = makeMockPi()
-    const ctx: ExtensionRuntimeContext = { ...makeCtx('plan'), sessionStore: store }
+    const ctx = makeCtx('bypassPermissions')
     initPermissionModes(pi as never, ctx)
     expect(pi.handlers['tool_call']).toBeUndefined()
     expect(pi.handlers['before_agent_start']).toBeUndefined()
     expect(pi.handlers['session_start']).toBeUndefined()
     expect(pi.registeredTools).toHaveLength(0)
-  })
-
-  it('post-exit: a tool_call for write is not blocked (handler does not exist)', async () => {
-    const store = new Map<string, unknown>()
-    store.set('permissionModes.planExited', true)
-    const pi = makeMockPi()
-    const ctx: ExtensionRuntimeContext = { ...makeCtx('plan'), sessionStore: store }
-    initPermissionModes(pi as never, ctx)
-    // No tool_call handler registered → fireToolCall returns empty results.
-    const results = await pi.fireToolCall({ toolName: 'write', input: { path: '/x' } }, makeUiCtx())
-    expect(results).toEqual([])
   })
 })

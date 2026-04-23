@@ -71,6 +71,19 @@ let _ensureFreshMacOSToken: EnsureFreshTokenFn | null = null
 /** Inject macOS OAuth token refresh function. */
 export function setEnsureFreshToken(fn: EnsureFreshTokenFn): void { _ensureFreshMacOSToken = fn }
 
+// ─── Conversation overrides writer injection ─────────
+// Used by the PI parity extension (permission-modes' exit_plan_mode)
+// to persist mode changes back to the conversation's ai_overrides.
+// Implemented by the adapter (main) which has the db handle.
+type UpdateConversationOverridesFn = (conversationId: number, patch: Record<string, string>) => void
+let _updateConversationOverrides: UpdateConversationOverridesFn | null = null
+export function setConversationOverridesWriter(fn: UpdateConversationOverridesFn): void {
+  _updateConversationOverrides = fn
+}
+export function getConversationOverridesWriter(): UpdateConversationOverridesFn | null {
+  return _updateConversationOverrides
+}
+
 // Per-conversation abort controllers: Map<conversationId, AbortController>
 // Allows aborting a specific stream without affecting others
 // Exported for use by alternative backend implementations (e.g. streamingPI)

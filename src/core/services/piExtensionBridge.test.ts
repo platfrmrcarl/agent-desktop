@@ -98,3 +98,22 @@ describe('createBridge.recordTokenUsage / getAccumulatedUsage', () => {
     expect(bridgeB.getAccumulatedUsage()).toEqual({ totalTokens: 200, totalCostUsd: 1.0 })
   })
 })
+
+describe('createBridge.updateConversationSetting', () => {
+  it('invokes the injected writer with bound conversationId and key/value patch', async () => {
+    const { setConversationOverridesWriter } = await import('./streaming')
+    const writer = vi.fn()
+    setConversationOverridesWriter(writer)
+    const bridge = createBridge(42, { chunkSender: vi.fn() })
+    bridge.updateConversationSetting('ai_permissionMode', 'bypassPermissions')
+    expect(writer).toHaveBeenCalledWith(42, { ai_permissionMode: 'bypassPermissions' })
+  })
+
+  it('is a no-op when the writer is not injected (e.g. headless tests)', async () => {
+    const { setConversationOverridesWriter } = await import('./streaming')
+    setConversationOverridesWriter(null as never)
+    const bridge = createBridge(42, { chunkSender: vi.fn() })
+    // Should not throw — logs a warning and returns.
+    expect(() => bridge.updateConversationSetting('k', 'v')).not.toThrow()
+  })
+})

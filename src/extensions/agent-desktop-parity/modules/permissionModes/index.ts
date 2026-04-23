@@ -38,52 +38,21 @@ function hashInput(input: unknown): string {
  * any mutating tool still reaches the LLM.
  */
 export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
-  // Plan-mode escape state lives in sessionStore so a successful
-  // exit_plan_mode survives across turns. Read BEFORE mode resolution so
-  // the entire plan branch short-circuits when the user already exited.
-  const PLAN_EXITED_KEY = 'permissionModes.planExited'
-
   const modeRaw = ctx.aiSettings.permissionMode ?? 'default'
-  let mode: PermissionMode = (VALID_MODES as readonly string[]).includes(modeRaw)
+  const mode: PermissionMode = (VALID_MODES as readonly string[]).includes(modeRaw)
     ? (modeRaw as PermissionMode)
     : 'default'
 
-  // If the user already exited plan mode on an earlier turn of this
-  // conversation, treat the effective mode as bypassPermissions. This
-  // ensures EVERY downstream check (tool_call handler, lockdown hook,
-  // exit_plan_mode re-registration) short-circuits consistently, rather
-  // than each one needing to re-check the flag individually.
-  //
-  // This was the architectural mistake of fix #4: two separate states
-  // (captured `mode` + sessionStore flag) drifted apart, so the
-  // tool_call handler still denied writes even after setActiveTools
-  // restored them. Now there's one source of truth: the computed `mode`.
-  const planExitedFlag = ctx.sessionStore?.get(PLAN_EXITED_KEY)
-  if (mode === 'plan' && planExitedFlag) {
-    mode = 'bypassPermissions'
-  }
-
-  // DIAGNOSTIC — single emit per factory init showing the resolved mode
-  // and the raw inputs. Lets us see from the chat UI whether:
-  //   (a) sessionStore flag is persisted across turns (planExitedFlag)
-  //   (b) the flag is being read correctly (mode resolution)
-  //   (c) the short-circuit is taking effect (early return below)
-  ctx.bridge.emitSystemMessage(
-    `[diag] perm-modes init: rawMode=${JSON.stringify(modeRaw)}, planExited=${JSON.stringify(planExitedFlag)}, effective=${mode}, convId=${ctx.conversationId}`,
-    { hookName: 'permission-modes', hookEvent: 'SessionStart' },
-  )
-
-  // bypassPermissions (either explicit setting OR post-exit plan):
-  // no handler registered, no lockdown, PI default behavior preserved.
+  // bypassPermissions: no tool_call handler — PI default allows everything.
+  // This is also where the conversation lands AFTER exit_plan_mode persists
+  // 'bypassPermissions' back to ai_overrides. The cascade delivers it here
+  // on the next turn → factory short-circuits → Write/Edit/Bash intact.
   if (mode === 'bypassPermissions') return
 
   // Plan mode: lock to read-only tools (via lifecycle hooks, since
   // setActiveTools cannot be called at factory init) and register
   // exit_plan_mode as the escape hatch.
   if (mode === 'plan') {
-    // No flag re-check here: the factory top-level already downgraded
-    // mode to bypassPermissions (and early-returned) when planExited is
-    // set. If we reach this lockDown, plan mode is genuinely active.
     const lockDown = (): void => {
       try { pi.setActiveTools(PLAN_READONLY_TOOLS) }
       catch (err) {
@@ -111,21 +80,14 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
             return { content: [{ type: 'text', text: 'Plan-mode exit denied by user. Staying in plan-only mode.' }] }
           }
         }
-        // Mark the conversation as exited BEFORE calling setActiveTools.
-        // This flag is the source of truth; the factory's effective-mode
-        // resolution picks it up on subsequent turns to skip the plan
-        // branch entirely.
-        ctx.sessionStore?.set(PLAN_EXITED_KEY, true)
-        // DIAGNOSTIC — confirm write landed in the same Map instance.
-        ctx.bridge.emitSystemMessage(
-          `[diag] exit_plan_mode: set flag. sessionStore now has ${ctx.sessionStore?.size ?? '?'} keys, planExited=${JSON.stringify(ctx.sessionStore?.get(PLAN_EXITED_KEY))}`,
-          { hookName: 'permission-modes', hookEvent: 'PostToolUse' },
-        )
-        // Best-effort mid-turn refresh. PI may cache the tool list per
-        // LLM call, so this might not take effect until the next turn —
-        // we tell the agent explicitly to STOP and wait for the user
-        // (matching PI's plan-mode example pattern where mode changes
-        // happen BETWEEN turns, not within one).
+        // Persist the mode flip back to the conversation's ai_overrides.
+        // The cascade delivers `permissionMode='bypassPermissions'` on the
+        // next turn → factory early-returns → no handlers, no lockdown,
+        // LLM sees the full default tool set. The status-bar badge also
+        // refreshes immediately via the conversationUpdated broadcast.
+        ctx.bridge.updateConversationSetting('ai_permissionMode', 'bypassPermissions')
+        // Best-effort mid-turn tool refresh (PI may cache tool list per
+        // API call, so the user is told to stop and wait regardless).
         try { pi.setActiveTools(DEFAULT_TOOLS) } catch { /* best-effort */ }
         ctx.bridge.emitSystemMessage(
           'Plan mode exited — mutating tools will be available on the next turn.',

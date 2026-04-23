@@ -1,4 +1,5 @@
 import type { AISettings } from './streaming'
+import { getConversationOverridesWriter } from './streaming'
 
 // `better-sqlite3` is imported only as a TYPE — avoids a runtime dep surface
 // in the renderer bundle. Actual DB interactions happen in main-process code.
@@ -48,6 +49,19 @@ export interface PiExtensionBridge {
 
   /** Read accumulated usage for budget-cap decisions. */
   getAccumulatedUsage(): { totalTokens: number; totalCostUsd: number }
+
+  /**
+   * Persist a conversation-level aiSettings override. Writes to the
+   * `ai_overrides` JSON column on the conversation row, merging with
+   * existing entries. Cascade resolution on the next turn picks up
+   * the new value. Also triggers a `conversationUpdated` broadcast so
+   * the renderer's store refreshes the status bar.
+   *
+   * Used by permission-modes' exit_plan_mode to flip
+   * `ai_permissionMode` to `'bypassPermissions'` without relying on a
+   * sessionStore flag.
+   */
+  updateConversationSetting(key: string, value: string): void
 }
 
 export interface BridgeDeps {
@@ -92,6 +106,15 @@ export function createBridge(conversationId: number, deps: BridgeDeps): PiExtens
 
     getAccumulatedUsage() {
       return { ...accumulated }
+    },
+
+    updateConversationSetting(key, value) {
+      const writer = getConversationOverridesWriter()
+      if (!writer) {
+        console.warn('[piExtensionBridge] updateConversationSetting called before writer injection; skipping')
+        return
+      }
+      writer(conversationId, { [key]: value })
     },
   }
 }
