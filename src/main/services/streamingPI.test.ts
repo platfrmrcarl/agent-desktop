@@ -64,19 +64,6 @@ vi.mock('./mcpClient', () => ({
   },
 }))
 
-// Mock mcpToPiTools
-vi.mock('./mcpToPiTools', () => ({
-  mcpServerToPiTools: vi.fn((handle: { name: string; tools: Array<{ name: string }> }) =>
-    handle.tools.map((t) => ({
-      name: `mcp__${handle.name}__${t.name}`,
-      label: `${handle.name}: ${t.name}`,
-      description: '',
-      parameters: {},
-      execute: vi.fn(),
-    }))
-  ),
-}))
-
 // Mock session object
 const mockSession = {
   subscribe: vi.fn(),
@@ -762,17 +749,6 @@ describe('streamMessagePI — MCP integration', () => {
     // Reset MCP mocks
     const { createMcpClient } = await import('./mcpClient')
     vi.mocked(createMcpClient).mockReset()
-    const { mcpServerToPiTools } = await import('./mcpToPiTools')
-    vi.mocked(mcpServerToPiTools).mockReset()
-    vi.mocked(mcpServerToPiTools).mockImplementation((handle: { name: string; tools: Array<{ name: string }> }) =>
-      handle.tools.map((t) => ({
-        name: `mcp__${handle.name}__${t.name}`,
-        label: `${handle.name}: ${t.name}`,
-        description: '',
-        parameters: {},
-        execute: vi.fn(),
-      })) as never
-    )
   })
 
   it('spawns a client per configured MCP server and appends their tools to customTools', async () => {

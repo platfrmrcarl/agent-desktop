@@ -17,6 +17,7 @@ import type { ToolCall } from '../../shared/types'
 import type { AgentToolResult } from '@mariozechner/pi-agent-core'
 import { createBridge, type ExtensionRuntimeContext } from '../../core/services/piExtensionBridge'
 import parityFactory from '../../extensions/agent-desktop-parity'
+import type { ToolDefinition } from '@mariozechner/pi-coding-agent'
 
 // Tool parameters schema for scheduler tool
 const SchedulerToolParams = /* #__PURE__ */ (() =>
@@ -128,7 +129,7 @@ async function executeSchedulerCommand(
 }
 
 // Create PI tool definition for scheduler
-function createSchedulerTool(): pi.ToolDefinition {
+function createSchedulerTool(): ToolDefinition {
   return {
     name: 'agent_scheduler',
     label: 'Agent Scheduler',
@@ -320,7 +321,7 @@ export async function streamMessagePI(
     await resourceLoader.reload()
 
     // Build custom tools array (scheduler tool for PI backend)
-    const customTools: pi.ToolDefinition[] = []
+    const customTools: ToolDefinition[] = []
     const schedulerConfig = getSchedulerMcpConfig(convKey)
     if (schedulerConfig) {
       // Only add scheduler if socket bridge is available
@@ -340,11 +341,14 @@ export async function streamMessagePI(
       for (const r of spawnResults) {
         if (r.status === 'fulfilled') {
           mcpHandles.push(r.value.handle)
-          customTools.push(...mcpServerToPiTools(r.value.handle) as pi.ToolDefinition[])
+          customTools.push(...mcpServerToPiTools(r.value.handle))
         } else {
-          const serverName = r.reason instanceof McpConnectError ? r.reason.serverName : 'unknown'
-          const errMsg = r.reason instanceof Error ? r.reason.message : String(r.reason)
-          sendChunk('system_message', `MCP server '${serverName}' failed to start: ${errMsg}`, {
+          const errMsg = r.reason instanceof McpConnectError
+            ? r.reason.message
+            : r.reason instanceof Error
+              ? r.reason.message
+              : String(r.reason)
+          sendChunk('system_message', errMsg, {
             hookName: 'mcp',
             hookEvent: 'spawn_failed',
             ...convExtra,
