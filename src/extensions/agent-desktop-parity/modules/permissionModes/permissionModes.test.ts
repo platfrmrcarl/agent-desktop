@@ -222,7 +222,11 @@ describe('permissionModes — plan', () => {
     const uiCtx = makeUiCtx()
     const result = await exitTool.execute('call-1', {}, new AbortController().signal, vi.fn(), uiCtx) as { content: Array<{ text: string }> }
     expect(pi.activeTools).toEqual(DEFAULT_TOOLS)
-    expect(result.content[0].text).toMatch(/Plan mode exited/i)
+    // The tool's return text must tell the agent to stop and wait for
+    // the user's next message — mid-turn tool-list refresh is unreliable
+    // in PI, so mutating tools only reliably land on the NEXT turn.
+    expect(result.content[0].text).toMatch(/stop/i)
+    expect(result.content[0].text).toMatch(/next message/i)
   })
 
   it('exit_plan_mode prompts via ctx.ui.confirm when requirePlanApproval is true', async () => {

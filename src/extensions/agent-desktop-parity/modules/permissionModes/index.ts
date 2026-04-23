@@ -100,16 +100,30 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
             return { content: [{ type: 'text', text: 'Plan-mode exit denied by user. Staying in plan-only mode.' }] }
           }
         }
-        // Mark the conversation as exited BEFORE calling setActiveTools —
-        // future turns will read this flag in lockDown() and skip the
-        // lockdown even though permissionMode remains 'plan' in settings.
+        // Mark the conversation as exited BEFORE calling setActiveTools.
+        // This flag is the source of truth; the factory's effective-mode
+        // resolution picks it up on subsequent turns to skip the plan
+        // branch entirely.
         ctx.sessionStore?.set(PLAN_EXITED_KEY, true)
-        pi.setActiveTools(DEFAULT_TOOLS)
+        // Best-effort mid-turn refresh. PI may cache the tool list per
+        // LLM call, so this might not take effect until the next turn —
+        // we tell the agent explicitly to STOP and wait for the user
+        // (matching PI's plan-mode example pattern where mode changes
+        // happen BETWEEN turns, not within one).
+        try { pi.setActiveTools(DEFAULT_TOOLS) } catch { /* best-effort */ }
         ctx.bridge.emitSystemMessage(
-          'Plan mode exited — mutating tools restored for this conversation.',
+          'Plan mode exited — mutating tools will be available on the next turn.',
           { hookName: 'permission-modes', hookEvent: 'PostToolUse' },
         )
-        return { content: [{ type: 'text', text: 'Plan mode exited. Mutating tools are now available.' }] }
+        return {
+          content: [{
+            type: 'text',
+            text:
+              'Plan-mode exit approved by the user. STOP your current reasoning and do NOT attempt further tool calls in this turn. ' +
+              'Mutating tools (write, edit, bash) will be fully available starting with the USER\'S NEXT MESSAGE. ' +
+              'Briefly acknowledge the approval and wait.',
+          }],
+        }
       },
     })
   }
