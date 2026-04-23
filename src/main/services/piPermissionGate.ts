@@ -31,6 +31,8 @@ export function gatePiTools(
       if (signal?.aborted) return denyResult('aborted before approval')
       let decision
       try {
+        // canUseTool is not signal-aware: mid-approval aborts are observed only after
+        // the user responds. This matches the Claude SDK path's CanUseToolFn contract.
         decision = await opts.canUseTool(tool.name, params as Record<string, unknown>)
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err))

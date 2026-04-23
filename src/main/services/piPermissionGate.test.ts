@@ -39,6 +39,16 @@ describe('gatePiTools — approval flow', () => {
     expect((result.content[0] as { text: string }).text).toBe('ran')
   })
 
+  it('threads onUpdate and ctx through to the underlying execute', async () => {
+    const tool = makeTool('mcp__fs__read')
+    const canUse: CanUseToolFn = vi.fn(async () => ({ behavior: 'allow', updatedInput: {} }))
+    const onUpdate = vi.fn()
+    const ctx = { cwd: '/test' } as never
+    const [gated] = gatePiTools([tool], { canUseTool: canUse, bypass: false })
+    await gated.execute('c1', {}, undefined, onUpdate, ctx)
+    expect(tool.execute).toHaveBeenCalledWith('c1', {}, undefined, onUpdate, ctx)
+  })
+
   it('passes updatedInput from approval through to the underlying execute', async () => {
     const tool = makeTool('mcp__fs__read')
     const canUse: CanUseToolFn = vi.fn(async () => ({
