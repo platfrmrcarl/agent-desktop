@@ -50,6 +50,30 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
 }))
 
+// Mock MCP client module
+vi.mock('./mcpClient', () => ({
+  createMcpClient: vi.fn(),
+  McpConnectError: class McpConnectError extends Error {
+    serverName: string
+    constructor(name: string, cause: unknown) {
+      const causeMessage = cause instanceof Error ? cause.message : String(cause)
+      super(`MCP server '${name}' failed to connect: ${causeMessage}`)
+      this.name = 'McpConnectError'
+      this.serverName = name
+    }
+  },
+}))
+
+// Mock createCanUseTool so permission gate tests can spy on the returned fn.
+// The factory stores the spy in globalThis so tests can access it across the hoist boundary.
+vi.mock('../../core/services/canUseTool', () => ({
+  createCanUseTool: vi.fn((_deps: unknown) => {
+    const spy = vi.fn().mockResolvedValue({ behavior: 'allow', updatedInput: {} })
+    ;(globalThis as Record<string, unknown>).__lastCanUseToolSpy = spy
+    return spy
+  }),
+}))
+
 // Mock session object
 const mockSession = {
   subscribe: vi.fn(),
@@ -91,6 +115,7 @@ import { getConversationPiSessionFile, setConversationPiSessionFile } from './me
 import { getDatabase } from '../../core/db/database'
 import * as nodeFs from 'node:fs'
 import { loadPISdk } from './piSdk'
+import { createCanUseTool } from '../../core/services/canUseTool'
 
 describe('streamMessagePI', () => {
   beforeEach(() => {
@@ -710,5 +735,328 @@ describe('session persistence', () => {
     expect(pi.SessionManager.open).not.toHaveBeenCalled()
     // No DB writes for one-shot
     expect(setConversationPiSessionFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('streamMessagePI — MCP integration', () => {
+  beforeEach(async () => {
+    mockSendFn.mockClear()
+    mockCreateAgentSession.mockClear()
+    mockSession.subscribe.mockClear()
+    mockSession.prompt.mockClear()
+    mockSession.abort.mockClear()
+    mockSession.dispose.mockClear()
+    mockSession.bindExtensions.mockClear()
+    mockDispose.mockClear()
+
+    mockSession.subscribe.mockReturnValue(vi.fn())
+    mockSession.prompt.mockResolvedValue(undefined)
+
+    vi.mocked(getConversationPiSessionFile).mockReturnValue(null)
+    vi.mocked(setConversationPiSessionFile).mockReset()
+    vi.mocked(nodeFs.existsSync).mockReturnValue(false)
+    vi.mocked(getDatabase).mockReturnValue({ __sentinel: true } as unknown as ReturnType<typeof getDatabase>)
+
+    // Reset MCP mocks
+    const { createMcpClient } = await import('./mcpClient')
+    vi.mocked(createMcpClient).mockReset()
+  })
+
+  it('spawns a client per configured MCP server and appends their tools to customTools', async () => {
+    const { createMcpClient } = await import('./mcpClient')
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'fs',
+      tools: [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
+      callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] }),
+      close: closeSpy,
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test', mcpServers: { fs: { command: 'fs-server', args: [] } } },
+      1,
+    )
+
+    expect(createMcpClient).toHaveBeenCalledWith('fs', { command: 'fs-server', args: [] })
+    const callArg = mockCreateAgentSession.mock.calls[0][0] as { customTools: Array<{ name: string }> }
+    expect(callArg.customTools.some((t) => t.name === 'mcp__fs__read')).toBe(true)
+  })
+
+  it('closes clients in finally block on success path', async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    const { createMcpClient } = await import('./mcpClient')
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'fs',
+      tools: [],
+      callTool: vi.fn(),
+      close: closeSpy,
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test', mcpServers: { fs: { command: 'fs-server', args: [] } } },
+      1,
+    )
+
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes clients in finally block on abort path', async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    const { createMcpClient } = await import('./mcpClient')
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'fs',
+      tools: [],
+      callTool: vi.fn(),
+      close: closeSpy,
+    })
+
+    mockSession.prompt.mockRejectedValueOnce(
+      Object.assign(new Error('aborted'), { name: 'AbortError' })
+    )
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test', mcpServers: { fs: { command: 'fs-server', args: [] } } },
+      1,
+    )
+
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips server names containing __ defensively', async () => {
+    const { createMcpClient } = await import('./mcpClient')
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'good',
+      tools: [],
+      callTool: vi.fn(),
+      close: closeSpy,
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      {
+        cwd: '/tmp/test',
+        mcpServers: {
+          good: { command: 'good-server', args: [] },
+          'bad__name': { command: 'bad-server', args: [] },
+        },
+      },
+      1,
+    )
+
+    expect(createMcpClient).toHaveBeenCalledWith('good', expect.anything())
+    expect(createMcpClient).not.toHaveBeenCalledWith('bad__name', expect.anything())
+  })
+
+  it('emits system_message chunk and continues when a server fails to spawn', async () => {
+    const { createMcpClient, McpConnectError } = await import('./mcpClient')
+    const closeSpy = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(createMcpClient).mockImplementation((name: string) => {
+      if (name === 'broken') {
+        return Promise.reject(new McpConnectError('broken', new Error('spawn failed')))
+      }
+      return Promise.resolve({
+        name,
+        tools: [],
+        callTool: vi.fn(),
+        close: closeSpy,
+      })
+    })
+
+    const result = await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      {
+        cwd: '/tmp/test',
+        mcpServers: {
+          broken: { command: 'bad', args: [] },
+          ok: { command: 'good', args: [] },
+        },
+      },
+      1,
+    )
+
+    // A system_message chunk mentioning 'broken' was emitted
+    const sysChunks = mockSendFn.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'messages:stream' && (c[1] as { type: string }).type === 'system_message'
+    )
+    expect(sysChunks).toHaveLength(1)
+    expect((sysChunks[0][1] as { content: string }).content).toContain('broken')
+
+    // Stream finished normally (not aborted, no error chunk)
+    expect(result.aborted).toBe(false)
+    const errorChunks = mockSendFn.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'messages:stream' && (c[1] as { type: string }).type === 'error'
+    )
+    expect(errorChunks).toHaveLength(0)
+
+    // The ok server's client was still closed
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('streamMessagePI — permission gate', () => {
+  beforeEach(async () => {
+    mockSendFn.mockClear()
+    mockCreateAgentSession.mockClear()
+    mockSession.subscribe.mockClear()
+    mockSession.prompt.mockClear()
+    mockSession.abort.mockClear()
+    mockSession.dispose.mockClear()
+    mockSession.bindExtensions.mockClear()
+    mockDispose.mockClear()
+    ;(globalThis as Record<string, unknown>).__lastCanUseToolSpy = undefined
+
+    mockSession.subscribe.mockReturnValue(vi.fn())
+    mockSession.prompt.mockResolvedValue(undefined)
+
+    vi.mocked(getConversationPiSessionFile).mockReturnValue(null)
+    vi.mocked(setConversationPiSessionFile).mockReset()
+    vi.mocked(nodeFs.existsSync).mockReturnValue(false)
+    vi.mocked(getDatabase).mockReturnValue({ __sentinel: true } as unknown as ReturnType<typeof getDatabase>)
+
+    // Reset createCanUseTool mock to default (allow) for each test
+    vi.mocked(createCanUseTool).mockClear().mockImplementation((_deps: unknown) => {
+      const spy = vi.fn().mockResolvedValue({ behavior: 'allow', updatedInput: {} })
+      ;(globalThis as Record<string, unknown>).__lastCanUseToolSpy = spy
+      return spy
+    })
+
+    const { createMcpClient } = await import('./mcpClient')
+    vi.mocked(createMcpClient).mockReset()
+
+    // Reset scheduler mock module properties to safe defaults
+    const schedMock = await import('./schedulerBridge') as Record<string, unknown>
+    schedMock.socketPath = null
+    schedMock.authToken = null
+    vi.mocked((await import('./schedulerBridge')).getSchedulerMcpConfig).mockReturnValue(null)
+  })
+
+  it('gates MCP tools with canUseTool when permissionMode is not bypassPermissions', async () => {
+    const { createMcpClient } = await import('./mcpClient')
+    const callToolSpy = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'fs',
+      tools: [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
+      callTool: callToolSpy,
+      close: vi.fn().mockResolvedValue(undefined),
+    })
+
+    // canUseTool denies to prove the gate intercepted the call before callTool
+    vi.mocked(createCanUseTool).mockImplementation((_deps: unknown) => {
+      const spy = vi.fn().mockResolvedValue({ behavior: 'deny', message: 'denied by test' })
+      ;(globalThis as Record<string, unknown>).__lastCanUseToolSpy = spy
+      return spy
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test', permissionMode: 'default', mcpServers: { fs: { command: 'fs-server', args: [] } } },
+      1,
+    )
+
+    // createCanUseTool was called (once per stream, not once per tool)
+    expect(createCanUseTool).toHaveBeenCalledTimes(1)
+    expect(createCanUseTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        permissionMode: 'default',
+        chunkConversationId: 1,
+        pendingRequestsKey: 1,
+      })
+    )
+
+    // The tool was registered with gating: invoke its execute directly to confirm callTool is blocked
+    const callArgs = mockCreateAgentSession.mock.calls[0][0] as { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> }
+    const mcpTool = callArgs.customTools.find((t) => t.name === 'mcp__fs__read')
+    expect(mcpTool).toBeDefined()
+
+    // Execute the gated tool — canUseTool denies, so callTool must NOT be called
+    await mcpTool!.execute('tid', {}, undefined, undefined, undefined)
+    const canUseToolSpy = (globalThis as Record<string, unknown>).__lastCanUseToolSpy as ReturnType<typeof vi.fn>
+    expect(canUseToolSpy).toHaveBeenCalledWith('mcp__fs__read', {})
+    expect(callToolSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not gate MCP tools when permissionMode is bypassPermissions', async () => {
+    const { createMcpClient } = await import('./mcpClient')
+    const callToolSpy = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'fs',
+      tools: [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
+      callTool: callToolSpy,
+      close: vi.fn().mockResolvedValue(undefined),
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test', permissionMode: 'bypassPermissions', mcpServers: { fs: { command: 'fs-server', args: [] } } },
+      1,
+    )
+
+    // Execute the (bypass) tool — canUseTool spy must NOT be called; callTool IS called
+    const callArgs = mockCreateAgentSession.mock.calls[0][0] as { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> }
+    const mcpTool = callArgs.customTools.find((t) => t.name === 'mcp__fs__read')
+    expect(mcpTool).toBeDefined()
+
+    await mcpTool!.execute('tid', {}, undefined, undefined, undefined)
+    const canUseToolSpy = (globalThis as Record<string, unknown>).__lastCanUseToolSpy as ReturnType<typeof vi.fn>
+    // bypass: gatePiTools returns the original array — canUseTool is never invoked
+    expect(canUseToolSpy).not.toHaveBeenCalled()
+    expect(callToolSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not gate the scheduler tool (canUseTool not called when scheduler.execute runs)', async () => {
+    const { createMcpClient } = await import('./mcpClient')
+    vi.mocked(createMcpClient).mockResolvedValue({
+      name: 'fs',
+      tools: [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
+      callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] }),
+      close: vi.fn().mockResolvedValue(undefined),
+    })
+
+    // Enable scheduler: provide a non-null config and update the mock module's socketPath/authToken.
+    // (vi.mock replaces the module with a plain object; property assignments on the namespace
+    // object propagate to the consuming module's named import bindings in Vitest's mock system.)
+    const { getSchedulerMcpConfig } = await import('./schedulerBridge')
+    vi.mocked(getSchedulerMcpConfig).mockReturnValue({ name: 'scheduler' } as unknown as ReturnType<typeof getSchedulerMcpConfig>)
+    ;(await import('./schedulerBridge') as Record<string, unknown>).socketPath = '/tmp/sched.sock'
+    ;(await import('./schedulerBridge') as Record<string, unknown>).authToken = 'test-token'
+
+    // canUseTool denies everything — if scheduler were gated, it would be denied before execute
+    vi.mocked(createCanUseTool).mockImplementation((_deps: unknown) => {
+      const spy = vi.fn().mockResolvedValue({ behavior: 'deny', message: 'denied by test' })
+      ;(globalThis as Record<string, unknown>).__lastCanUseToolSpy = spy
+      return spy
+    })
+
+    await streamMessagePI(
+      [{ role: 'user', content: 'Hello' }],
+      undefined,
+      { cwd: '/tmp/test', permissionMode: 'default', mcpServers: { fs: { command: 'fs-server', args: [] } } },
+      1,
+    )
+
+    const callArgs = mockCreateAgentSession.mock.calls[0][0] as { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> }
+    const scheduler = callArgs.customTools.find((t) => t.name === 'agent_scheduler')
+    expect(scheduler).toBeDefined()
+
+    // Invoke the scheduler's execute directly — the gate wraps execute with a canUseTool check
+    // BEFORE calling through (deny returns early before the original execute is ever called).
+    // If not gated, execute runs and fails on the socket connection (no real bridge running).
+    // Either way, canUseTool must NOT have been consulted for scheduler.execute.
+    await expect(scheduler!.execute('call-1', { conversation_id: 1, command: 'list' }, undefined, undefined, {} as never))
+      .rejects.toThrow()
+
+    const canUseToolSpy = (globalThis as Record<string, unknown>).__lastCanUseToolSpy as ReturnType<typeof vi.fn>
+    expect(canUseToolSpy).not.toHaveBeenCalled()
   })
 })

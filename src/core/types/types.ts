@@ -123,10 +123,6 @@ export interface McpServerConfig {
   headers?: Record<string, string>
 }
 
-export type McpServerSDKConfig =
-  | { command: string; args: string[]; env?: Record<string, string> }
-  | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }
-
 export interface McpTestResult {
   success: boolean
   output: string

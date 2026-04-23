@@ -59,12 +59,6 @@ let _streamMessagePI: StreamMessagePIFn | null = null
 /** Inject PI backend streaming implementation. */
 export function setPIBackend(fn: StreamMessagePIFn): void { _streamMessagePI = fn }
 
-type SyncPiMcpFn = (servers: AISettings['mcpServers'], cwd?: string) => Promise<void>
-let _syncPiMcpForProject: SyncPiMcpFn | null = null
-
-/** Inject PI MCP sync function. */
-export function setPiMcpSync(fn: SyncPiMcpFn): void { _syncPiMcpForProject = fn }
-
 type EnsureFreshTokenFn = () => Promise<void>
 let _ensureFreshMacOSToken: EnsureFreshTokenFn | null = null
 
@@ -89,8 +83,10 @@ export function getConversationOverridesWriter(): UpdateConversationOverridesFn 
 // Exported for use by alternative backend implementations (e.g. streamingPI)
 export const abortControllers = new Map<number, AbortController>()
 
-// Deferred promise map for tool approval / ask-user responses from the renderer
-const pendingRequests = new Map<string, { resolve: (value: unknown) => void; conversationId: string | number | null }>()
+// Deferred promise map for tool approval / ask-user responses from the renderer.
+// Exported for use by alternative backend implementations (e.g. streamingPI) so that
+// respondToApproval() can resolve approvals regardless of which backend issued the request.
+export const pendingRequests = new Map<string, { resolve: (value: unknown) => void; conversationId: string | number | null }>()
 
 export function respondToApproval(requestId: string, response: ToolApprovalResponse | AskUserResponse): void {
   const pending = pendingRequests.get(requestId)
@@ -148,6 +144,10 @@ export function buildPromptWithHistory(messages: MessageParam[]): string {
   return `<conversation_history>\n${historyParts.join('\n')}\n</conversation_history>\n\n${prompt}`
 }
 
+export type McpServerConfig =
+  | { command: string; args: string[]; env?: Record<string, string> }
+  | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }
+
 export interface AISettings {
   sdkBackend?: string
   model?: string
@@ -158,7 +158,7 @@ export interface AISettings {
   tools?: { type: 'preset'; preset: string } | string[]
   permissionMode?: string
   requirePlanApproval?: boolean
-  mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> } | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }>
+  mcpServers?: Record<string, McpServerConfig>
   cwdRestrictionEnabled?: boolean
   cwdWhitelist?: CwdWhitelistEntry[]
   sharedHooks?: boolean
@@ -265,14 +265,11 @@ export async function streamMessage(
   sdkSessionId?: string | null,
   persistSession?: boolean
 ): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string; stopReason?: string; usage?: TurnUsage }> {
-  // PI backend: sync MCP config then delegate
+  // PI backend
   if (aiSettings?.sdkBackend === 'pi') {
     if (!_streamMessagePI) {
       return { content: '', toolCalls: [], aborted: false, sessionId: null, error: 'PI backend not configured' }
     }
-    const convCwd = aiSettings.cwd
-    const isProjectCwd = convCwd && !convCwd.includes('/sessions-folder/')
-    await _syncPiMcpForProject?.(aiSettings.mcpServers, isProjectCwd ? convCwd : undefined)
     return _streamMessagePI(messages, systemPrompt, aiSettings, conversationId)
   }
 

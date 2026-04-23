@@ -1,7 +1,6 @@
 import type { IpcMain } from 'electron'
 import type Database from 'better-sqlite3'
 import { McpService } from '../../core/services/mcp'
-import { syncPiMcpGlobal } from './piMcpSync'
 
 export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void {
   const service = new McpService(db)
@@ -12,22 +11,22 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
   })
 
   ipcMain.handle('mcp:addServer', async (_e, config) => {
-    try { const result = service.addServer(config); syncPiMcpGlobal(db); return result }
+    try { return service.addServer(config) }
     catch (err) { throw new Error(`Failed to add MCP server: ${(err as Error).message}`) }
   })
 
   ipcMain.handle('mcp:updateServer', async (_e, id: number, config) => {
-    try { service.updateServer(id, config); syncPiMcpGlobal(db) }
+    try { service.updateServer(id, config) }
     catch (err) { throw new Error(`Failed to update MCP server: ${(err as Error).message}`) }
   })
 
   ipcMain.handle('mcp:removeServer', async (_e, id: number) => {
-    try { service.removeServer(id); syncPiMcpGlobal(db) }
+    try { service.removeServer(id) }
     catch (err) { throw new Error(`Failed to remove MCP server: ${(err as Error).message}`) }
   })
 
   ipcMain.handle('mcp:toggleServer', async (_e, id: number) => {
-    try { service.toggleServer(id); syncPiMcpGlobal(db) }
+    try { service.toggleServer(id) }
     catch (err) { throw new Error(`Failed to toggle MCP server: ${(err as Error).message}`) }
   })
 

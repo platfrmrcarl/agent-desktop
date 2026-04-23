@@ -1,5 +1,9 @@
 import { sendChunk, buildPromptWithHistory, abortControllers } from './streaming'
-import { sendChunk as coreSendChunk } from '../../core/services/streaming'
+import { sendChunk as coreSendChunk, pendingRequests } from '../../core/services/streaming'
+import { gatePiTools } from './piPermissionGate'
+import { createCanUseTool } from '../../core/services/canUseTool'
+import { createMcpClient, McpConnectError, type McpClientHandle } from './mcpClient'
+import { mcpServerToPiTools } from './mcpToPiTools'
 import { loadPISdk } from './piSdk'
 import { PiUIContext } from './piUIContext'
 import { registerPiUIContext, unregisterPiUIContext } from './piExtensions'
@@ -15,6 +19,7 @@ import type { ToolCall } from '../../shared/types'
 import type { AgentToolResult } from '@mariozechner/pi-agent-core'
 import { createBridge, type ExtensionRuntimeContext } from '../../core/services/piExtensionBridge'
 import parityFactory from '../../extensions/agent-desktop-parity'
+import type { ToolDefinition } from '@mariozechner/pi-coding-agent'
 
 // Tool parameters schema for scheduler tool
 const SchedulerToolParams = /* #__PURE__ */ (() =>
@@ -126,7 +131,7 @@ async function executeSchedulerCommand(
 }
 
 // Create PI tool definition for scheduler
-function createSchedulerTool(): pi.ToolDefinition {
+function createSchedulerTool(): ToolDefinition {
   return {
     name: 'agent_scheduler',
     label: 'Agent Scheduler',
@@ -278,6 +283,8 @@ export async function streamMessagePI(
   const abortController = new AbortController()
   abortControllers.set(convKey, abortController)
 
+  const mcpHandles: McpClientHandle[] = []
+
   try {
     sendChunk('text', '', convExtra)
 
@@ -316,7 +323,7 @@ export async function streamMessagePI(
     await resourceLoader.reload()
 
     // Build custom tools array (scheduler tool for PI backend)
-    const customTools: pi.ToolDefinition[] = []
+    const customTools: ToolDefinition[] = []
     const schedulerConfig = getSchedulerMcpConfig(convKey)
     if (schedulerConfig) {
       // Only add scheduler if socket bridge is available
@@ -324,6 +331,55 @@ export async function streamMessagePI(
         customTools.push(createSchedulerTool())
       }
     }
+
+    // --- MCP native integration ---
+    const mcpServers = aiSettings?.mcpServers ?? {}
+    if (Object.keys(mcpServers).length > 0) {
+      const spawnResults = await Promise.allSettled(
+        Object.entries(mcpServers)
+          .filter(([name]) => !name.includes('__'))
+          .map(async ([name, config]) => ({ name, handle: await createMcpClient(name, config) }))
+      )
+      const mcpTools: import('@mariozechner/pi-coding-agent').ToolDefinition[] = []
+      for (const r of spawnResults) {
+        if (r.status === 'fulfilled') {
+          mcpHandles.push(r.value.handle)
+          mcpTools.push(...mcpServerToPiTools(r.value.handle))
+        } else {
+          const errMsg = r.reason instanceof McpConnectError
+            ? r.reason.message
+            : r.reason instanceof Error
+              ? r.reason.message
+              : String(r.reason)
+          sendChunk('system_message', errMsg, {
+            hookName: 'mcp',
+            hookEvent: 'spawn_failed',
+            ...convExtra,
+          })
+        }
+      }
+
+      // Gate only MCP tools — scheduler is a trusted internal customTool and must not go through canUseTool.
+      const resolvedPermissionMode = aiSettings?.permissionMode ?? 'bypassPermissions'
+      const bypass = resolvedPermissionMode === 'bypassPermissions'
+      const canUseTool = createCanUseTool({
+        aiSettings: {
+          requirePlanApproval: aiSettings?.requirePlanApproval,
+          disabledSkills: aiSettings?.disabledSkills,
+        },
+        permissionMode: resolvedPermissionMode,
+        chunkConversationId: conversationId ?? null,
+        pendingRequestsKey: convKey,
+        pendingRequests,
+        sendChunk: coreSendChunk,
+        // PI backend is event-based; no subprocess stream to suspend during approval
+        onApprovalStart: () => {},
+        onApprovalEnd: () => {},
+      })
+      const gatedMcpTools = gatePiTools(mcpTools, { canUseTool, bypass })
+      customTools.push(...gatedMcpTools)
+    }
+    // --- end MCP ---
 
     const { sessionManager, persistAfterCreate } = await resolveSessionManager(
       pi,
@@ -462,6 +518,8 @@ export async function streamMessagePI(
       sendChunk('error', errorMsg, convExtra)
     }
   } finally {
+    // Close all MCP clients regardless of how the stream ended
+    await Promise.allSettled(mcpHandles.map((h) => h.close()))
     // Only delete if this is still our controller
     if (abortControllers.get(convKey) === abortController) {
       abortControllers.delete(convKey)
