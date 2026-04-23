@@ -58,9 +58,20 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
   // (captured `mode` + sessionStore flag) drifted apart, so the
   // tool_call handler still denied writes even after setActiveTools
   // restored them. Now there's one source of truth: the computed `mode`.
-  if (mode === 'plan' && ctx.sessionStore?.get(PLAN_EXITED_KEY)) {
+  const planExitedFlag = ctx.sessionStore?.get(PLAN_EXITED_KEY)
+  if (mode === 'plan' && planExitedFlag) {
     mode = 'bypassPermissions'
   }
+
+  // DIAGNOSTIC — single emit per factory init showing the resolved mode
+  // and the raw inputs. Lets us see from the chat UI whether:
+  //   (a) sessionStore flag is persisted across turns (planExitedFlag)
+  //   (b) the flag is being read correctly (mode resolution)
+  //   (c) the short-circuit is taking effect (early return below)
+  ctx.bridge.emitSystemMessage(
+    `[diag] perm-modes init: rawMode=${JSON.stringify(modeRaw)}, planExited=${JSON.stringify(planExitedFlag)}, effective=${mode}, convId=${ctx.conversationId}`,
+    { hookName: 'permission-modes', hookEvent: 'SessionStart' },
+  )
 
   // bypassPermissions (either explicit setting OR post-exit plan):
   // no handler registered, no lockdown, PI default behavior preserved.
@@ -105,6 +116,11 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
         // resolution picks it up on subsequent turns to skip the plan
         // branch entirely.
         ctx.sessionStore?.set(PLAN_EXITED_KEY, true)
+        // DIAGNOSTIC — confirm write landed in the same Map instance.
+        ctx.bridge.emitSystemMessage(
+          `[diag] exit_plan_mode: set flag. sessionStore now has ${ctx.sessionStore?.size ?? '?'} keys, planExited=${JSON.stringify(ctx.sessionStore?.get(PLAN_EXITED_KEY))}`,
+          { hookName: 'permission-modes', hookEvent: 'PostToolUse' },
+        )
         // Best-effort mid-turn refresh. PI may cache the tool list per
         // LLM call, so this might not take effect until the next turn —
         // we tell the agent explicitly to STOP and wait for the user
