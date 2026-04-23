@@ -89,8 +89,10 @@ export function getConversationOverridesWriter(): UpdateConversationOverridesFn 
 // Exported for use by alternative backend implementations (e.g. streamingPI)
 export const abortControllers = new Map<number, AbortController>()
 
-// Deferred promise map for tool approval / ask-user responses from the renderer
-const pendingRequests = new Map<string, { resolve: (value: unknown) => void; conversationId: string | number | null }>()
+// Deferred promise map for tool approval / ask-user responses from the renderer.
+// Exported for use by alternative backend implementations (e.g. streamingPI) so that
+// respondToApproval() can resolve approvals regardless of which backend issued the request.
+export const pendingRequests = new Map<string, { resolve: (value: unknown) => void; conversationId: string | number | null }>()
 
 export function respondToApproval(requestId: string, response: ToolApprovalResponse | AskUserResponse): void {
   const pending = pendingRequests.get(requestId)

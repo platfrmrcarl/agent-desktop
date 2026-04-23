@@ -1,5 +1,7 @@
 import { sendChunk, buildPromptWithHistory, abortControllers } from './streaming'
-import { sendChunk as coreSendChunk } from '../../core/services/streaming'
+import { sendChunk as coreSendChunk, pendingRequests } from '../../core/services/streaming'
+import { gatePiTools } from './piPermissionGate'
+import { createCanUseTool } from '../../core/services/canUseTool'
 import { createMcpClient, McpConnectError, type McpClientHandle } from './mcpClient'
 import { mcpServerToPiTools } from './mcpToPiTools'
 import { loadPISdk } from './piSdk'
@@ -338,10 +340,11 @@ export async function streamMessagePI(
           .filter(([name]) => !name.includes('__'))
           .map(async ([name, config]) => ({ name, handle: await createMcpClient(name, config) }))
       )
+      const mcpTools: import('@mariozechner/pi-coding-agent').ToolDefinition[] = []
       for (const r of spawnResults) {
         if (r.status === 'fulfilled') {
           mcpHandles.push(r.value.handle)
-          customTools.push(...mcpServerToPiTools(r.value.handle))
+          mcpTools.push(...mcpServerToPiTools(r.value.handle))
         } else {
           const errMsg = r.reason instanceof McpConnectError
             ? r.reason.message
@@ -355,6 +358,26 @@ export async function streamMessagePI(
           })
         }
       }
+
+      // Gate MCP tools with the approval flow (mirrors Claude SDK canUseTool).
+      // Scheduler is NOT gated — it is a trusted internal tool added before this block.
+      const bypass = aiSettings?.permissionMode === 'bypassPermissions'
+      let pendingApprovalCount = 0
+      const canUseTool = createCanUseTool({
+        aiSettings: {
+          requirePlanApproval: aiSettings?.requirePlanApproval,
+          disabledSkills: aiSettings?.disabledSkills,
+        },
+        permissionMode: aiSettings?.permissionMode ?? 'bypassPermissions',
+        chunkConversationId: conversationId ?? null,
+        pendingRequestsKey: convKey,
+        pendingRequests,
+        sendChunk: coreSendChunk,
+        onApprovalStart: () => { pendingApprovalCount++ },
+        onApprovalEnd: () => { pendingApprovalCount-- },
+      })
+      const gatedMcpTools = gatePiTools(mcpTools, { canUseTool, bypass })
+      customTools.push(...gatedMcpTools)
     }
     // --- end MCP ---
 
