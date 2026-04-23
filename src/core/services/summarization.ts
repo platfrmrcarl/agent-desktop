@@ -34,6 +34,11 @@ export async function summarizeWithModel(
 
 async function summarizeClaude(prompt: string, model: string, _opts: SummarizeOptions): Promise<string> {
   const sdk = await loadAgentSDK()
+  // Force the Claude Code CLI binary from PATH — see streaming.ts for
+  // the musl-vs-glibc rationale.
+  const { findBinaryInPath } = await import('../utils/env')
+  const claudeExecutable = findBinaryInPath('claude')
+
   let text = ''
   const agentQuery = sdk.query({
     prompt,
@@ -44,6 +49,7 @@ async function summarizeClaude(prompt: string, model: string, _opts: SummarizeOp
       permissionMode: 'bypassPermissions',
       tools: [],
       persistSession: false,
+      ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
     },
   })
   for await (const message of agentQuery) {

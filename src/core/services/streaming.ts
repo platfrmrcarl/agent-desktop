@@ -347,6 +347,12 @@ async function streamMessageOneShot(
     // Resolve node executable explicitly so the SDK can spawn cli.js even when
     // the app is launched from Finder/Dock (minimal PATH, no shell init scripts).
     const nodeExecutable = findBinaryInPath('node') ?? 'node'
+    // Force the Claude Code CLI binary from PATH. Without this, the SDK's
+    // bundled platform detection may pick the musl native variant on glibc
+    // systems (`claude-agent-sdk-linux-x64-musl/claude`) and fail with
+    // "Claude Code native binary not found". System claude (via `claude login`)
+    // is the canonical install path on Linux.
+    const claudeExecutable = findBinaryInPath('claude')
 
     const queryOptions: Record<string, unknown> = {
       model: aiSettings?.model || undefined,
@@ -359,6 +365,7 @@ async function streamMessageOneShot(
       permissionMode: permMode,
       abortController,
       executable: nodeExecutable,
+      ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
       ...(persistSession === false ? { persistSession: false } : {}),
     }
 

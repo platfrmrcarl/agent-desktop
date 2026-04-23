@@ -651,6 +651,10 @@ async function createSession(
     : 'bypassPermissions'
 
   const nodeExecutable = findBinaryInPath('node') ?? 'node'
+  // Force the Claude Code CLI binary from PATH (see streaming.ts for rationale):
+  // the SDK's bundled platform detection picks the broken musl variant on
+  // glibc systems when native optional-deps are installed in node_modules.
+  const claudeExecutable = findBinaryInPath('claude')
 
   const queryOptions: Record<string, unknown> = {
     model: aiSettings?.model || undefined,
@@ -662,6 +666,7 @@ async function createSession(
     includePartialMessages: true,
     permissionMode: permMode,
     executable: nodeExecutable,
+    ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
   }
 
   // Resume existing SDK session when available
