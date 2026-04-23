@@ -11,6 +11,7 @@ import type { AISettings } from './streaming'
 import type { ToolCall } from '../../shared/types'
 import type { AgentToolResult } from '@mariozechner/pi-agent-core'
 import { createBridge, type ExtensionRuntimeContext } from '../../core/services/piExtensionBridge'
+import { registerPendingApproval } from '../../core/services/streaming'
 import parityFactory from '../../extensions/agent-desktop-parity'
 
 // Tool parameters schema for scheduler tool
@@ -228,7 +229,10 @@ export async function streamMessagePI(
     // Runtime context handed to the bundled parity extension via extensionFactories closure.
     // The factory is statically imported above so electron-vite bundles it into out/main/;
     // no runtime file load, no dev/packaged path branching, no dependency on `app`.
-    const extensionBridge = createBridge(conversationId ?? -1, { chunkSender: coreSendChunk })
+    const extensionBridge = createBridge(conversationId ?? -1, {
+      chunkSender: coreSendChunk,
+      registerPending: registerPendingApproval,
+    })
     const runtimeCtx: ExtensionRuntimeContext = {
       version: 1,
       conversationId: conversationId ?? -1,

@@ -65,41 +65,44 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
     onLifecycle<unknown>('before_agent_start')
     onLifecycle<unknown>('session_start')
 
-    const requireApproval = ctx.aiSettings.requirePlanApproval !== false
-
     pi.registerTool({
       name: 'exit_plan_mode',
       label: 'Exit Plan Mode',
-      description: 'Exit plan-only mode and allow mutating tools (write, edit, bash). Call this when the user approves the plan and wants changes to be applied.',
-      parameters: Type.Object({}),
-      execute: async (_toolCallId, _params, _signal, _onUpdate, extCtx) => {
-        if (requireApproval) {
-          const ui = (extCtx as { ui: { confirm: (title: string, message: string) => Promise<boolean> } }).ui
-          const ok = await ui.confirm('Exit Plan Mode?', 'Agent will start making changes to the workspace.')
-          if (!ok) {
-            return { content: [{ type: 'text', text: 'Plan-mode exit denied by user. Staying in plan-only mode.' }] }
+      description: 'Signal that your plan is ready for the user to review. Provide the plan text as the `plan` parameter in markdown. The user will approve (unlocking mutating tools from the next message) or reject with feedback so you can revise.',
+      parameters: Type.Object({
+        plan: Type.String({ description: 'The proposed plan in markdown format.' }),
+      }),
+      execute: async (_toolCallId, params, _signal, _onUpdate, _extCtx) => {
+        const plan = (params as { plan?: string }).plan ?? ''
+        // Emits a tool_approval chunk with toolName='ExitPlanMode' that the
+        // existing renderer ToolApprovalBlock component special-cases —
+        // renders the plan as markdown, offers Approve / Reject buttons,
+        // and captures a rejection-feedback textarea. Blocks until the
+        // user responds via respondToApproval IPC.
+        const result = await ctx.bridge.requestPlanApproval(plan)
+        if (result.approved) {
+          // Persist the flip to ai_overrides — cascade delivers
+          // bypassPermissions on next turn, factory early-returns, mutating
+          // tools intact in the default codingTools set. Status bar updates
+          // immediately via notifyConversationUpdated.
+          ctx.bridge.updateConversationSetting('ai_permissionMode', 'bypassPermissions')
+          return {
+            content: [{
+              type: 'text',
+              text:
+                'Plan approved. The user has unlocked mutating tools. ' +
+                'Mutating tools (write, edit, bash) will be available from the user\'s next message — ' +
+                'briefly acknowledge the approval and wait for the user to send the next instruction.',
+            }],
           }
         }
-        // Persist the mode flip back to the conversation's ai_overrides.
-        // The cascade delivers `permissionMode='bypassPermissions'` on the
-        // next turn → factory early-returns → no handlers, no lockdown,
-        // LLM sees the full default tool set. The status-bar badge also
-        // refreshes immediately via the conversationUpdated broadcast.
-        ctx.bridge.updateConversationSetting('ai_permissionMode', 'bypassPermissions')
-        // Best-effort mid-turn tool refresh (PI may cache tool list per
-        // API call, so the user is told to stop and wait regardless).
-        try { pi.setActiveTools(DEFAULT_TOOLS) } catch { /* best-effort */ }
-        ctx.bridge.emitSystemMessage(
-          'Plan mode exited — mutating tools will be available on the next turn.',
-          { hookName: 'permission-modes', hookEvent: 'PostToolUse' },
-        )
+        const feedback = result.rejectReason && result.rejectReason.trim().length > 0
+          ? result.rejectReason
+          : '(no specific feedback provided)'
         return {
           content: [{
             type: 'text',
-            text:
-              'Plan-mode exit approved by the user. STOP your current reasoning and do NOT attempt further tool calls in this turn. ' +
-              'Mutating tools (write, edit, bash) will be fully available starting with the USER\'S NEXT MESSAGE. ' +
-              'Briefly acknowledge the approval and wait.',
+            text: `Plan rejected by user. Feedback:\n\n${feedback}\n\nRevise the plan accordingly, then call exit_plan_mode again when ready.`,
           }],
         }
       },

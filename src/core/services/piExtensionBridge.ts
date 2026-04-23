@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import type { AISettings } from './streaming'
 import { getConversationOverridesWriter } from './streaming'
+import type { ToolApprovalResponse } from '../types'
 
 // `better-sqlite3` is imported only as a TYPE — avoids a runtime dep surface
 // in the renderer bundle. Actual DB interactions happen in main-process code.
@@ -56,17 +58,33 @@ export interface PiExtensionBridge {
    * existing entries. Cascade resolution on the next turn picks up
    * the new value. Also triggers a `conversationUpdated` broadcast so
    * the renderer's store refreshes the status bar.
-   *
-   * Used by permission-modes' exit_plan_mode to flip
-   * `ai_permissionMode` to `'bypassPermissions'` without relying on a
-   * sessionStore flag.
    */
   updateConversationSetting(key: string, value: string): void
+
+  /**
+   * Blocks the caller until the user approves or rejects the plan.
+   * Emits a `tool_approval` stream chunk with `toolName: 'ExitPlanMode'`
+   * and `toolInput.plan` set to the provided markdown. The renderer's
+   * existing `ToolApprovalBlock` component already special-cases this
+   * tool name to render the plan as markdown and offer Approve / Reject
+   * buttons (with an optional rejection-feedback textarea).
+   *
+   * Resolves with `{ approved: true }` on allow, or
+   * `{ approved: false, rejectReason }` on deny.
+   */
+  requestPlanApproval(plan: string): Promise<{ approved: boolean; rejectReason?: string }>
 }
 
 export interface BridgeDeps {
   /** Injected at construction; same signature as `core/streaming.ts#sendChunk`. */
   chunkSender: (type: string, content?: string, extra?: Record<string, unknown>) => void
+  /**
+   * Registers a pending approval/ask-user entry keyed by requestId.
+   * When the renderer responds via `respondToApproval`, the resolver
+   * is invoked with the user's response. Optional — bridges used in
+   * non-streaming contexts (tests) can omit this.
+   */
+  registerPending?: (requestId: string, resolve: (value: unknown) => void, conversationId: number) => void
 }
 
 export function createBridge(conversationId: number, deps: BridgeDeps): PiExtensionBridge {
@@ -115,6 +133,31 @@ export function createBridge(conversationId: number, deps: BridgeDeps): PiExtens
         return
       }
       writer(conversationId, { [key]: value })
+    },
+
+    requestPlanApproval(plan) {
+      if (!deps.registerPending) {
+        // No registerPending injection — cannot wire the renderer response.
+        // Fail-safe: return rejected so the caller treats it as "no approval".
+        return Promise.resolve({ approved: false, rejectReason: 'Approval infrastructure unavailable' })
+      }
+      const requestId = randomUUID()
+      return new Promise<{ approved: boolean; rejectReason?: string }>((resolve) => {
+        deps.registerPending!(requestId, (response) => {
+          const resp = response as ToolApprovalResponse
+          if (resp.behavior === 'allow') {
+            resolve({ approved: true })
+          } else {
+            resolve({ approved: false, rejectReason: resp.message })
+          }
+        }, conversationId)
+        deps.chunkSender('tool_approval', undefined, {
+          conversationId,
+          requestId,
+          toolName: 'ExitPlanMode',
+          toolInput: JSON.stringify({ plan }),
+        })
+      })
     },
   }
 }
