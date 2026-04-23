@@ -359,10 +359,8 @@ export async function streamMessagePI(
         }
       }
 
-      // Gate MCP tools with the approval flow (mirrors Claude SDK canUseTool).
-      // Scheduler is NOT gated — it is a trusted internal tool added before this block.
+      // Gate only MCP tools — scheduler is a trusted internal customTool and must not go through canUseTool.
       const bypass = aiSettings?.permissionMode === 'bypassPermissions'
-      let pendingApprovalCount = 0
       const canUseTool = createCanUseTool({
         aiSettings: {
           requirePlanApproval: aiSettings?.requirePlanApproval,
@@ -373,8 +371,8 @@ export async function streamMessagePI(
         pendingRequestsKey: convKey,
         pendingRequests,
         sendChunk: coreSendChunk,
-        onApprovalStart: () => { pendingApprovalCount++ },
-        onApprovalEnd: () => { pendingApprovalCount-- },
+        onApprovalStart: () => {},
+        onApprovalEnd: () => {},
       })
       const gatedMcpTools = gatePiTools(mcpTools, { canUseTool, bypass })
       customTools.push(...gatedMcpTools)

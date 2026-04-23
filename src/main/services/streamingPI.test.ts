@@ -931,6 +931,12 @@ describe('streamMessagePI — permission gate', () => {
 
     const { createMcpClient } = await import('./mcpClient')
     vi.mocked(createMcpClient).mockReset()
+
+    // Reset scheduler mock module properties to safe defaults
+    const schedMock = await import('./schedulerBridge') as Record<string, unknown>
+    schedMock.socketPath = null
+    schedMock.authToken = null
+    vi.mocked((await import('./schedulerBridge')).getSchedulerMcpConfig).mockReturnValue(null)
   })
 
   it('gates MCP tools with canUseTool when permissionMode is not bypassPermissions', async () => {
@@ -1002,32 +1008,30 @@ describe('streamMessagePI — permission gate', () => {
     expect(mcpTool).toBeDefined()
 
     await mcpTool!.execute('tid', {}, undefined, undefined, undefined)
-    const canUseToolSpy = (globalThis as Record<string, unknown>).__lastCanUseToolSpy as ReturnType<typeof vi.fn> | undefined
+    const canUseToolSpy = (globalThis as Record<string, unknown>).__lastCanUseToolSpy as ReturnType<typeof vi.fn>
     // bypass: gatePiTools returns the original array — canUseTool is never invoked
-    if (canUseToolSpy) {
-      expect(canUseToolSpy).not.toHaveBeenCalled()
-    }
+    expect(canUseToolSpy).not.toHaveBeenCalled()
     expect(callToolSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('does not gate the scheduler tool (scheduler stays in customTools ungated)', async () => {
+  it('does not gate the scheduler tool (canUseTool not called when scheduler.execute runs)', async () => {
     const { createMcpClient } = await import('./mcpClient')
-    const callToolSpy = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
     vi.mocked(createMcpClient).mockResolvedValue({
       name: 'fs',
       tools: [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
-      callTool: callToolSpy,
+      callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] }),
       close: vi.fn().mockResolvedValue(undefined),
     })
 
-    // Enable scheduler by providing config + bridge socket
-    const { getSchedulerMcpConfig, socketPath: _sp, authToken: _at } = await import('./schedulerBridge')
+    // Enable scheduler: provide a non-null config and update the mock module's socketPath/authToken.
+    // (vi.mock replaces the module with a plain object; property assignments on the namespace
+    // object propagate to the consuming module's named import bindings in Vitest's mock system.)
+    const { getSchedulerMcpConfig } = await import('./schedulerBridge')
     vi.mocked(getSchedulerMcpConfig).mockReturnValue({ name: 'scheduler' } as unknown as ReturnType<typeof getSchedulerMcpConfig>)
-    // schedulerBridge module exports are primitives — cast socketPath/authToken via globalThis assignment:
     ;(await import('./schedulerBridge') as Record<string, unknown>).socketPath = '/tmp/sched.sock'
     ;(await import('./schedulerBridge') as Record<string, unknown>).authToken = 'test-token'
 
-    // canUseTool denies everything — if scheduler were gated, it would be denied
+    // canUseTool denies everything — if scheduler were gated, it would be denied before execute
     vi.mocked(createCanUseTool).mockImplementation((_deps: unknown) => {
       const spy = vi.fn().mockResolvedValue({ behavior: 'deny', message: 'denied by test' })
       ;(globalThis as Record<string, unknown>).__lastCanUseToolSpy = spy
@@ -1041,14 +1045,18 @@ describe('streamMessagePI — permission gate', () => {
       1,
     )
 
-    const callArgs = mockCreateAgentSession.mock.calls[0][0] as { customTools: Array<{ name: string }> }
-    // Scheduler tool must be in customTools
-    expect(callArgs.customTools.some((t) => t.name === 'agent_scheduler')).toBe(true)
-    // MCP tool is also present (was gated but still registered)
-    expect(callArgs.customTools.some((t) => t.name === 'mcp__fs__read')).toBe(true)
-    // scheduler and MCP are distinct entries — scheduler was added before the gate
-    const schedulerIdx = callArgs.customTools.findIndex((t) => t.name === 'agent_scheduler')
-    const mcpIdx = callArgs.customTools.findIndex((t) => t.name === 'mcp__fs__read')
-    expect(schedulerIdx).toBeLessThan(mcpIdx)
+    const callArgs = mockCreateAgentSession.mock.calls[0][0] as { customTools: Array<{ name: string; execute: (...args: unknown[]) => Promise<unknown> }> }
+    const scheduler = callArgs.customTools.find((t) => t.name === 'agent_scheduler')
+    expect(scheduler).toBeDefined()
+
+    // Invoke the scheduler's execute directly — the gate wraps execute with a canUseTool check
+    // BEFORE calling through (deny returns early before the original execute is ever called).
+    // If not gated, execute runs and fails on the socket connection (no real bridge running).
+    // Either way, canUseTool must NOT have been consulted for scheduler.execute.
+    await expect(scheduler!.execute('call-1', { conversation_id: 1, command: 'list' }, undefined, undefined, {} as never))
+      .rejects.toThrow()
+
+    const canUseToolSpy = (globalThis as Record<string, unknown>).__lastCanUseToolSpy as ReturnType<typeof vi.fn>
+    expect(canUseToolSpy).not.toHaveBeenCalled()
   })
 })
