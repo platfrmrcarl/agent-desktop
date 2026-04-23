@@ -148,6 +148,10 @@ export function buildPromptWithHistory(messages: MessageParam[]): string {
   return `<conversation_history>\n${historyParts.join('\n')}\n</conversation_history>\n\n${prompt}`
 }
 
+export type McpServerConfig =
+  | { command: string; args: string[]; env?: Record<string, string> }
+  | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }
+
 export interface AISettings {
   sdkBackend?: string
   model?: string
@@ -158,7 +162,7 @@ export interface AISettings {
   tools?: { type: 'preset'; preset: string } | string[]
   permissionMode?: string
   requirePlanApproval?: boolean
-  mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> } | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }>
+  mcpServers?: Record<string, McpServerConfig>
   cwdRestrictionEnabled?: boolean
   cwdWhitelist?: CwdWhitelistEntry[]
   sharedHooks?: boolean

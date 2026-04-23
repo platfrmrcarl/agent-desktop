@@ -108,8 +108,9 @@ describe('createMcpClient — sse', () => {
       headers: { 'X-Key': '123' },
     })
     expect(mockSseCtor).toHaveBeenCalledTimes(1)
-    const [urlArg] = mockSseCtor.mock.calls[0]
+    const [urlArg, optsArg] = mockSseCtor.mock.calls[0]
     expect(urlArg.toString()).toBe('https://example.com/sse')
+    expect(optsArg).toMatchObject({ requestInit: { headers: { 'X-Key': '123' } } })
   })
 })
 
@@ -118,6 +119,12 @@ describe('createMcpClient — error handling', () => {
     mockConnect.mockRejectedValueOnce(new Error('spawn failed'))
     await expect(createMcpClient('broken', { command: 'nope', args: [] }))
       .rejects.toMatchObject({ name: 'McpConnectError', serverName: 'broken' })
+  })
+
+  it('wraps listTools failure in McpConnectError', async () => {
+    mockListTools.mockRejectedValueOnce(new Error('enumeration failed'))
+    await expect(createMcpClient('enum-broken', { command: 'x', args: [] }))
+      .rejects.toMatchObject({ name: 'McpConnectError', serverName: 'enum-broken' })
   })
 })
 

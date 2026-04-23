@@ -2,6 +2,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
+import type { McpServerConfig } from '../../core/services/streaming'
+export type { McpServerConfig }
 
 export interface McpToolSpec {
   name: string
@@ -16,18 +18,13 @@ export interface McpClientHandle {
   close(): Promise<void>
 }
 
-export type McpServerConfig =
-  | { command: string; args: string[]; env?: Record<string, string> }
-  | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }
-
 export class McpConnectError extends Error {
   readonly serverName: string
-  readonly cause: unknown
   constructor(serverName: string, cause: unknown) {
-    super(`MCP server '${serverName}' failed to connect: ${String((cause as Error)?.message ?? cause)}`)
+    const causeMessage = cause instanceof Error ? cause.message : String(cause)
+    super(`MCP server '${serverName}' failed to connect: ${causeMessage}`, { cause })
     this.name = 'McpConnectError'
     this.serverName = serverName
-    this.cause = cause
   }
 }
 
@@ -52,13 +49,14 @@ export async function createMcpClient(
 ): Promise<McpClientHandle> {
   const client = new Client({ name: 'agent-desktop', version: '0.1.0' }, { capabilities: {} })
   const transport = buildTransport(config)
+  let toolList: Awaited<ReturnType<typeof client.listTools>>
   try {
     await client.connect(transport)
+    toolList = await client.listTools()
   } catch (err) {
     throw new McpConnectError(name, err)
   }
-  const { tools } = await client.listTools()
-  const specs: McpToolSpec[] = tools.map((t) => ({
+  const specs: McpToolSpec[] = toolList.tools.map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
