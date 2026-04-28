@@ -117,8 +117,10 @@ export async function executeTask(
 
     if (error) throw new Error(error)
 
-    if (content) {
-      // Check conversation still exists (may have been deleted during streaming)
+    // Persist when there is text OR tool activity. On the PI path the agent
+    // commonly answers via tool calls only (no narration), and dropping those
+    // erases the only on-disk trace of what the run actually did.
+    if (content || toolCalls?.length) {
       if (scheduler.conversationExists(task.conversation_id)) {
         ctx.saveMessage(task.conversation_id, 'assistant', content, [], toolCalls)
       }

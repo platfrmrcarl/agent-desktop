@@ -153,9 +153,9 @@ describe('executeTask', () => {
     expect(scheduler.markSuccess).toHaveBeenCalledWith(1, task)
   })
 
-  it('no content: when streamMessage returns empty content, does not save assistant message', async () => {
+  it('no content and no toolCalls: does not save assistant message', async () => {
     const task = makeTask()
-    ctx.streamMessage.mockResolvedValue(makeStreamResult({ content: '' }))
+    ctx.streamMessage.mockResolvedValue(makeStreamResult({ content: '', toolCalls: [] }))
     scheduler.get.mockReturnValue(task)
 
     await executeTask(scheduler as unknown as SchedulerService, ctx, task)
@@ -163,6 +163,23 @@ describe('executeTask', () => {
     // User message saved, but no assistant message
     expect(ctx.saveMessage).toHaveBeenCalledTimes(1)
     expect(ctx.saveMessage).toHaveBeenCalledWith(10, 'user', 'Do something')
+    expect(scheduler.markSuccess).toHaveBeenCalled()
+  })
+
+  it('no content but toolCalls present: saves assistant message so the trace is preserved (PI tool-only path)', async () => {
+    const task = makeTask()
+    const toolCalls = [
+      { id: 'fc-1', name: 'bash', input: '{"command":"curl ..."}', output: 'HTTP 204', status: 'done' as const },
+    ]
+    ctx.streamMessage.mockResolvedValue(makeStreamResult({ content: '', toolCalls }))
+    scheduler.get.mockReturnValue(task)
+
+    await executeTask(scheduler as unknown as SchedulerService, ctx, task)
+
+    // Both user and assistant messages saved; assistant has empty content but carries toolCalls
+    expect(ctx.saveMessage).toHaveBeenCalledTimes(2)
+    expect(ctx.saveMessage).toHaveBeenNthCalledWith(1, 10, 'user', 'Do something')
+    expect(ctx.saveMessage).toHaveBeenNthCalledWith(2, 10, 'assistant', '', [], toolCalls)
     expect(scheduler.markSuccess).toHaveBeenCalled()
   })
 
