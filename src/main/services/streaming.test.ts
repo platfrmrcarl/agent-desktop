@@ -16,7 +16,7 @@ vi.mock('../../core/services/anthropic', () => ({
 }))
 
 const mockStreamMessagePI = vi.fn()
-vi.mock('./streamingPI', () => ({
+vi.mock('../../core/services/streamingPI', () => ({
   streamMessagePI: (...args: unknown[]) => mockStreamMessagePI(...args),
 }))
 

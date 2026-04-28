@@ -59,6 +59,32 @@ let _streamMessagePI: StreamMessagePIFn | null = null
 /** Inject PI backend streaming implementation. */
 export function setPIBackend(fn: StreamMessagePIFn): void { _streamMessagePI = fn }
 
+// ─── PI UI window provider injection ─────────────────
+// streamingPI binds an Electron BrowserWindow to PiUIContext so extensions can
+// send IPC events to the renderer. Headless wires this to a no-op.
+type PIUIWindowLike = {
+  webContents: { send: (channel: string, data: unknown) => void }
+  isDestroyed: () => boolean
+}
+type PIUIWindowProviderFn = () => PIUIWindowLike | null
+let _piUIWindowProvider: PIUIWindowProviderFn | null = null
+/** Inject the PI UI window provider. Called by the adapter (Electron sets it to getMainWindow). */
+export function setPIUIWindowProvider(fn: PIUIWindowProviderFn): void { _piUIWindowProvider = fn }
+export function getPIUIWindowProvider(): PIUIWindowProviderFn | null { return _piUIWindowProvider }
+
+// ─── PI scheduler bridge injection ───────────────────
+// streamingPI exposes a custom `agent_scheduler` PI tool when a scheduler bridge
+// socket is available. Electron registers the in-process scheduler bridge here;
+// headless leaves it null (or registers its own taskRunner-backed bridge).
+export interface PISchedulerBridgeAccessor {
+  getMcpConfig: (conversationId: number) => unknown | null
+  getSocketPath: () => string | null
+  getAuthToken: () => string | null
+}
+let _piSchedulerBridge: PISchedulerBridgeAccessor | null = null
+export function setPISchedulerBridge(bridge: PISchedulerBridgeAccessor | null): void { _piSchedulerBridge = bridge }
+export function getPISchedulerBridge(): PISchedulerBridgeAccessor | null { return _piSchedulerBridge }
+
 type EnsureFreshTokenFn = () => Promise<void>
 let _ensureFreshMacOSToken: EnsureFreshTokenFn | null = null
 

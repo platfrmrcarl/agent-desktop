@@ -1,23 +1,27 @@
-import { sendChunk, buildPromptWithHistory, abortControllers } from './streaming'
-import { sendChunk as coreSendChunk, pendingRequests } from '../../core/services/streaming'
+import {
+  sendChunk,
+  buildPromptWithHistory,
+  abortControllers,
+  pendingRequests,
+  getPIUIWindowProvider,
+  getPISchedulerBridge,
+} from './streaming'
 import { gatePiTools } from './piPermissionGate'
-import { createCanUseTool } from '../../core/services/canUseTool'
+import { createCanUseTool } from './canUseTool'
 import { createMcpClient, McpConnectError, type McpClientHandle } from './mcpClient'
 import { mcpServerToPiTools } from './mcpToPiTools'
-import { loadPISdk } from './piSdk'
+import { loadPISdk } from '../../main/services/piSdk'
 import { PiUIContext } from './piUIContext'
-import { registerPiUIContext, unregisterPiUIContext } from './piExtensions'
-import { getMainWindow } from '../index'
-import { getSchedulerMcpConfig, socketPath as schedSocketPath, authToken as schedAuthToken } from './schedulerBridge'
+import { registerPiUIContext, unregisterPiUIContext } from './piUIRegistry'
 import { existsSync } from 'node:fs'
-import { getConversationPiSessionFile, setConversationPiSessionFile } from './messages'
-import { getDatabase } from '../../core/db/database'
+import { getConversationPiSessionFile, setConversationPiSessionFile } from '../handlers/messages'
+import { getDatabase } from '../db/database'
 import { Type } from '@sinclair/typebox'
 import type { Static, TSchema } from '@sinclair/typebox'
 import type { AISettings } from './streaming'
 import type { ToolCall } from '../../shared/types'
 import type { AgentToolResult } from '@mariozechner/pi-agent-core'
-import { createBridge, type ExtensionRuntimeContext } from '../../core/services/piExtensionBridge'
+import { createBridge, type ExtensionRuntimeContext } from './piExtensionBridge'
 import parityFactory from '../../extensions/agent-desktop-parity'
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent'
 
@@ -66,6 +70,9 @@ async function executeSchedulerCommand(
   command: string,
   params: Record<string, unknown>,
 ): Promise<unknown> {
+  const bridge = getPISchedulerBridge()
+  const schedSocketPath = bridge?.getSocketPath() ?? null
+  const schedAuthToken = bridge?.getAuthToken() ?? null
   if (!schedSocketPath || !schedAuthToken) {
     throw new Error('Scheduler bridge not started')
   }
@@ -296,7 +303,7 @@ export async function streamMessagePI(
     // Runtime context handed to the bundled parity extension via extensionFactories closure.
     // The factory is statically imported above so electron-vite bundles it into out/main/;
     // no runtime file load, no dev/packaged path branching, no dependency on `app`.
-    const extensionBridge = createBridge(conversationId ?? -1, { chunkSender: coreSendChunk })
+    const extensionBridge = createBridge(conversationId ?? -1, { chunkSender: sendChunk })
     const runtimeCtx: ExtensionRuntimeContext = {
       version: 1,
       conversationId: conversationId ?? -1,
@@ -324,10 +331,11 @@ export async function streamMessagePI(
 
     // Build custom tools array (scheduler tool for PI backend)
     const customTools: ToolDefinition[] = []
-    const schedulerConfig = getSchedulerMcpConfig(convKey)
+    const schedulerBridge = getPISchedulerBridge()
+    const schedulerConfig = schedulerBridge?.getMcpConfig(convKey) ?? null
     if (schedulerConfig) {
       // Only add scheduler if socket bridge is available
-      if (schedSocketPath && schedAuthToken) {
+      if (schedulerBridge?.getSocketPath() && schedulerBridge.getAuthToken()) {
         customTools.push(createSchedulerTool())
       }
     }
@@ -371,7 +379,7 @@ export async function streamMessagePI(
         chunkConversationId: conversationId ?? null,
         pendingRequestsKey: convKey,
         pendingRequests,
-        sendChunk: coreSendChunk,
+        sendChunk: sendChunk,
         // PI backend is event-based; no subprocess stream to suspend during approval
         onApprovalStart: () => {},
         onApprovalEnd: () => {},
@@ -397,9 +405,13 @@ export async function streamMessagePI(
     })
     persistAfterCreate()
 
-    // Create UI context and bind to session for extension UI support
+    // Create UI context and bind to session for extension UI support.
+    // Window provider is set by the Electron adapter; headless leaves it null
+    // and falls back to a no-op sink (extensions still run, UI events are dropped).
+    const winProvider = getPIUIWindowProvider()
+    const win = winProvider?.() ?? null
     const uiContext = new PiUIContext(
-      getMainWindow() || { webContents: { send: () => {} }, isDestroyed: () => true },
+      win ?? { webContents: { send: () => {} }, isDestroyed: () => true },
       convKey
     )
     registerPiUIContext(convKey, uiContext)

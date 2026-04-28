@@ -5,6 +5,14 @@ import type { PIExtensionInfo } from '../../shared/constants'
 import type { SlashCommand } from '../../shared/types'
 import type { PiUIResponse } from '../../shared/piUITypes'
 import { loadPISdk } from './piSdk'
+import {
+  registerPiUIContext,
+  unregisterPiUIContext,
+  getActivePiUIContexts,
+} from '../../core/services/piUIRegistry'
+
+// Re-export the registry surface so existing main-process callers keep working.
+export { registerPiUIContext, unregisterPiUIContext }
 
 /** Extension shape returned by DefaultResourceLoader.getExtensions() */
 interface PIExtension {
@@ -71,17 +79,6 @@ export async function discoverPIExtensionCommands(extensionsDir?: string): Promi
   return commands
 }
 
-// Registry of active PiUIContext instances (keyed by conversationId)
-const activeContexts = new Map<number, { handleResponse: (r: PiUIResponse) => void }>()
-
-export function registerPiUIContext(conversationId: number, ctx: { handleResponse: (r: PiUIResponse) => void }): void {
-  activeContexts.set(conversationId, ctx)
-}
-
-export function unregisterPiUIContext(conversationId: number): void {
-  activeContexts.delete(conversationId)
-}
-
 export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void {
   ipcMain.handle('pi:listExtensions', async () => {
     const row = db
@@ -92,14 +89,14 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
   })
 
   ipcMain.on('pi:uiResponse', (_event, response: PiUIResponse) => {
-    for (const ctx of activeContexts.values()) {
+    for (const ctx of getActivePiUIContexts()) {
       ctx.handleResponse(response)
     }
   })
 
   ipcMain.on('pi:tuiInput', (_event, payload: { id: string; data: string }) => {
-    for (const ctx of activeContexts.values()) {
-      (ctx as { handleTuiInput?: (id: string, data: string) => void }).handleTuiInput?.(payload.id, payload.data)
+    for (const ctx of getActivePiUIContexts()) {
+      ctx.handleTuiInput?.(payload.id, payload.data)
     }
   })
 }

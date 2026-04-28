@@ -17,6 +17,8 @@ import { homedir } from 'os'
 import { AgentEngine, noopHookRunner, noopPlatformIO, noopSystemUI } from '../core'
 import type { Broadcaster } from '../core'
 import { broadcast as coreBroadcast } from '../core/utils/broadcast'
+import { setPIBackend } from '../core/services/streaming'
+import { streamMessagePI } from '../core/services/streamingPI'
 import { enrichHeadlessEnv } from './headlessEnv'
 import { loadAndRegisterSDK } from './loadSdk'
 
@@ -77,6 +79,11 @@ if (isLongRunning) {
 async function runServices(): Promise<void> {
   enrichHeadlessEnv()
   await loadAndRegisterSDK()
+  // Wire PI backend so streamMessage() can dispatch to PI in headless.
+  // Window provider + scheduler bridge are intentionally left unset:
+  // - winProvider null → PiUIContext falls back to a no-op sink
+  // - scheduler bridge null → executeSchedulerCommand throws (handled by `if (schedulerConfig)` guard)
+  setPIBackend(streamMessagePI)
 
   const dbPath = process.env.AGENT_DB_PATH || DEFAULT_DB_PATH
   const themesDir = process.env.AGENT_THEMES_DIR || DEFAULT_THEMES_DIR

@@ -1,10 +1,20 @@
 import { BrowserWindow } from 'electron'
 import { getMainWindow } from '../index'
-import { setChunkSender, setSessionManager, setPIBackend, setEnsureFreshToken, setConversationOverridesWriter, notifyConversationUpdated } from '../../core/services/streaming'
+import {
+  setChunkSender,
+  setSessionManager,
+  setPIBackend,
+  setEnsureFreshToken,
+  setConversationOverridesWriter,
+  notifyConversationUpdated,
+  setPIUIWindowProvider,
+  setPISchedulerBridge,
+} from '../../core/services/streaming'
 import { getDatabase } from '../../core/db/database'
 import { sendTurn, respondToSessionApproval, abortSession, hasActiveSession } from './sessionManager'
-import { streamMessagePI } from './streamingPI'
+import { streamMessagePI } from '../../core/services/streamingPI'
 import { ensureFreshMacOSToken } from '../utils/env'
+import { getSchedulerMcpConfig, socketPath as schedSocketPath, authToken as schedAuthToken } from './schedulerBridge'
 
 // Registry of windows that receive stream events (main window + overlay)
 const streamWindows = new Set<BrowserWindow>()
@@ -39,6 +49,17 @@ setSessionManager({
 
 // Wire PI backend into core streaming
 setPIBackend(streamMessagePI)
+
+// Wire the PI UI window provider — main process binds to the Electron BrowserWindow.
+setPIUIWindowProvider(() => getMainWindow())
+
+// Wire the in-process scheduler bridge for PI's `agent_scheduler` custom tool.
+// Live bindings: reading socketPath/authToken returns whatever startBridge() has set.
+setPISchedulerBridge({
+  getMcpConfig: (conversationId: number) => getSchedulerMcpConfig(conversationId),
+  getSocketPath: () => schedSocketPath,
+  getAuthToken: () => schedAuthToken,
+})
 
 // Wire macOS OAuth token refresh into core streaming
 setEnsureFreshToken(ensureFreshMacOSToken)

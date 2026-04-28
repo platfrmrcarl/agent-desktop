@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import type { ToolDefinition, AgentToolResult } from '@mariozechner/pi-coding-agent'
 import { Type } from '@sinclair/typebox'
 import { gatePiTools } from './piPermissionGate'
-import type { CanUseToolFn } from '../../core/services/canUseTool'
+import type { CanUseToolFn } from './canUseTool'
 
 function makeTool(
   name: string,

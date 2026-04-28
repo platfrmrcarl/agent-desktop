@@ -1,5 +1,5 @@
 import type { ToolDefinition, AgentToolResult } from '@mariozechner/pi-coding-agent'
-import type { CanUseToolFn } from '../../core/services/canUseTool'
+import type { CanUseToolFn } from './canUseTool'
 
 export interface PiPermissionGateOptions {
   canUseTool: CanUseToolFn

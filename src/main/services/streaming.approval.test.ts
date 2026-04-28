@@ -12,7 +12,7 @@ vi.mock('../../core/services/anthropic', () => ({
   loadAgentSDK: vi.fn(),
 }))
 
-vi.mock('./streamingPI', () => ({
+vi.mock('../../core/services/streamingPI', () => ({
   streamMessagePI: vi.fn(),
 }))
 

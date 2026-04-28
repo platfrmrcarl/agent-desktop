@@ -1,14 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const mockSendFn = vi.fn()
-vi.mock('../index', () => ({
-  getMainWindow: vi.fn(() => ({
-    isDestroyed: () => false,
-    webContents: { send: (...args: unknown[]) => mockSendFn(...args) },
-  })),
+const { mockSendFn, mockDispose, __testSchedulerBridge } = vi.hoisted(() => ({
+  mockSendFn: vi.fn(),
+  mockDispose: vi.fn(),
+  __testSchedulerBridge: { current: null as unknown },
 }))
 
-const mockDispose = vi.fn()
 vi.mock('./piUIContext', () => {
   return {
     PiUIContext: function PiUIContext() {
@@ -18,30 +15,40 @@ vi.mock('./piUIContext', () => {
   }
 })
 
-vi.mock('./piExtensions', () => ({
+vi.mock('./piUIRegistry', () => ({
   registerPiUIContext: vi.fn(),
   unregisterPiUIContext: vi.fn(),
-  discoverPIExtensions: vi.fn(),
-  registerHandlers: vi.fn(),
+  getActivePiUIContexts: vi.fn(() => [].values()),
 }))
 
-// Mock scheduler bridge for PI backend
-vi.mock('./schedulerBridge', () => ({
-  startBridge: vi.fn(),
-  stopBridge: vi.fn(),
-  getSchedulerMcpConfig: vi.fn(() => null),
-  socketPath: null,
-  authToken: null,
-}))
+// streamingPI now reads scheduler bridge + UI window provider via injected
+// accessors on the streaming module. Tests mutate `__testSchedulerBridge.current`
+// to flip the bridge on/off without re-importing.
+vi.mock('./streaming', async () => {
+  const actual = await vi.importActual<typeof import('./streaming')>('./streaming')
+  return {
+    ...actual,
+    // Re-emit chunks as (channel, payload) tuples — matches the legacy
+    // `webContents.send` capture shape the assertions below rely on.
+    sendChunk: (type: string, content?: string, extra?: Record<string, unknown>) => {
+      mockSendFn('messages:stream', { type, content, ...extra })
+    },
+    getPIUIWindowProvider: () => () => ({
+      isDestroyed: () => false,
+      webContents: { send: (...a: unknown[]) => mockSendFn(...a) },
+    }),
+    getPISchedulerBridge: () => __testSchedulerBridge.current,
+  }
+})
 
-// Mock DB helpers from messages.ts — tests don't need a real sqlite instance
-vi.mock('./messages', () => ({
+// Mock DB helpers from core handlers/messages — tests don't need a real sqlite instance
+vi.mock('../handlers/messages', () => ({
   getConversationPiSessionFile: vi.fn().mockReturnValue(null),
   setConversationPiSessionFile: vi.fn(),
 }))
 
 // Mock getDatabase — returns a sentinel; actual queries go through messages mock above
-vi.mock('../../core/db/database', () => ({
+vi.mock('../db/database', () => ({
   getDatabase: vi.fn().mockReturnValue({ __sentinel: true }),
 }))
 
@@ -66,7 +73,7 @@ vi.mock('./mcpClient', () => ({
 
 // Mock createCanUseTool so permission gate tests can spy on the returned fn.
 // The factory stores the spy in globalThis so tests can access it across the hoist boundary.
-vi.mock('../../core/services/canUseTool', () => ({
+vi.mock('./canUseTool', () => ({
   createCanUseTool: vi.fn((_deps: unknown) => {
     const spy = vi.fn().mockResolvedValue({ behavior: 'allow', updatedInput: {} })
     ;(globalThis as Record<string, unknown>).__lastCanUseToolSpy = spy
@@ -89,7 +96,7 @@ const mockCreateAgentSession = vi.fn().mockResolvedValue({
 })
 
 // vi.mock is hoisted — use globalThis to share state between factory and tests
-vi.mock('./piSdk', () => {
+vi.mock('../../main/services/piSdk', () => {
   // Must be defined inside factory — vi.mock is hoisted
   const _mockReload = vi.fn().mockResolvedValue(undefined)
   const _mockGetExtensions = vi.fn().mockReturnValue({ extensions: [] })
@@ -111,11 +118,11 @@ vi.mock('./piSdk', () => {
 })
 
 import { streamMessagePI } from './streamingPI'
-import { getConversationPiSessionFile, setConversationPiSessionFile } from './messages'
-import { getDatabase } from '../../core/db/database'
+import { getConversationPiSessionFile, setConversationPiSessionFile } from '../handlers/messages'
+import { getDatabase } from '../db/database'
 import * as nodeFs from 'node:fs'
-import { loadPISdk } from './piSdk'
-import { createCanUseTool } from '../../core/services/canUseTool'
+import { loadPISdk } from '../../main/services/piSdk'
+import { createCanUseTool } from './canUseTool'
 
 describe('streamMessagePI', () => {
   beforeEach(() => {
@@ -931,12 +938,6 @@ describe('streamMessagePI — permission gate', () => {
 
     const { createMcpClient } = await import('./mcpClient')
     vi.mocked(createMcpClient).mockReset()
-
-    // Reset scheduler mock module properties to safe defaults
-    const schedMock = await import('./schedulerBridge') as Record<string, unknown>
-    schedMock.socketPath = null
-    schedMock.authToken = null
-    vi.mocked((await import('./schedulerBridge')).getSchedulerMcpConfig).mockReturnValue(null)
   })
 
   it('gates MCP tools with canUseTool when permissionMode is not bypassPermissions', async () => {
@@ -1023,13 +1024,12 @@ describe('streamMessagePI — permission gate', () => {
       close: vi.fn().mockResolvedValue(undefined),
     })
 
-    // Enable scheduler: provide a non-null config and update the mock module's socketPath/authToken.
-    // (vi.mock replaces the module with a plain object; property assignments on the namespace
-    // object propagate to the consuming module's named import bindings in Vitest's mock system.)
-    const { getSchedulerMcpConfig } = await import('./schedulerBridge')
-    vi.mocked(getSchedulerMcpConfig).mockReturnValue({ name: 'scheduler' } as unknown as ReturnType<typeof getSchedulerMcpConfig>)
-    ;(await import('./schedulerBridge') as Record<string, unknown>).socketPath = '/tmp/sched.sock'
-    ;(await import('./schedulerBridge') as Record<string, unknown>).authToken = 'test-token'
+    // Enable scheduler bridge via the hoisted state captured by ./streaming mock.
+    __testSchedulerBridge.current = {
+      getMcpConfig: () => ({ name: 'scheduler' }),
+      getSocketPath: () => '/tmp/sched.sock',
+      getAuthToken: () => 'test-token',
+    }
 
     // canUseTool denies everything — if scheduler were gated, it would be denied before execute
     vi.mocked(createCanUseTool).mockImplementation((_deps: unknown) => {

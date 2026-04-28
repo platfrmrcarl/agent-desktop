@@ -13,13 +13,6 @@ vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn(), on: vi.fn() },
 }))
 
-vi.mock('../index', () => ({
-  getMainWindow: vi.fn(() => ({
-    isDestroyed: () => false,
-    webContents: { send: vi.fn() },
-  })),
-}))
-
 vi.mock('./piUIContext', () => ({
   PiUIContext: function PiUIContext() {
     this.dispose = vi.fn()
@@ -27,24 +20,15 @@ vi.mock('./piUIContext', () => ({
   },
 }))
 
-vi.mock('./piExtensions', () => ({
+vi.mock('./piUIRegistry', () => ({
   registerPiUIContext: vi.fn(),
   unregisterPiUIContext: vi.fn(),
-  discoverPIExtensions: vi.fn(),
-  registerHandlers: vi.fn(),
-}))
-
-vi.mock('./schedulerBridge', () => ({
-  startBridge: vi.fn(),
-  stopBridge: vi.fn(),
-  getSchedulerMcpConfig: vi.fn(() => null),
-  socketPath: null,
-  authToken: null,
+  getActivePiUIContexts: vi.fn(() => [].values()),
 }))
 
 import { streamMessagePI } from './streamingPI'
-import { setChunkSender } from '../../core/services/streaming'
-import type { AISettings } from '../../core/services/streaming'
+import { setChunkSender } from './streaming'
+import type { AISettings } from './streaming'
 
 // This suite exercises real PI SDK code paths. It is intentionally permissive
 // about the agent's final response (we don't assert content) — only that the

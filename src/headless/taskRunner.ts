@@ -15,7 +15,8 @@ import { executeTask } from '../core/services/taskExecutor'
 import type { TaskRunContext } from '../core/services/taskExecutor'
 import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage, compactConversation as compactConversationImpl } from '../core/handlers/messages'
 import type { MessagesHandlerOptions } from '../core/handlers/messages'
-import { streamMessage } from '../core/services/streaming'
+import { streamMessage, setPIBackend } from '../core/services/streaming'
+import { streamMessagePI } from '../core/services/streamingPI'
 import { enrichHeadlessEnv, getSessionsBase, getKnowledgesDir } from './headlessEnv'
 import { loadAndRegisterSDK } from './loadSdk'
 
@@ -202,6 +203,9 @@ export async function main(args: string[]): Promise<void> {
   // for absolute-path resolution when running from outside the project tree
   // (cron invocation of standalone taskRunner.js).
   await loadAndRegisterSDK()
+  // Wire PI backend so scheduled tasks running on PI conversations stream
+  // through the PI SDK instead of returning "PI backend not configured".
+  setPIBackend(streamMessagePI)
 
   if (args.includes('--tick')) {
     await runTick()
