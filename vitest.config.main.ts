@@ -10,6 +10,7 @@ export default defineConfig({
       'src/shared/**/*.test.ts',
       'src/core/**/*.test.ts',
       'src/extensions/**/*.test.ts',
+      'src/headless/**/*.test.ts',
     ],
     alias: {
       '@shared': resolve(__dirname, 'src/shared'),
