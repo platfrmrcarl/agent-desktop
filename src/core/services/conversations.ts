@@ -122,6 +122,7 @@ export class ConversationService {
     const allowed = ['title', 'folder_id', 'position', 'model', 'system_prompt', 'kb_enabled', 'cwd', 'ai_overrides', 'cleared_at', 'compact_summary', 'sdk_session_id', 'pi_session_file', 'color']
     if (data.cleared_at !== undefined && data.cleared_at !== null) {
       data.sdk_session_id = null
+      data.pi_session_file = null
     }
     const fields: string[] = []
     const values: unknown[] = []

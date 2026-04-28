@@ -90,7 +90,7 @@ function createCoreContext(db: any): TaskRunContext {
       // Step back 1ms so the user message saved immediately after passes the strict `created_at > cleared_at` filter
       const clearedAt = new Date(Date.now() - 1).toISOString()
       ;(db as any).prepare(
-        'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, updated_at = ? WHERE id = ?'
+        'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, pi_session_file = NULL, updated_at = ? WHERE id = ?'
       ).run(clearedAt, clearedAt, conversationId)
       // No invalidateSession call here — headless has no live SDK sessions to tear down.
       // The Electron path (scheduler.ts) calls invalidateSession explicitly to match

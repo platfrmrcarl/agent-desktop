@@ -24,6 +24,15 @@ import type { AgentToolResult } from '@mariozechner/pi-agent-core'
 import { createBridge, type ExtensionRuntimeContext } from './piExtensionBridge'
 import parityFactory from '../../extensions/agent-desktop-parity'
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent'
+import type { CwdWhitelistEntry } from '../types'
+import {
+  isPathOutsideReadAllowed,
+  isPathOutsideWriteAllowed,
+  isPathOutsideAllowed,
+  extractBashReadPaths,
+  extractBashWritePaths,
+} from './cwdHooks'
+import type { CanUseToolFn } from './canUseTool'
 
 // Tool parameters schema for scheduler tool
 const SchedulerToolParams = /* #__PURE__ */ (() =>
@@ -267,6 +276,135 @@ function mapThinkingLevel(maxThinkingTokens?: number): 'off' | 'low' | 'medium' 
   return 'high'
 }
 
+// ─── PI Built-in Tool Hardening ──────────────────────────────────────────────
+
+/** PI tool name → which parameter holds the target path */
+const PI_READ_PATH_TOOLS = new Set(['read', 'find', 'grep', 'ls'])
+const PI_WRITE_PATH_TOOLS = new Set(['write', 'edit'])
+
+function denyToolResult(message: string): AgentToolResult<unknown> {
+  return { content: [{ type: 'text', text: `Access denied: ${message}` }], details: undefined }
+}
+
+/**
+ * Wraps pi.codingTools (AgentTool[]) with CWD read/write restriction checks.
+ * Mirrors buildCwdRestrictionHooks semantics:
+ *   - Write-path enforcement: always active (matches SDK hooks with empty whitelist)
+ *   - Read-path enforcement: only when whitelist is non-empty (backward compat per CLAUDE.md)
+ * Applied unconditionally — this mirrors the SDK where PreToolUse hooks fire regardless of
+ * permissionMode, including bypassPermissions.
+ */
+function applyCwdRestriction<T extends { name: string; execute: (...args: unknown[]) => Promise<AgentToolResult<unknown>> }>(
+  tools: T[],
+  cwd: string,
+  whitelist: CwdWhitelistEntry[],
+): T[] {
+  const hasWhitelist = whitelist.length > 0
+  return tools.map((tool) => ({
+    ...tool,
+    async execute(toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal, onUpdate?: unknown): Promise<AgentToolResult<unknown>> {
+      const name = tool.name
+
+      // --- Read tools: read, find, grep, ls ---
+      if (PI_READ_PATH_TOOLS.has(name) && hasWhitelist) {
+        const rawPath = (params.path ?? params.file_path) as string | undefined
+        if (rawPath) {
+          const outside = isPathOutsideReadAllowed(rawPath, cwd, whitelist)
+          if (outside) {
+            return denyToolResult(
+              `${name} targets "${outside}" which is outside the allowed read directories.`,
+            )
+          }
+        }
+      }
+
+      // --- Write tools: write, edit ---
+      if (PI_WRITE_PATH_TOOLS.has(name)) {
+        const rawPath = (params.path ?? params.file_path) as string | undefined
+        if (rawPath) {
+          const outside = hasWhitelist
+            ? isPathOutsideWriteAllowed(rawPath, cwd, whitelist)
+            : isPathOutsideAllowed(rawPath, cwd)
+          if (outside) {
+            return denyToolResult(
+              `${name} targets "${outside}" which is outside the allowed write directories.`,
+            )
+          }
+        }
+      }
+
+      // --- Bash: check both write and read paths ---
+      if (name === 'bash') {
+        const command = params.command as string | undefined
+        if (command) {
+          // Write-path check (always)
+          const writePaths = extractBashWritePaths(command)
+          for (const p of writePaths) {
+            const outside = hasWhitelist
+              ? isPathOutsideWriteAllowed(p, cwd, whitelist)
+              : isPathOutsideAllowed(p, cwd)
+            if (outside) {
+              return denyToolResult(
+                `bash write target "${outside}" is outside the allowed write directories.`,
+              )
+            }
+          }
+          // Read-path check (only when whitelist is non-empty)
+          if (hasWhitelist) {
+            const readPaths = extractBashReadPaths(command)
+            for (const p of readPaths) {
+              const outside = isPathOutsideReadAllowed(p, cwd, whitelist)
+              if (outside) {
+                return denyToolResult(
+                  `bash read target "${outside}" is outside the allowed read directories.`,
+                )
+              }
+            }
+          }
+        }
+      }
+
+      return (tool.execute as (toolCallId: string, params: unknown, signal?: AbortSignal, onUpdate?: unknown) => Promise<AgentToolResult<unknown>>)(toolCallId, params, signal, onUpdate)
+    },
+  }))
+}
+
+/**
+ * Gates AgentTool[] (pi.codingTools) through canUseTool permission prompts.
+ * Mirrors gatePiTools from piPermissionGate.ts but uses the AgentTool execute signature
+ * (4 params: toolCallId, params, signal?, onUpdate?) vs ToolDefinition's 5-param signature.
+ * Skipped entirely when bypass is true (bypassPermissions mode).
+ */
+function gateAgentTools<T extends { name: string; execute: (...args: unknown[]) => Promise<AgentToolResult<unknown>> }>(
+  tools: T[],
+  canUseTool: CanUseToolFn,
+  bypass: boolean,
+): T[] {
+  if (bypass) return tools
+  return tools.map((tool) => ({
+    ...tool,
+    async execute(toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal, onUpdate?: unknown): Promise<AgentToolResult<unknown>> {
+      if (signal?.aborted) {
+        return denyToolResult('aborted before approval')
+      }
+      let decision
+      try {
+        decision = await canUseTool(tool.name, params)
+      } catch (err) {
+        return {
+          content: [{ type: 'text', text: `Permission check failed: ${err instanceof Error ? err.message : String(err)}` }],
+          details: undefined,
+        }
+      }
+      if (decision.behavior === 'deny') {
+        return denyToolResult(decision.message ?? 'denied by user')
+      }
+      const effectiveParams = decision.updatedInput ?? params
+      return (tool.execute as (toolCallId: string, params: unknown, signal?: AbortSignal, onUpdate?: unknown) => Promise<AgentToolResult<unknown>>)(toolCallId, effectiveParams, signal, onUpdate)
+    },
+  }))
+}
+
 export async function streamMessagePI(
   messages: MessageParam[],
   systemPrompt: string | undefined,
@@ -329,13 +467,36 @@ export async function streamMessagePI(
     })
     await resourceLoader.reload()
 
+    // Build permission gate (used for both MCP tools and built-in coding tools)
+    const resolvedPermissionMode = aiSettings?.permissionMode ?? 'bypassPermissions'
+    const bypass = resolvedPermissionMode === 'bypassPermissions'
+    const canUseTool = createCanUseTool({
+      aiSettings: {
+        requirePlanApproval: aiSettings?.requirePlanApproval,
+        disabledSkills: aiSettings?.disabledSkills,
+      },
+      permissionMode: resolvedPermissionMode,
+      chunkConversationId: conversationId ?? null,
+      pendingRequestsKey: convKey,
+      pendingRequests,
+      sendChunk: sendChunk,
+      // PI backend is event-based; no subprocess stream to suspend during approval
+      onApprovalStart: () => {},
+      onApprovalEnd: () => {},
+    })
+
     // Build custom tools array (scheduler tool for PI backend)
     const customTools: ToolDefinition[] = []
     const schedulerBridge = getPISchedulerBridge()
     const schedulerConfig = schedulerBridge?.getMcpConfig(convKey) ?? null
     if (schedulerConfig) {
-      // Only add scheduler if socket bridge is available
-      if (schedulerBridge?.getSocketPath() && schedulerBridge.getAuthToken()) {
+      // M-8: Suppress the scheduler tool during unattended (task executor) execution to prevent
+      // recursive task creation. taskExecutor.ts sets requirePlanApproval=false exclusively for
+      // unattended runs — the Claude SDK path instead removes 'agent_scheduler' from mcpServers,
+      // but that key is only injected for Claude SDK backend (messages.ts:442), so we cannot use
+      // the same check here. requirePlanApproval=false is the reliable PI-side signal.
+      const isUnattended = aiSettings?.requirePlanApproval === false
+      if (!isUnattended && schedulerBridge?.getSocketPath() && schedulerBridge.getAuthToken()) {
         customTools.push(createSchedulerTool())
       }
     }
@@ -367,27 +528,24 @@ export async function streamMessagePI(
         }
       }
 
-      // Gate only MCP tools — scheduler is a trusted internal customTool and must not go through canUseTool.
-      const resolvedPermissionMode = aiSettings?.permissionMode ?? 'bypassPermissions'
-      const bypass = resolvedPermissionMode === 'bypassPermissions'
-      const canUseTool = createCanUseTool({
-        aiSettings: {
-          requirePlanApproval: aiSettings?.requirePlanApproval,
-          disabledSkills: aiSettings?.disabledSkills,
-        },
-        permissionMode: resolvedPermissionMode,
-        chunkConversationId: conversationId ?? null,
-        pendingRequestsKey: convKey,
-        pendingRequests,
-        sendChunk: sendChunk,
-        // PI backend is event-based; no subprocess stream to suspend during approval
-        onApprovalStart: () => {},
-        onApprovalEnd: () => {},
-      })
+      // Gate MCP tools — scheduler is a trusted internal customTool and must not go through canUseTool.
       const gatedMcpTools = gatePiTools(mcpTools, { canUseTool, bypass })
       customTools.push(...gatedMcpTools)
     }
     // --- end MCP ---
+
+    // H-5: Apply CWD restriction to built-in coding tools.
+    // Mirrors SDK PreToolUse hooks — fires unconditionally (even in bypassPermissions).
+    // Empty whitelist = no read restriction (backward compat), write restriction always active.
+    const cwdRestricted = applyCwdRestriction(
+      pi.codingTools,
+      aiSettings?.cwd || process.cwd(),
+      (aiSettings?.hooks_cwdWhitelist as CwdWhitelistEntry[] | undefined) ?? [],
+    )
+
+    // H-6: Gate built-in coding tools through canUseTool permission prompts.
+    // Skipped in bypassPermissions mode (bypass=true).
+    const gatedCodingTools = gateAgentTools(cwdRestricted, canUseTool, bypass)
 
     const { sessionManager, persistAfterCreate } = await resolveSessionManager(
       pi,
@@ -399,7 +557,7 @@ export async function streamMessagePI(
       cwd: aiSettings?.cwd || process.cwd(),
       sessionManager,
       thinkingLevel,
-      tools: pi.codingTools,
+      tools: gatedCodingTools,
       customTools,
       resourceLoader,
     })

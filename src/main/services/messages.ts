@@ -322,7 +322,7 @@ function filterMcpServers(
 }
 
 export function getAISettings(db: Database.Database, conversationId: number): AISettings {
-  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'ai_skillsIncludePlugins', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'ai_compactModel', 'ai_titleModel', 'webhook_completionUrl']
+  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_requirePlanApproval', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'ai_skillsIncludePlugins', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'ai_compactModel', 'ai_titleModel', 'webhook_completionUrl']
   const rows = db
     .prepare(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`)
     .all(...keys) as { key: string; value: string }[]
@@ -501,7 +501,7 @@ function saveConversationSdkSessionId(db: Database.Database, conversationId: num
 }
 
 function clearConversationSdkSessionId(db: Database.Database, conversationId: number): void {
-  db.prepare('UPDATE conversations SET sdk_session_id = NULL WHERE id = ?').run(conversationId)
+  db.prepare('UPDATE conversations SET sdk_session_id = NULL, pi_session_file = NULL WHERE id = ?').run(conversationId)
 }
 
 export function getConversationPiSessionFile(db: Database.Database, conversationId: number): string | null {
@@ -770,7 +770,7 @@ export async function compactConversation(
   const history = buildMessageHistory(db, conversationId)
   if (history.length === 0) {
     const clearedAt = new Date().toISOString()
-    db.prepare('UPDATE conversations SET cleared_at = ?, compact_summary = NULL, pi_session_file = NULL, updated_at = ? WHERE id = ?')
+    db.prepare('UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, pi_session_file = NULL, updated_at = ? WHERE id = ?')
       .run(clearedAt, clearedAt, conversationId)
     return { summary: '', clearedAt }
   }
@@ -916,7 +916,7 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
       db.prepare(
         'DELETE FROM messages WHERE conversation_id = ? AND id > ?'
       ).run(msg.conversation_id, msg.id)
-      db.prepare('UPDATE conversations SET sdk_session_id = NULL WHERE id = ?').run(msg.conversation_id)
+      db.prepare('UPDATE conversations SET sdk_session_id = NULL, pi_session_file = NULL WHERE id = ?').run(msg.conversation_id)
     })()
     invalidateSession(msg.conversation_id)
 

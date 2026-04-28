@@ -84,7 +84,7 @@ export function createElectronContext(db: Database.Database): TaskRunContext {
       // Step back 1ms so the user message saved immediately after passes the strict `created_at > cleared_at` filter
       const clearedAt = new Date(Date.now() - 1).toISOString()
       db.prepare(
-        'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, updated_at = ? WHERE id = ?'
+        'UPDATE conversations SET cleared_at = ?, compact_summary = NULL, sdk_session_id = NULL, pi_session_file = NULL, updated_at = ? WHERE id = ?'
       ).run(clearedAt, clearedAt, conversationId)
       // Explicit invalidation mirrors compactConversation's behaviour — both paths
       // must tear down the live SDK session so the next turn starts fresh.

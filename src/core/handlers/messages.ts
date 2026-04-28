@@ -520,8 +520,9 @@ function saveConversationSdkSessionId(db: SqlJsAdapter, conversationId: number, 
   (db as any).prepare('UPDATE conversations SET sdk_session_id = ? WHERE id = ?').run(sessionId, conversationId)
 }
 
-function clearConversationSdkSessionId(db: SqlJsAdapter, conversationId: number): void {
-  (db as any).prepare('UPDATE conversations SET sdk_session_id = NULL WHERE id = ?').run(conversationId)
+// Invalidates BOTH session IDs (Claude SDK and PI) — call on any history mutation that breaks session continuity
+export function invalidateAllSessions(db: SqlJsAdapter, conversationId: number): void {
+  (db as any).prepare('UPDATE conversations SET sdk_session_id = NULL, pi_session_file = NULL WHERE id = ?').run(conversationId)
 }
 
 export function getConversationPiSessionFile(db: SqlJsAdapter, conversationId: number): string | null {
@@ -756,7 +757,7 @@ async function streamAndSave(
 
       // Error with no content — retry or emit final error
       if (attemptSessionId) {
-        clearConversationSdkSessionId(db, conversationId)
+        invalidateAllSessions(db, conversationId)
       }
       options.onSessionInvalidate?.(conversationId)
 
@@ -779,7 +780,7 @@ async function streamAndSave(
     } catch (err) {
       if (attempt === 1 && sdkSessionId) {
         console.warn('[messages] SDK session resume failed, retrying with full history:', err instanceof Error ? err.message : String(err))
-        clearConversationSdkSessionId(db, conversationId)
+        invalidateAllSessions(db, conversationId)
         options.onSessionInvalidate?.(conversationId)
         continue
       }
@@ -1003,7 +1004,7 @@ export function registerMessagesHandlers(
       (db as any).prepare('DELETE FROM messages WHERE id = ?').run(lastAssistant.id)
     }
 
-    clearConversationSdkSessionId(db, validConvId)
+    invalidateAllSessions(db, validConvId)
     options.onSessionInvalidate?.(validConvId)
     updateConversationTimestamp(db, validConvId)
 
@@ -1029,7 +1030,7 @@ export function registerMessagesHandlers(
       ;(db as any).prepare(
         'DELETE FROM messages WHERE conversation_id = ? AND id > ?'
       ).run(msg.conversation_id, msg.id)
-      ;(db as any).prepare('UPDATE conversations SET sdk_session_id = NULL WHERE id = ?').run(msg.conversation_id)
+      ;(db as any).prepare('UPDATE conversations SET sdk_session_id = NULL, pi_session_file = NULL WHERE id = ?').run(msg.conversation_id)
     })()
     options.onSessionInvalidate?.(msg.conversation_id)
 

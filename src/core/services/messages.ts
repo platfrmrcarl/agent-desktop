@@ -80,7 +80,7 @@ export class MessageService {
   }
 
   clearSdkSessionId(conversationId: number): void {
-    this.db.prepare('UPDATE conversations SET sdk_session_id = NULL WHERE id = ?').run(conversationId)
+    this.db.prepare('UPDATE conversations SET sdk_session_id = NULL, pi_session_file = NULL WHERE id = ?').run(conversationId)
   }
 
   updateTimestamp(conversationId: number): void {
