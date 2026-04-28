@@ -268,6 +268,13 @@ export function registerFilesHandlers(
     }
     const newPath = join(dirname(resolved), nn)
     validatePathSafe(newPath)
+    const realResolved = await validatePathSafeAsync(resolved)
+    const realNewPath = await validatePathSafeAsync(newPath)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideSource = checkWriteAllowed(realResolved, whitelist)
+    if (outsideSource) throw new Error(`Write access denied: ${outsideSource} is outside the allowed readwrite directories`)
+    const outsideDest = checkWriteAllowed(realNewPath, whitelist)
+    if (outsideDest) throw new Error(`Write access denied: ${outsideDest} is outside the allowed readwrite directories`)
     await fsp.rename(resolved, newPath)
     return newPath
   })
@@ -306,6 +313,13 @@ export function registerFilesHandlers(
     const resolvedDest = expandTilde(dd)
     validatePathSafe(resolvedSource)
     validatePathSafe(resolvedDest)
+    const realSource = await validatePathSafeAsync(resolvedSource)
+    const realDest = await validatePathSafeAsync(resolvedDest)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideSource = checkWriteAllowed(realSource, whitelist)
+    if (outsideSource) throw new Error(`Write access denied: ${outsideSource} is outside the allowed readwrite directories`)
+    const outsideDest = checkWriteAllowed(realDest, whitelist)
+    if (outsideDest) throw new Error(`Write access denied: ${outsideDest} is outside the allowed readwrite directories`)
 
     const destStat = await fsp.stat(resolvedDest)
     if (!destStat.isDirectory()) throw new Error('Destination is not a directory')
@@ -362,6 +376,10 @@ export function registerFilesHandlers(
     }
     const target = join(resolvedDir, n)
     validatePathSafe(target)
+    const realTarget = await validatePathSafeAsync(target)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realTarget, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
     try {
       const handle = await fsp.open(target, 'wx')
       await handle.close()
@@ -382,6 +400,10 @@ export function registerFilesHandlers(
     }
     const target = join(resolvedDir, n)
     validatePathSafe(target)
+    const realTarget = await validatePathSafeAsync(target)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realTarget, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
     try {
       await fsp.mkdir(target)
     } catch (err: any) {

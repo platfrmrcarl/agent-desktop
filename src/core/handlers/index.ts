@@ -30,7 +30,7 @@ export interface CoreHandlerOptions {
   sessionsBase: string
   themesDir: string
   knowledgesDir: string
-  bugReport: BugReportHandlerOptions
+  bugReport?: BugReportHandlerOptions
   webPassword: import('../auth').WebPasswordService
 }
 
@@ -62,6 +62,8 @@ export function registerCoreHandlers(
   registerWhisperHandlers(registrar, db)
   registerSystemHandlers(registrar, db)
   registerGitHandlers(registrar)
-  registerBugReportHandlers(registrar, options.bugReport)
+  if (options.bugReport) {
+    registerBugReportHandlers(registrar, options.bugReport)
+  }
   registerWebServerAuthHandlers(registrar, options.webPassword)
 }

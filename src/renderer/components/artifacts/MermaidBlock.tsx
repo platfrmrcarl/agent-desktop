@@ -1,8 +1,20 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import mermaid from 'mermaid'
-import DOMPurify from 'dompurify'
+import createDOMPurify from 'dompurify'
 
 mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' })
+
+// Scoped DOMPurify instance — hooks here do NOT affect the global singleton used by
+// SvgPreview or NotebookPreview.
+const purify = createDOMPurify(window)
+// Reject xlink:href and href values that are not internal anchors.
+// Mermaid only uses #-prefixed refs; anything else widens the XSS surface.
+purify.addHook('uponSanitizeAttribute', (_, data) => {
+  if ((data.attrName === 'xlink:href' || data.attrName === 'href') &&
+      data.attrValue != null && data.attrValue !== '' && !data.attrValue.startsWith('#')) {
+    data.keepAttr = false
+  }
+})
 
 let nextId = 0
 
@@ -178,7 +190,7 @@ export function MermaidBlock({ content }: MermaidBlockProps) {
 
     mermaid.render(id, content.trim())
       .then(({ svg }) => {
-        const sanitized = DOMPurify.sanitize(svg, {
+        const sanitized = purify.sanitize(svg, {
           USE_PROFILES: { svg: true, svgFilters: true, html: true },
           ADD_TAGS: ['foreignobject', 'use'],
           ADD_ATTR: ['dominant-baseline', 'xlink:href'],

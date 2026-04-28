@@ -30,6 +30,8 @@ const rateLimiter: RateLimiter = createRateLimiter()
 const COOKIE_NAME = 'agent_session'
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 const clientAlive = new WeakMap<WebSocket, boolean>()
+/** Stores the cookie value captured at WS upgrade, used to re-validate on heartbeat after secret rotation. */
+const clientCookies = new WeakMap<WebSocket, string>()
 const HEARTBEAT_INTERVAL = 30_000
 let unsubBroadcast: (() => void) | null = null
 
@@ -751,9 +753,6 @@ export async function startServer(port: number, options?: ServerStartOptions): P
       return
     }
 
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
 
     const url = new URL(req.url || '/', `http://localhost:${port}`)
@@ -843,6 +842,8 @@ export async function startServer(port: number, options?: ServerStartOptions): P
       wss!.handleUpgrade(req, socket, head, (wsClient) => {
         if (passwordSet) {
           authenticatedClients.add(wsClient)
+          const cookieVal = getCookieValue(req.headers.cookie, COOKIE_NAME)
+          if (cookieVal) clientCookies.set(wsClient, cookieVal)
         }
         wss!.emit('connection', wsClient, req)
       })
@@ -897,16 +898,30 @@ export async function startServer(port: number, options?: ServerStartOptions): P
       })
       wsClient.on('close', () => {
         authenticatedClients.delete(wsClient)
+        clientCookies.delete(wsClient)
       })
       wsClient.on('error', () => {
         authenticatedClients.delete(wsClient)
+        clientCookies.delete(wsClient)
       })
     })
 
-    // Heartbeat: detect and clean up dead connections
+    // Heartbeat: detect dead connections and re-validate cookie-authed clients.
+    // Re-auth runs before the alive check so a revoked session disconnects this tick.
     heartbeatTimer = setInterval(() => {
       if (!wss) return
       for (const client of wss.clients) {
+        // Re-validate cookie when password auth is active (secret may have rotated)
+        if (webPassword?.isPasswordSet() && authenticatedClients.has(client)) {
+          const storedCookie = clientCookies.get(client)
+          if (!storedCookie || !webPassword.validateCookie(storedCookie)) {
+            authenticatedClients.delete(client)
+            clientCookies.delete(client)
+            client.close(1008, 'session revoked')
+            continue
+          }
+        }
+
         if (!clientAlive.get(client)) {
           authenticatedClients.delete(client)
           client.terminate()

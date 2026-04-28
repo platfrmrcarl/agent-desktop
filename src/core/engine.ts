@@ -15,6 +15,7 @@ import { SchedulerService } from './services/scheduler'
 import { createWebPasswordService, type WebPasswordService } from './auth'
 import { DispatchRegistry } from './dispatch'
 import { registerCoreHandlers } from './handlers'
+import type { BugReportHandlerOptions } from './handlers/bugReport'
 import type { Broadcaster } from './ports/broadcaster'
 import type { HookRunner } from './ports/hookRunner'
 import { noopHookRunner } from './ports/hookRunner'
@@ -58,6 +59,7 @@ export interface EngineOptions {
   platformIO?: PlatformIO
   systemUI?: SystemUI
   hookRunner?: HookRunner
+  bugReport?: BugReportHandlerOptions
 }
 
 // ─── Agent Engine ──────────────────────────────────────────
@@ -84,6 +86,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   private readonly dbPath: string
   private readonly wasmPath?: string
   private readonly themesDir: string
+  private readonly bugReportOpts?: BugReportHandlerOptions
 
   constructor(options: EngineOptions) {
     super()
@@ -94,6 +97,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
     this.platformIO = options.platformIO ?? noopPlatformIO
     this.systemUI = options.systemUI ?? noopSystemUI
     this.hookRunner = options.hookRunner ?? noopHookRunner
+    this.bugReportOpts = options.bugReport
     this.dispatch = new DispatchRegistry()
   }
 
@@ -139,6 +143,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
       sessionsBase: join(homedir(), '.agent-desktop', 'sessions-folder'),
       themesDir: this.themesDir,
       knowledgesDir: join(homedir(), '.agent-desktop', 'knowledges'),
+      bugReport: this.bugReportOpts,
       webPassword: this._webPassword,
     })
   }

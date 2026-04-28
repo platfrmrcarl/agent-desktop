@@ -19,6 +19,17 @@ const MAX_PASTE_SIZE = 5_000_000 // 5MB — clipboard paste limit
 const MAX_PREVIEW_SIZE = 10 * 1024 * 1024 // 10MB — hard limit for file preview
 const BINARY_MODEL_EXTS = new Set(['stl', '3mf', 'ply'])
 
+// Extensions that can execute arbitrary code via the OS default handler.
+// Refused in files:openWithDefault and files:revealInFileManager.
+const EXECUTABLE_EXTENSIONS: ReadonlySet<string> = new Set([
+  // Linux executables / launchers
+  'sh', 'bash', 'zsh', 'desktop', 'appimage', 'run',
+  // Windows executables / launchers
+  'exe', 'bat', 'cmd', 'com', 'ps1', 'vbs', 'scr', 'pif', 'msi', 'lnk',
+  // Cross-platform interpreted scripts
+  'jar', 'py', 'rb', 'pl',
+])
+
 export function classifyFileExt(ext: string): string | null {
   switch (ext) {
     case 'html': case 'htm': return 'html'
@@ -239,7 +250,12 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     validateString(filePath, 'filePath')
     const resolved = expandTilde(filePath)
     validatePathSafe(resolved)
-    shell.showItemInFolder(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
+    const ext = extname(realResolved).slice(1).toLowerCase()
+    if (EXECUTABLE_EXTENSIONS.has(ext)) {
+      throw new Error(`Refused to reveal: .${ext} files are blocked for security`)
+    }
+    shell.showItemInFolder(realResolved)
   })
 
   ipcMain.handle('files:openTerminalHere', async (_event, filePath: string) => {
@@ -257,7 +273,18 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     validateString(filePath, 'filePath')
     const resolved = expandTilde(filePath)
     validatePathSafe(resolved)
-    const result = await shell.openPath(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
+    const ext = extname(realResolved).slice(1).toLowerCase()
+    if (EXECUTABLE_EXTENSIONS.has(ext)) {
+      throw new Error(`Refused to open: .${ext} files are blocked for security`)
+    }
+    if (process.platform === 'linux') {
+      const stat = await fsp.stat(realResolved)
+      if ((stat.mode & 0o111) !== 0) {
+        throw new Error(`Refused to open: file has executable permissions`)
+      }
+    }
+    const result = await shell.openPath(realResolved)
     if (result) throw new Error(result)
   })
 
@@ -282,6 +309,13 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     }
     const newPath = join(dirname(resolved), newName)
     validatePathSafe(newPath)
+    const realResolved = await validatePathSafeAsync(resolved)
+    const realNewPath = await validatePathSafeAsync(newPath)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideSource = checkWriteAllowed(realResolved, whitelist)
+    if (outsideSource) throw new Error(`Write access denied: ${outsideSource} is outside the allowed readwrite directories`)
+    const outsideDest = checkWriteAllowed(realNewPath, whitelist)
+    if (outsideDest) throw new Error(`Write access denied: ${outsideDest} is outside the allowed readwrite directories`)
     await fsp.rename(resolved, newPath)
     return newPath
   })
@@ -320,6 +354,13 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     const resolvedDest = expandTilde(destDir)
     validatePathSafe(resolvedSource)
     validatePathSafe(resolvedDest)
+    const realSource = await validatePathSafeAsync(resolvedSource)
+    const realDest = await validatePathSafeAsync(resolvedDest)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideSource = checkWriteAllowed(realSource, whitelist)
+    if (outsideSource) throw new Error(`Write access denied: ${outsideSource} is outside the allowed readwrite directories`)
+    const outsideDest = checkWriteAllowed(realDest, whitelist)
+    if (outsideDest) throw new Error(`Write access denied: ${outsideDest} is outside the allowed readwrite directories`)
 
     // Dest must be an existing directory
     const destStat = await fsp.stat(resolvedDest)
@@ -383,6 +424,10 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     }
     const target = join(resolvedDir, name)
     validatePathSafe(target)
+    const realTarget = await validatePathSafeAsync(target)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realTarget, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
     try {
       const handle = await fsp.open(target, 'wx') // O_CREAT | O_EXCL — atomic
       await handle.close()
@@ -403,6 +448,10 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     }
     const target = join(resolvedDir, name)
     validatePathSafe(target)
+    const realTarget = await validatePathSafeAsync(target)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realTarget, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
     try {
       await fsp.mkdir(target) // throws EEXIST if exists
     } catch (err: any) {
