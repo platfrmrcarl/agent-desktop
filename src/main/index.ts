@@ -244,7 +244,15 @@ if (!gotLock) {
 
     // Security hardening — session CSP + permission filter + app-level
     // guards. Must run after ready; defaultSession is not available before.
-    applySessionHardening(session.defaultSession)
+    //
+    // CSP `script-src 'self'` would block Vite HMR's inline scripts in dev
+    // (React preamble injected by @vitejs/plugin-react, /@vite/client wiring).
+    // ELECTRON_RENDERER_URL is set by electron-vite only when a dev server
+    // is attached, so skipping CSP under that signal keeps the prod
+    // hardening tight without breaking dev iteration.
+    if (!process.env.ELECTRON_RENDERER_URL) {
+      applySessionHardening(session.defaultSession)
+    }
     if (app.isPackaged) Menu.setApplicationMenu(null)
     app.on('certificate-error', (_e, _wc, _url, _err, _cert, cb) => cb(false))
     app.on('render-process-gone', (_e, _wc, details) => {
