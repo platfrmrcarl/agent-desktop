@@ -48,13 +48,21 @@ export const ELECTRON_ONLY_CHANNELS: ReadonlySet<string> = new Set([
  *
  *  - server:{start,stop,getStatus} — remote clients must not manage the
  *    server they are connected through.
+ *  - server:{setPassword,clearPassword} — LAN attacker must not rotate the
+ *    session secret and lock out the legitimate user.
+ *  - settings:set — persists arbitrary key/value to global settings; a
+ *    remote client could overwrite security-sensitive config (e.g. bypass
+ *    permissions, MCP servers) without local user interaction.
  *  - openscad:exportStl — uses `event.sender` (null over WS → crash).
  */
 export const WS_BLOCKED_CHANNELS: ReadonlySet<string> = new Set([
+  'openscad:exportStl',
+  'server:clearPassword',  // credential control-plane: remote must not clear the password
+  'server:getStatus',
+  'server:setPassword',    // credential control-plane: remote must not rotate the session secret
   'server:start',
   'server:stop',
-  'server:getStatus',
-  'openscad:exportStl',
+  'settings:set',          // security-sensitive config mutation must stay local
 ])
 
 export class OriginDeniedError extends Error {

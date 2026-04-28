@@ -6,7 +6,7 @@ import os from 'os'
 import { shell, app } from 'electron'
 import { spawn } from 'child_process'
 import type { FileNode } from '../../shared/types'
-import { validateString, validatePathSafe, validatePositiveInt } from '../utils/validate'
+import { validateString, validatePathSafe, validatePositiveInt, checkReadAllowed } from '../utils/validate'
 import { isChildPath } from '../../shared/pathUtils'
 import { expandTilde } from '../utils/paths'
 import { IMAGE_EXTS, getImageMime, mimeToExt } from '../utils/mime'
@@ -164,11 +164,26 @@ export async function cleanupPastedFiles(): Promise<void> {
   } catch { /* dir may not exist yet */ }
 }
 
-export function registerHandlers(ipcMain: IpcMain, _db: Database.Database): void {
+/** Read the global hooks_cwdWhitelist setting from the database. */
+function getGlobalWhitelist(db: Database.Database): Array<{ path: string; access: 'read' | 'readwrite' }> {
+  try {
+    const row = (db as any).prepare('SELECT value FROM settings WHERE key = ?').get('hooks_cwdWhitelist') as { value: string } | undefined
+    if (!row?.value) return []
+    const parsed = JSON.parse(row.value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void {
   ipcMain.handle('files:listTree', async (_event, basePath: string, excludePatterns?: string[]) => {
     validateString(basePath, 'basePath')
     const resolved = expandTilde(basePath)
     validatePathSafe(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outside = checkReadAllowed(resolved, whitelist)
+    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
     const excludeSet = new Set(Array.isArray(excludePatterns) ? excludePatterns : ['node_modules'])
     return listTree(resolved, 0, { value: 0 }, excludeSet)
   })
@@ -177,6 +192,9 @@ export function registerHandlers(ipcMain: IpcMain, _db: Database.Database): void
     validateString(basePath, 'basePath')
     const resolved = expandTilde(basePath)
     validatePathSafe(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outside = checkReadAllowed(resolved, whitelist)
+    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
     return listDir(resolved)
   })
 
@@ -184,6 +202,9 @@ export function registerHandlers(ipcMain: IpcMain, _db: Database.Database): void
     validateString(filePath, 'filePath')
     const resolved = expandTilde(filePath)
     validatePathSafe(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outside = checkReadAllowed(resolved, whitelist)
+    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
 
     const ext = extname(resolved).slice(1).toLowerCase()
     const stat = await fsp.stat(resolved)

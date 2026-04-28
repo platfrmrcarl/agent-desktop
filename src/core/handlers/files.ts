@@ -5,7 +5,7 @@ import { join, resolve as pathResolve, extname, dirname, basename } from 'path'
 import os from 'os'
 import { spawn } from 'child_process'
 import { expandTilde } from '../utils/paths'
-import { validateString, validatePositiveInt, validatePathSafe } from '../utils/validate'
+import { validateString, validatePositiveInt, validatePathSafe, checkReadAllowed } from '../utils/validate'
 import { isChildPath } from '../../shared/pathUtils'
 
 // ─── Constants ──────────────────────────────────────────────
@@ -183,19 +183,34 @@ async function generateCopyPath(originalPath: string): Promise<string> {
 
 // ─── Handler registration ───────────────────────────────────
 
+/** Read the global hooks_cwdWhitelist setting from the database. */
+function getGlobalWhitelist(db: SqlJsAdapter): Array<{ path: string; access: 'read' | 'readwrite' }> {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('hooks_cwdWhitelist') as { value: string } | undefined
+    if (!row?.value) return []
+    const parsed = JSON.parse(row.value as string)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
 export interface FilesHandlerOptions {
   sessionsBase: string
 }
 
 export function registerFilesHandlers(
   registrar: HandleRegistrar,
-  _db: SqlJsAdapter,
+  db: SqlJsAdapter,
   options: FilesHandlerOptions,
 ): void {
   registrar.handle('files:listTree', async (_event, basePath: unknown, excludePatterns?: unknown) => {
     const bp = validateString(basePath, 'basePath')
     const resolved = expandTilde(bp)
     validatePathSafe(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outside = checkReadAllowed(resolved, whitelist)
+    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
     const excludeSet = new Set(Array.isArray(excludePatterns) ? excludePatterns as string[] : ['node_modules'])
     return listTree(resolved, 0, { value: 0 }, excludeSet)
   })
@@ -204,6 +219,9 @@ export function registerFilesHandlers(
     const bp = validateString(basePath, 'basePath')
     const resolved = expandTilde(bp)
     validatePathSafe(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outside = checkReadAllowed(resolved, whitelist)
+    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
     return listDir(resolved)
   })
 
@@ -211,6 +229,9 @@ export function registerFilesHandlers(
     const fp = validateString(filePath, 'filePath')
     const resolved = expandTilde(fp)
     validatePathSafe(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outside = checkReadAllowed(resolved, whitelist)
+    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
 
     const ext = extname(resolved).slice(1).toLowerCase()
     const stat = await fsp.stat(resolved)

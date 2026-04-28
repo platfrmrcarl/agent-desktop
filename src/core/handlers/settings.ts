@@ -1,6 +1,7 @@
 import type { HandleRegistrar } from '../dispatch'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import { SettingsService } from '../services/settings'
+import { validateWebhookUrl } from '../utils/webhookValidation'
 
 export function registerSettingsHandlers(registrar: HandleRegistrar, db: SqlJsAdapter): void {
   const service = new SettingsService(db as any)
@@ -15,7 +16,15 @@ export function registerSettingsHandlers(registrar: HandleRegistrar, db: SqlJsAd
 
   registrar.handle('settings:set', async (_event, key: unknown, value: unknown) => {
     try {
-      service.set(key as string, value as string)
+      const k = key as string
+      const v = value as string
+      if (typeof k === 'string' && /^webhook_\w*[Uu]rl$/.test(k)) {
+        const result = validateWebhookUrl(v ?? '')
+        if (!result.ok) {
+          throw new Error(`Invalid webhook URL for '${k}': ${result.reason}`)
+        }
+      }
+      service.set(k, v)
     } catch (err) {
       throw new Error(`Failed to set setting: ${(err as Error).message}`)
     }

@@ -12,6 +12,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { createRateLimiter, type RateLimiter, type WebPasswordService } from '../auth'
 import { renderLoginPage } from './webServer/loginPage'
 import { addBroadcastHandler } from '../utils/broadcast'
+import { assertOriginAllowed, isWsBlocked, OriginDeniedError } from '../dispatch-allowlist'
 
 // ─── State ───────────────────────────────────────────
 
@@ -618,12 +619,20 @@ function handleWsMessage(ws: WebSocket, raw: string): void {
   }
 
   if (msg.type === 'invoke' && msg.id && msg.channel) {
-    // Block channels that are unsafe via WebSocket:
-    // - server:* — web clients must not control the server itself
-    // - openscad:exportStl — uses event.sender (null via WS → crash)
-    if (msg.channel === 'server:start' || msg.channel === 'server:stop' || msg.channel === 'server:getStatus' || msg.channel === 'openscad:exportStl') {
+    // Enforce the dispatch allowlist — WS_BLOCKED_CHANNELS and ELECTRON_ONLY_CHANNELS
+    // are the canonical source of truth (src/core/dispatch-allowlist.ts).
+    if (isWsBlocked(msg.channel)) {
       safeSend(ws, JSON.stringify({ type: 'result', id: msg.id, error: `Channel not available via WebSocket: ${msg.channel}` }))
       return
+    }
+    try {
+      assertOriginAllowed(msg.channel, 'ws')
+    } catch (err) {
+      if (err instanceof OriginDeniedError) {
+        safeSend(ws, JSON.stringify({ type: 'result', id: msg.id, error: `Channel not available via WebSocket: ${msg.channel}` }))
+        return
+      }
+      throw err
     }
 
     const handler = serverDispatch?.get(msg.channel)
