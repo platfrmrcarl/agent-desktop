@@ -15,6 +15,12 @@ export class DispatchRegistry implements HandleRegistrar {
   private handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>()
 
   handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void {
+    if (this.handlers.has(channel)) {
+      console.warn(
+        `[dispatch] duplicate handler registration for "${channel}" — second registration overrides first.`,
+        new Error('duplicate dispatch.handle'),
+      )
+    }
     this.handlers.set(channel, async (...args: unknown[]) => listener(null, ...args))
   }
 

@@ -229,11 +229,11 @@ export function enrichEnvironment(): void {
  * runtime means we stay in sync if the SDK is updated, instead of hardcoding.
  * Falls back to the values that were current when this was written.
  */
-function readCliOAuthConfig(): { tokenUrl: string; clientId: string } {
+async function readCliOAuthConfig(): Promise<{ tokenUrl: string; clientId: string }> {
   try {
     // cli.js is a bundled JS file next to sdk.mjs in the package
     const cliPath = require.resolve('@anthropic-ai/claude-agent-sdk/cli.js')
-    const content = fs.readFileSync(cliPath, 'utf8')
+    const content = await fs.promises.readFile(cliPath, 'utf8')
     // Matches: TOKEN_URL:"https://platform.claude.com/v1/oauth/token"
     const tokenUrl = content.match(/TOKEN_URL:"(https:\/\/[^"]+\/v1\/oauth\/token)"/)?.[1]
     // Matches: CLIENT_ID:"9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -285,7 +285,7 @@ export async function ensureFreshMacOSToken(): Promise<void> {
     }
 
     console.log('[env] OAuth token expired, refreshing...')
-    const { tokenUrl, clientId } = readCliOAuthConfig()
+    const { tokenUrl, clientId } = await readCliOAuthConfig()
     // Use the scopes from the stored credentials (exact scopes originally granted)
     const scopes = Array.isArray(oauth.scopes) ? oauth.scopes.join(' ') : ''
     const res = await fetch(tokenUrl, {

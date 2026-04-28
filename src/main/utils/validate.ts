@@ -1,2 +1,2 @@
 // Re-export core validators (single source of truth)
-export { validateString, validatePositiveInt, validatePathSafe, checkReadAllowed } from '../../core/utils/validate'
+export { validateString, validatePositiveInt, validatePathSafe, checkReadAllowed, checkWriteAllowed, validatePathSafeAsync } from '../../core/utils/validate'

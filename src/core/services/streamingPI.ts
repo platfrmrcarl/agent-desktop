@@ -3,6 +3,7 @@ import {
   buildPromptWithHistory,
   abortControllers,
   pendingRequests,
+  denyPendingForConversation,
   getPIUIWindowProvider,
   getPISchedulerBridge,
 } from './streaming'
@@ -410,7 +411,7 @@ export async function streamMessagePI(
   systemPrompt: string | undefined,
   aiSettings: AISettings | undefined,
   conversationId: number | undefined,
-): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null }> {
+): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; stopReason?: string }> {
   console.log(`[streamingPI] Using PI-SDK backend for conversation ${conversationId}`)
   const pi = await loadPISdk()
 
@@ -694,6 +695,7 @@ export async function streamMessagePI(
     if (abortControllers.get(convKey) === abortController) {
       abortControllers.delete(convKey)
     }
+    denyPendingForConversation(convKey)
   }
 
   return { content: fullContent, toolCalls: Array.from(toolCallsMap.values()), aborted, sessionId: null, stopReason: aborted ? 'aborted' : 'end_turn' }

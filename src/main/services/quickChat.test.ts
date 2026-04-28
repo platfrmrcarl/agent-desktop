@@ -430,7 +430,7 @@ describe('QuickChat Service', () => {
       expect(mockOverlayWin.focus).toHaveBeenCalled()
     })
 
-    it('hides visible overlay on second text trigger', async () => {
+    it('destroys visible overlay on second text trigger', async () => {
       const { registerHandlers, showOverlay } = await import('./quickChat')
       registerHandlers(mockIpcMain as unknown as IpcMain, makeMockDb())
 
@@ -439,7 +439,7 @@ describe('QuickChat Service', () => {
 
       showOverlay('text')
 
-      expect(mockOverlayWin.hide).toHaveBeenCalled()
+      expect(mockOverlayWin.destroy).toHaveBeenCalled()
     })
 
     it('sends stopRecording on second voice trigger when visible', async () => {

@@ -142,7 +142,8 @@ export function showOverlay(mode: 'text' | 'voice'): void {
         overlayWindow.webContents.send('overlay:stopRecording')
         restoreVolume()
       } else {
-        overlayWindow.hide()
+        overlayWindow.destroy()
+        // 'closed' handler resets overlayWindow = null and headlessActive = false
       }
       return
     }

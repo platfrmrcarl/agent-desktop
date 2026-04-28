@@ -2,6 +2,7 @@ import { Type, type TSchema } from '@sinclair/typebox'
 import type { ToolDefinition, AgentToolResult } from '@mariozechner/pi-coding-agent'
 import type { ImageContent, TextContent } from '@mariozechner/pi-ai'
 import type { McpClientHandle } from './mcpClient'
+import { mcpToolName } from '../utils/mcpNames'
 
 interface McpContentBlock {
   type: string
@@ -47,7 +48,7 @@ export function mcpServerToPiTools(handle: McpClientHandle): ToolDefinition[] {
       (spec.inputSchema as TSchema) ?? { type: 'object' }
     )
     const def: ToolDefinition = {
-      name: `mcp__${handle.name}__${spec.name}`,
+      name: mcpToolName(handle.name, spec.name),
       label: `${handle.name}: ${spec.name}`,
       description: spec.description ?? '',
       parameters,

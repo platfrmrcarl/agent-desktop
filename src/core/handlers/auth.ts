@@ -11,8 +11,9 @@ function getCredentialsPath(): string {
   return path.join(configDir, '.credentials.json')
 }
 
-function credentialsAvailable(credentialsPath: string): boolean {
-  if (fs.existsSync(credentialsPath)) return true
+async function credentialsAvailable(credentialsPath: string): Promise<boolean> {
+  const fileExists = await fs.promises.access(credentialsPath, fs.constants.F_OK).then(() => true).catch(() => false)
+  if (fileExists) return true
 
   if (process.platform === 'darwin') {
     try {
@@ -29,13 +30,13 @@ function credentialsAvailable(credentialsPath: string): boolean {
   return false
 }
 
-function getUserInfoFromCredentials(credentialsPath: string): { email: string; name: string } {
+async function getUserInfoFromCredentials(credentialsPath: string): Promise<{ email: string; name: string }> {
   const fallback = { email: 'Claude User', name: 'Claude User' }
   try {
     const configDir = path.dirname(credentialsPath)
     const claudeJsonPath = path.join(configDir, '.claude.json')
-    if (fs.existsSync(claudeJsonPath)) {
-      const data = JSON.parse(fs.readFileSync(claudeJsonPath, 'utf8'))
+    try {
+      const data = JSON.parse(await fs.promises.readFile(claudeJsonPath, 'utf8'))
       const account = data?.oauthAccount
       if (account?.emailAddress) {
         return {
@@ -43,6 +44,8 @@ function getUserInfoFromCredentials(credentialsPath: string): { email: string; n
           name: account.displayName || account.emailAddress,
         }
       }
+    } catch {
+      // file not found or not valid JSON — return fallback
     }
   } catch {
     // ignore
@@ -50,7 +53,7 @@ function getUserInfoFromCredentials(credentialsPath: string): { email: string; n
   return fallback
 }
 
-function runDiagnostics(sdkError?: string): AuthDiagnostics {
+async function runDiagnostics(sdkError?: string): Promise<AuthDiagnostics> {
   const home = os.homedir()
   const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude')
   const credentialsPath = path.join(configDir, '.credentials.json')
@@ -58,7 +61,7 @@ function runDiagnostics(sdkError?: string): AuthDiagnostics {
   return {
     claudeBinaryFound: false,
     claudeBinaryPath: null,
-    credentialsFileExists: credentialsAvailable(credentialsPath),
+    credentialsFileExists: await credentialsAvailable(credentialsPath),
     configDir,
     isAppImage: !!process.env.APPIMAGE,
     home,
@@ -83,12 +86,12 @@ async function getStatus(db: SqlJsAdapter): Promise<AuthStatus> {
 
   const credentialsPath = getCredentialsPath()
 
-  if (!credentialsAvailable(credentialsPath)) {
+  if (!(await credentialsAvailable(credentialsPath))) {
     const hint =
       process.platform === 'darwin'
         ? 'Run `claude login` in your terminal first.'
         : `Credentials not found at ${credentialsPath}. Run \`claude login\` in your terminal first.`
-    const diagnostics = runDiagnostics('Credentials file not found')
+    const diagnostics = await runDiagnostics('Credentials file not found')
     return {
       authenticated: false,
       user: null,
@@ -97,7 +100,7 @@ async function getStatus(db: SqlJsAdapter): Promise<AuthStatus> {
     }
   }
 
-  const userInfo = getUserInfoFromCredentials(credentialsPath)
+  const userInfo = await getUserInfoFromCredentials(credentialsPath)
   return { authenticated: true, user: userInfo }
 }
 

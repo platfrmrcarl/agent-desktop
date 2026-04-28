@@ -55,6 +55,9 @@ function withSanitizedErrors(ipcMain: IpcMain, engine: AgentEngine): IpcMain {
  * 3. Register Category C (Electron-only) services directly on ipcMain
  */
 export function bridgeDispatchToIpc(engine: AgentEngine, ipcMain: IpcMain): void {
+  // Track channels mirrored in step 1 so the step-2 loop can skip them explicitly
+  const mirroredChannels = new Set<string>()
+
   // 1. Mirror all core dispatch handlers to ipcMain with error sanitization
   for (const [channel, handler] of engine.dispatch.entries()) {
     ipcMain.handle(channel, async (_event, ...args) => {
@@ -64,6 +67,7 @@ export function bridgeDispatchToIpc(engine: AgentEngine, ipcMain: IpcMain): void
         throw new Error(sanitizeError(err))
       }
     })
+    mirroredChannels.add(channel)
   }
 
   // 2. Register Category B services on engine.dispatch (makes them available to webServer/discord/headless)
@@ -73,18 +77,17 @@ export function bridgeDispatchToIpc(engine: AgentEngine, ipcMain: IpcMain): void
   // Mirror Category B handlers that were just registered onto ipcMain
   // (they weren't in engine.dispatch during the loop above)
   for (const [channel, handler] of engine.dispatch.entries()) {
-    // Skip channels already mirrored in step 1
-    try {
-      ipcMain.handle(channel, async (_event, ...args) => {
-        try {
-          return await handler(...args)
-        } catch (err) {
-          throw new Error(sanitizeError(err))
-        }
-      })
-    } catch {
-      // ipcMain.handle throws if channel already registered — skip duplicates
-    }
+    // Skip channels already mirrored in step 1 — explicit guard replaces the
+    // previous silent try/catch that swallowed Electron's "already registered" error
+    if (mirroredChannels.has(channel)) continue
+    ipcMain.handle(channel, async (_event, ...args) => {
+      try {
+        return await handler(...args)
+      } catch (err) {
+        throw new Error(sanitizeError(err))
+      }
+    })
+    mirroredChannels.add(channel)
   }
 
   // 3. Register Category C (Electron-only) services on ipcMain AND engine.dispatch

@@ -6,7 +6,7 @@ import os from 'os'
 import { shell, app } from 'electron'
 import { spawn } from 'child_process'
 import type { FileNode } from '../../shared/types'
-import { validateString, validatePathSafe, validatePositiveInt, checkReadAllowed } from '../utils/validate'
+import { validateString, validatePathSafe, validatePositiveInt, checkReadAllowed, checkWriteAllowed, validatePathSafeAsync } from '../utils/validate'
 import { isChildPath } from '../../shared/pathUtils'
 import { expandTilde } from '../utils/paths'
 import { IMAGE_EXTS, getImageMime, mimeToExt } from '../utils/mime'
@@ -181,52 +181,55 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     validateString(basePath, 'basePath')
     const resolved = expandTilde(basePath)
     validatePathSafe(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
     const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(resolved, whitelist)
+    const outside = checkReadAllowed(realResolved, whitelist)
     if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
     const excludeSet = new Set(Array.isArray(excludePatterns) ? excludePatterns : ['node_modules'])
-    return listTree(resolved, 0, { value: 0 }, excludeSet)
+    return listTree(realResolved, 0, { value: 0 }, excludeSet)
   })
 
   ipcMain.handle('files:listDir', async (_event, basePath: string) => {
     validateString(basePath, 'basePath')
     const resolved = expandTilde(basePath)
     validatePathSafe(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
     const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(resolved, whitelist)
+    const outside = checkReadAllowed(realResolved, whitelist)
     if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
-    return listDir(resolved)
+    return listDir(realResolved)
   })
 
   ipcMain.handle('files:readFile', async (_event, filePath: string) => {
     validateString(filePath, 'filePath')
     const resolved = expandTilde(filePath)
     validatePathSafe(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
     const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(resolved, whitelist)
+    const outside = checkReadAllowed(realResolved, whitelist)
     if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
 
-    const ext = extname(resolved).slice(1).toLowerCase()
-    const stat = await fsp.stat(resolved)
+    const ext = extname(realResolved).slice(1).toLowerCase()
+    const stat = await fsp.stat(realResolved)
     if (stat.size > MAX_PREVIEW_SIZE) {
       throw new Error(`File too large to preview (${(stat.size / 1024 / 1024).toFixed(1)}MB, max ${MAX_PREVIEW_SIZE / 1024 / 1024}MB)`)
     }
 
     // Images: read as binary → base64 data URL
     if (IMAGE_EXTS.has(ext)) {
-      const buffer = await fsp.readFile(resolved)
+      const buffer = await fsp.readFile(realResolved)
       const dataUrl = `data:${getImageMime(ext)};base64,${buffer.toString('base64')}`
       return { content: dataUrl, language: 'image' as const }
     }
 
     // Binary 3D model files: read as binary → base64
     if (BINARY_MODEL_EXTS.has(ext)) {
-      const buffer = await fsp.readFile(resolved)
+      const buffer = await fsp.readFile(realResolved)
       return { content: buffer.toString('base64'), language: 'model' as const }
     }
 
     // Text files
-    const content = await fsp.readFile(resolved, 'utf-8')
+    const content = await fsp.readFile(realResolved, 'utf-8')
     const language = classifyFileExt(ext)
 
     return { content, language }
@@ -262,7 +265,11 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     validateString(filePath, 'filePath')
     const resolved = expandTilde(filePath)
     validatePathSafe(resolved)
-    await shell.trashItem(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realResolved, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
+    await shell.trashItem(realResolved)
   })
 
   ipcMain.handle('files:rename', async (_event, filePath: string, newName: string) => {
@@ -283,8 +290,12 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     validateString(filePath, 'filePath')
     const resolved = expandTilde(filePath)
     validatePathSafe(resolved)
-    const copyPath = await generateCopyPath(resolved)
-    await fsp.cp(resolved, copyPath, { recursive: true })
+    const realResolved = await validatePathSafeAsync(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realResolved, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
+    const copyPath = await generateCopyPath(realResolved)
+    await fsp.cp(realResolved, copyPath, { recursive: true })
     return copyPath
   })
 
@@ -293,9 +304,13 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     validateString(content, 'content', 2_000_000)
     const resolved = expandTilde(filePath)
     validatePathSafe(resolved)
-    const stat = await fsp.stat(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realResolved, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
+    const stat = await fsp.stat(realResolved)
     if (stat.isDirectory()) throw new Error('Cannot write to a directory')
-    await fsp.writeFile(resolved, content, 'utf-8')
+    await fsp.writeFile(realResolved, content, 'utf-8')
   })
 
   ipcMain.handle('files:move', async (_event, sourcePath: string, destDir: string) => {
@@ -435,6 +450,11 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     const sessionsBase = join(app.getPath('home'), '.agent-desktop', 'sessions-folder')
     const destDir = join(sessionsBase, String(conversationId))
     await fsp.mkdir(destDir, { recursive: true })
+    // Gate the session destination directory for write access
+    const realDestDir = await validatePathSafeAsync(destDir)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realDestDir, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
 
     // Validate all source paths and resolve names upfront (must be sequential for dedup)
     const items: { resolvedSrc: string; dest: string }[] = []
@@ -443,6 +463,8 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
       validateString(src, 'sourcePath', 2000)
       const resolvedSrc = expandTilde(src)
       validatePathSafe(resolvedSrc)
+      // Defeat symlink bypass on source paths (reading from them)
+      await validatePathSafeAsync(resolvedSrc)
 
       const name = (renames && renames[src]) ? renames[src].trim() : basename(resolvedSrc)
       let dest = join(destDir, name)

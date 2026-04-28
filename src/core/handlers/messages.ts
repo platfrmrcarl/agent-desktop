@@ -683,15 +683,7 @@ async function streamAndSave(
       const result = await streamMessage(
         attemptMessages, systemPrompt, aiSettings, conversationId, attemptSessionId
       )
-      const { content: responseContent, toolCalls, aborted, sessionId: newSessionId, error } = result
-      const stopReason = (result as any).stopReason as string | undefined
-      const usage = (result as any).usage as {
-        input_tokens?: number
-        output_tokens?: number
-        cache_read_input_tokens?: number
-        cache_creation_input_tokens?: number
-        context_window?: number
-      } | undefined
+      const { content: responseContent, toolCalls, aborted, sessionId: newSessionId, error, stopReason, usage } = result
 
       // Persist token usage so the /context command and status-line indicator have live data.
       if (usage) {

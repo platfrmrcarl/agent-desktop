@@ -1,5 +1,6 @@
 import * as path from 'path'
 import * as os from 'os'
+import { promises as fsp } from 'fs'
 
 export function validateString(value: unknown, name: string, maxLength = 10000): string {
   if (typeof value !== 'string') throw new Error(`${name} must be a string`)
@@ -118,4 +119,61 @@ export function checkReadAllowed(resolved: string, whitelist: WhitelistEntry[]):
   }
 
   return resolved  // outside all whitelist entries
+}
+
+/**
+ * Checks whether `resolved` (already resolved absolute path) is permitted by the
+ * global hooks_cwdWhitelist for write operations. Returns null if permitted, or
+ * the resolved path if denied.
+ *
+ * Write access requires an entry with access === 'readwrite' (not just 'read').
+ * Only enforced when whitelist is non-empty (backward compat).
+ */
+export function checkWriteAllowed(resolved: string, whitelist: WhitelistEntry[]): string | null {
+  if (whitelist.length === 0) return null  // no whitelist = allow all (backward compat)
+
+  for (const entry of whitelist) {
+    if (entry.access !== 'readwrite') continue  // read-only entries never grant write
+    const base = path.resolve(entry.path)
+    if (resolved === base || resolved.startsWith(base + path.sep)) {
+      return null  // permitted
+    }
+  }
+
+  return resolved  // outside all readwrite whitelist entries
+}
+
+/**
+ * Async variant of validatePathSafe that uses fs.promises.realpath() to dereference
+ * symlinks before applying blocklist and traversal checks. This defeats symlink bypass
+ * attacks where a symlink inside a permitted directory points at a blocked credential path.
+ *
+ * For paths that don't yet exist (e.g. write targets), resolves the parent directory
+ * via realpath and re-appends the basename. Falls back to path.resolve if the parent
+ * also doesn't exist.
+ *
+ * Non-ENOENT errors (EPERM, etc.) are re-thrown immediately.
+ */
+export async function validatePathSafeAsync(filePath: string, allowedBase?: string): Promise<string> {
+  let realResolved: string
+  try {
+    realResolved = await fsp.realpath(filePath)
+  } catch (err: any) {
+    if (err?.code !== 'ENOENT') throw err
+    // Path doesn't exist yet — realpath the parent chain and re-append basename
+    const parent = path.dirname(filePath)
+    let realParent: string
+    try {
+      realParent = await fsp.realpath(parent)
+    } catch (parentErr: any) {
+      if (parentErr?.code !== 'ENOENT') throw parentErr
+      // Parent also doesn't exist — fall back to path.resolve (still catches dotdot traversal)
+      realParent = path.resolve(parent)
+    }
+    realResolved = path.join(realParent, path.basename(filePath))
+  }
+
+  // Reuse sync checks — path.resolve on an already-absolute path is a no-op,
+  // so blocklist + traversal logic applies cleanly to the realpath result.
+  return validatePathSafe(realResolved, allowedBase)
 }

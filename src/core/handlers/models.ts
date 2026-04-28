@@ -33,12 +33,11 @@ interface CacheEntry {
 
 let cache: CacheEntry | null = null
 
-function readOAuthToken(): string | null {
+async function readOAuthToken(): Promise<string | null> {
   try {
     const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
     const credentialsPath = path.join(configDir, '.credentials.json')
-    if (!fs.existsSync(credentialsPath)) return null
-    const data = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
+    const data = JSON.parse(await fs.promises.readFile(credentialsPath, 'utf8'))
     const token = data?.claudeAiOauth?.accessToken
     return typeof token === 'string' && token.length > 0 ? token : null
   } catch {
@@ -81,7 +80,7 @@ async function loadModels(forceRefresh: boolean): Promise<ModelOption[]> {
   if (!forceRefresh && cache && now - cache.fetchedAt < CACHE_TTL_MS) {
     return cache.models
   }
-  const token = readOAuthToken()
+  const token = await readOAuthToken()
   if (!token) return STATIC_FALLBACK
   try {
     const models = await fetchAllModels(token)

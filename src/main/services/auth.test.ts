@@ -15,9 +15,13 @@ vi.mock('../utils/env', () => ({
   isAppImage: vi.fn(() => false),
 }))
 
-// Mock fs (sync methods used by auth.ts)
+// Mock fs (async promises API used by auth.ts)
 vi.mock('fs', () => ({
-  existsSync: vi.fn(() => true),
+  constants: { F_OK: 0 },
+  promises: {
+    access: vi.fn(() => Promise.resolve()),
+    readFile: vi.fn(() => Promise.resolve('{}')),
+  },
 }))
 
 import * as fs from 'fs'
@@ -32,8 +36,8 @@ describe('Auth Service', () => {
     ipc = createMockIpcMain()
     registerHandlers(ipc as any, db)
     vi.clearAllMocks()
-    // Default: credentials file exists
-    vi.mocked(fs.existsSync).mockReturnValue(true)
+    // Default: credentials file exists (access resolves)
+    vi.mocked(fs.promises.access).mockResolvedValue(undefined)
     vi.mocked(findBinaryInPath).mockReturnValue('/usr/local/bin/claude')
     vi.mocked(isAppImage).mockReturnValue(false)
   })
@@ -100,7 +104,7 @@ describe('Auth Service', () => {
     })
 
     it('returns error when credentials file does not exist', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      vi.mocked(fs.promises.access).mockRejectedValue(new Error('ENOENT'))
 
       const status = await ipc.invoke('auth:getStatus')
       expect(status.authenticated).toBe(false)
@@ -110,7 +114,7 @@ describe('Auth Service', () => {
     })
 
     it('includes AppImage status in diagnostics', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      vi.mocked(fs.promises.access).mockRejectedValue(new Error('ENOENT'))
       vi.mocked(isAppImage).mockReturnValue(true)
 
       const status = await ipc.invoke('auth:getStatus')
@@ -119,7 +123,7 @@ describe('Auth Service', () => {
     })
 
     it('includes claude binary path in diagnostics', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      vi.mocked(fs.promises.access).mockRejectedValue(new Error('ENOENT'))
       vi.mocked(findBinaryInPath).mockReturnValue(null)
 
       const status = await ipc.invoke('auth:getStatus')
@@ -168,7 +172,7 @@ describe('Auth Service', () => {
     })
 
     it('throws error with credentials message when credentials missing', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      vi.mocked(fs.promises.access).mockRejectedValue(new Error('ENOENT'))
 
       await expect(ipc.invoke('auth:login')).rejects.toThrow(
         'Credentials not found'

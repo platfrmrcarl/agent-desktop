@@ -3,6 +3,7 @@ import { buildCwdRestrictionHooks } from './cwdHooks'
 import { createCanUseTool } from './canUseTool'
 import { findBinaryInPath } from '../utils/env'
 import { broadcast } from '../utils/broadcast'
+import { mcpServerWildcard } from '../utils/mcpNames'
 import type { ToolApprovalResponse, AskUserResponse, ToolCall, CwdWhitelistEntry } from '../types'
 
 // ─── Injectable dependencies (set by the adapter layer) ─────
@@ -132,7 +133,7 @@ function denyAllPending(): void {
   }
 }
 
-function denyPendingForConversation(conversationId?: number): void {
+export function denyPendingForConversation(conversationId?: number): void {
   for (const [id, entry] of pendingRequests) {
     if (conversationId == null || entry.conversationId === conversationId) {
       entry.resolve({ behavior: 'deny', message: 'Request cancelled' } as ToolApprovalResponse)
@@ -453,7 +454,7 @@ async function streamMessageOneShot(
       queryOptions.mcpServers = aiSettings.mcpServers
       // MCP tools require explicit allowedTools wildcards for the SDK to permit their use
       const mcpWildcards = Object.keys(aiSettings.mcpServers).map(
-        (name) => `mcp__${name}__*`
+        (name) => mcpServerWildcard(name)
       )
       queryOptions.allowedTools = [
         ...(Array.isArray(queryOptions.allowedTools) ? queryOptions.allowedTools as string[] : []),

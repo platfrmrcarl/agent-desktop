@@ -4,6 +4,7 @@ import { sendChunk, abortControllers, respondToApproval, buildPromptWithHistory,
 import { buildCwdRestrictionHooks } from './cwdHooks'
 import { createCanUseTool } from '../../core/services/canUseTool'
 import { findBinaryInPath, ensureFreshMacOSToken } from '../utils/env'
+import { mcpServerWildcard } from '../../core/utils/mcpNames'
 import type { AISettings } from './streaming'
 import type { ToolCall, ToolApprovalResponse, AskUserResponse } from '../../shared/types'
 
@@ -775,7 +776,7 @@ async function createSession(
 
   if (aiSettings?.mcpServers && Object.keys(aiSettings.mcpServers).length > 0) {
     queryOptions.mcpServers = aiSettings.mcpServers
-    const mcpWildcards = Object.keys(aiSettings.mcpServers).map((name) => `mcp__${name}__*`)
+    const mcpWildcards = Object.keys(aiSettings.mcpServers).map((name) => mcpServerWildcard(name))
     queryOptions.allowedTools = [
       ...(Array.isArray(queryOptions.allowedTools) ? queryOptions.allowedTools as string[] : []),
       ...mcpWildcards,

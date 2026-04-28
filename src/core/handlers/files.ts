@@ -5,7 +5,7 @@ import { join, resolve as pathResolve, extname, dirname, basename } from 'path'
 import os from 'os'
 import { spawn } from 'child_process'
 import { expandTilde } from '../utils/paths'
-import { validateString, validatePositiveInt, validatePathSafe, checkReadAllowed } from '../utils/validate'
+import { validateString, validatePositiveInt, validatePathSafe, checkReadAllowed, checkWriteAllowed, validatePathSafeAsync } from '../utils/validate'
 import { isChildPath } from '../../shared/pathUtils'
 
 // ─── Constants ──────────────────────────────────────────────
@@ -208,49 +208,52 @@ export function registerFilesHandlers(
     const bp = validateString(basePath, 'basePath')
     const resolved = expandTilde(bp)
     validatePathSafe(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
     const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(resolved, whitelist)
+    const outside = checkReadAllowed(realResolved, whitelist)
     if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
     const excludeSet = new Set(Array.isArray(excludePatterns) ? excludePatterns as string[] : ['node_modules'])
-    return listTree(resolved, 0, { value: 0 }, excludeSet)
+    return listTree(realResolved, 0, { value: 0 }, excludeSet)
   })
 
   registrar.handle('files:listDir', async (_event, basePath: unknown) => {
     const bp = validateString(basePath, 'basePath')
     const resolved = expandTilde(bp)
     validatePathSafe(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
     const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(resolved, whitelist)
+    const outside = checkReadAllowed(realResolved, whitelist)
     if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
-    return listDir(resolved)
+    return listDir(realResolved)
   })
 
   registrar.handle('files:readFile', async (_event, filePath: unknown) => {
     const fp = validateString(filePath, 'filePath')
     const resolved = expandTilde(fp)
     validatePathSafe(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
     const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(resolved, whitelist)
+    const outside = checkReadAllowed(realResolved, whitelist)
     if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
 
-    const ext = extname(resolved).slice(1).toLowerCase()
-    const stat = await fsp.stat(resolved)
+    const ext = extname(realResolved).slice(1).toLowerCase()
+    const stat = await fsp.stat(realResolved)
     if (stat.size > MAX_PREVIEW_SIZE) {
       throw new Error(`File too large to preview (${(stat.size / 1024 / 1024).toFixed(1)}MB, max ${MAX_PREVIEW_SIZE / 1024 / 1024}MB)`)
     }
 
     if (IMAGE_EXTS.has(ext)) {
-      const buffer = await fsp.readFile(resolved)
+      const buffer = await fsp.readFile(realResolved)
       const dataUrl = `data:${getImageMime(ext)};base64,${buffer.toString('base64')}`
       return { content: dataUrl, language: 'image' as const }
     }
 
     if (BINARY_MODEL_EXTS.has(ext)) {
-      const buffer = await fsp.readFile(resolved)
+      const buffer = await fsp.readFile(realResolved)
       return { content: buffer.toString('base64'), language: 'model' as const }
     }
 
-    const content = await fsp.readFile(resolved, 'utf-8')
+    const content = await fsp.readFile(realResolved, 'utf-8')
     const language = classifyFileExt(ext)
     return { content, language }
   })
@@ -273,8 +276,12 @@ export function registerFilesHandlers(
     const fp = validateString(filePath, 'filePath')
     const resolved = expandTilde(fp)
     validatePathSafe(resolved)
-    const copyPath = await generateCopyPath(resolved)
-    await fsp.cp(resolved, copyPath, { recursive: true })
+    const realResolved = await validatePathSafeAsync(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realResolved, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
+    const copyPath = await generateCopyPath(realResolved)
+    await fsp.cp(realResolved, copyPath, { recursive: true })
     return copyPath
   })
 
@@ -283,9 +290,13 @@ export function registerFilesHandlers(
     const c = validateString(content, 'content', 2_000_000)
     const resolved = expandTilde(fp)
     validatePathSafe(resolved)
-    const stat = await fsp.stat(resolved)
+    const realResolved = await validatePathSafeAsync(resolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realResolved, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
+    const stat = await fsp.stat(realResolved)
     if (stat.isDirectory()) throw new Error('Cannot write to a directory')
-    await fsp.writeFile(resolved, c, 'utf-8')
+    await fsp.writeFile(realResolved, c, 'utf-8')
   })
 
   registrar.handle('files:move', async (_event, sourcePath: unknown, destDir: unknown) => {
@@ -430,6 +441,11 @@ export function registerFilesHandlers(
 
     const destDir = join(options.sessionsBase, String(cid))
     await fsp.mkdir(destDir, { recursive: true })
+    // Gate the session destination directory for write access
+    const realDestDir = await validatePathSafeAsync(destDir)
+    const whitelist = getGlobalWhitelist(db)
+    const outsideWrite = checkWriteAllowed(realDestDir, whitelist)
+    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
 
     const items: { resolvedSrc: string; dest: string }[] = []
     const assignedDests = new Set<string>()
@@ -437,6 +453,8 @@ export function registerFilesHandlers(
       validateString(src, 'sourcePath', 2000)
       const resolvedSrc = expandTilde(src)
       validatePathSafe(resolvedSrc)
+      // Defeat symlink bypass on source paths (reading from them)
+      await validatePathSafeAsync(resolvedSrc)
 
       const name = (renamesMap && renamesMap[src]) ? renamesMap[src].trim() : basename(resolvedSrc)
       let dest = join(destDir, name)
