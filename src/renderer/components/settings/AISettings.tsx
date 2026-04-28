@@ -3,6 +3,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useAuthStore } from '../../stores/authStore'
 import { DEFAULT_MODEL, SETTING_SOURCES_OPTIONS, SKILLS_TOGGLE_OPTIONS, SDK_BACKEND_OPTIONS, CONFIG_SHARING_OPTIONS, parseCustomModels, parseCustomModelContextLengths, shortenModelName, type PIExtensionInfo } from '../../../shared/constants'
 import { useModelsStore } from '../../stores/modelsStore'
+import { SearchableModelPicker } from '../shared/SearchableModelPicker'
 import { SystemPromptEditorModal } from './SystemPromptEditorModal'
 import { CwdWhitelistEditor } from './CwdWhitelistEditor'
 import type { CwdWhitelistEntry } from '../../../shared/types'
@@ -44,7 +45,7 @@ export function AISettings() {
   }, [customModelContextLengths, setSetting])
   const fetchedModels = useModelsStore((s) => s.models)
   const fetchModels = useModelsStore((s) => s.fetch)
-  useEffect(() => { fetchModels() }, [fetchModels])
+  useEffect(() => { fetchModels(sdkBackend) }, [fetchModels, sdkBackend])
   const presetValues = new Set(fetchedModels.map(o => o.value))
   const maxTurns = settings['ai_maxTurns'] ?? '1'
   const maxThinkingTokens = settings['ai_maxThinkingTokens'] ?? '0'
@@ -375,38 +376,24 @@ export function AISettings() {
           </span>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <select
+          <SearchableModelPicker
             value={(isCustomModel || model === 'custom') ? 'custom' : model}
-            onChange={(e) => {
-              if (e.target.value === 'custom') {
+            options={fetchedModels}
+            extraOptions={[
+              ...customModels.map((m) => ({ value: m, label: shortenModelName(m) })),
+              { value: 'custom', label: 'Other' },
+            ]}
+            onChange={(next) => {
+              if (next === 'custom') {
                 setSetting('ai_model', 'custom')
               } else {
-                setSetting('ai_model', e.target.value)
+                setSetting('ai_model', next)
                 setSetting('ai_customModel', '')
               }
             }}
-            className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
-            style={{
-              backgroundColor: 'var(--color-bg)',
-              color: 'var(--color-text)',
-            }}
-            aria-label="Select AI model"
-          >
-            {fetchedModels.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-            {customModels.length > 0 && (
-              <option disabled>{'─'.repeat(16)}</option>
-            )}
-            {customModels.map((m) => (
-              <option key={m} value={m}>
-                {shortenModelName(m)}
-              </option>
-            ))}
-            <option value="custom">Other</option>
-          </select>
+            buttonLabel="Model"
+            ariaLabel="Select AI model"
+          />
           {(isCustomModel || model === 'custom') && (
             <input
               type="text"

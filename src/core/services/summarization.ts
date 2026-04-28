@@ -70,10 +70,16 @@ async function summarizePI(prompt: string, _model: string, opts: SummarizeOption
   // Dynamic import — piSdk lives under src/main/services and we avoid loading
   // it in renderer/test contexts that don't need the PI subprocess machinery.
   const { loadPISdk } = await import('../../main/services/piSdk')
+  const { createPIModelContext, resolvePIModel } = await import('../../main/services/piModels')
   const pi = await loadPISdk()
+  const { authStorage, modelRegistry } = await createPIModelContext()
+  const model = await resolvePIModel(_model)
 
   const { session } = await pi.createAgentSession({
     cwd: opts.cwd,
+    model,
+    authStorage,
+    modelRegistry,
     sessionManager: pi.SessionManager.inMemory(),
     tools: [],
     customTools: [],

@@ -3,6 +3,7 @@ import * as path from 'path'
 import * as os from 'os'
 import type { HandleRegistrar } from '../dispatch'
 import { MODEL_OPTIONS, shortenModelName } from '../types/constants'
+import { discoverPIModels } from '../../main/services/piModels'
 
 export interface ModelOption {
   value: string
@@ -97,11 +98,16 @@ export function _resetModelsCache(): void {
   cache = null
 }
 
+async function loadModelsForBackend(backend?: string, forceRefresh = false): Promise<ModelOption[]> {
+  if (backend === 'pi') return discoverPIModels()
+  return loadModels(forceRefresh)
+}
+
 export function registerModelsHandlers(registrar: HandleRegistrar): void {
-  registrar.handle('models:list', async () => {
-    return loadModels(false)
+  registrar.handle('models:list', async (_event, backend?: string) => {
+    return loadModelsForBackend(backend, false)
   })
-  registrar.handle('models:refresh', async () => {
-    return loadModels(true)
+  registrar.handle('models:refresh', async (_event, backend?: string) => {
+    return loadModelsForBackend(backend, true)
   })
 }

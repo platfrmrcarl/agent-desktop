@@ -4,6 +4,11 @@ import { DispatchRegistry } from '../dispatch'
 import { registerModelsHandlers, _resetModelsCache } from './models'
 import { MODEL_OPTIONS } from '../types/constants'
 
+const mockDiscoverPIModels = vi.fn()
+vi.mock('../../main/services/piModels', () => ({
+  discoverPIModels: (...args: unknown[]) => mockDiscoverPIModels(...args),
+}))
+
 describe('models handlers', () => {
   let dispatch: DispatchRegistry
   const originalFetch = globalThis.fetch
@@ -25,6 +30,18 @@ describe('models handlers', () => {
   it('registers models:list and models:refresh', () => {
     expect(dispatch.has('models:list')).toBe(true)
     expect(dispatch.has('models:refresh')).toBe(true)
+  })
+
+  it('returns PI models when backend is pi', async () => {
+    mockDiscoverPIModels.mockResolvedValueOnce([
+      { value: 'openai/gpt-4o', label: 'GPT-4o' },
+    ])
+
+    const list = dispatch.get('models:list')!
+    const result = (await list('pi')) as { value: string; label: string }[]
+
+    expect(result).toEqual([{ value: 'openai/gpt-4o', label: 'GPT-4o' }])
+    expect(mockDiscoverPIModels).toHaveBeenCalledOnce()
   })
 
   it('returns static fallback when no credentials file', async () => {
@@ -116,5 +133,18 @@ describe('models handlers', () => {
     expect(refreshed[0].value).toBe('claude-call-2')
 
     fs.rmSync(process.env.CLAUDE_CONFIG_DIR, { recursive: true, force: true })
+  })
+
+  it('models:refresh uses PI discovery when backend is pi', async () => {
+    mockDiscoverPIModels.mockResolvedValueOnce([
+      { value: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+    ])
+
+    const refresh = dispatch.get('models:refresh')!
+    const result = (await refresh('pi')) as { value: string; label: string }[]
+
+    expect(result).toEqual([
+      { value: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+    ])
   })
 })

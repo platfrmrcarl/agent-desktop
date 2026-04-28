@@ -32,8 +32,8 @@ const api: AgentAPI = {
     },
   },
   models: {
-    list: () => withTimeout(ipcRenderer.invoke('models:list'), 15000),
-    refresh: () => withTimeout(ipcRenderer.invoke('models:refresh'), 15000),
+    list: (backend?: string) => withTimeout(ipcRenderer.invoke('models:list', backend), 15000),
+    refresh: (backend?: string) => withTimeout(ipcRenderer.invoke('models:refresh', backend), 15000),
   },
   conversations: {
     list: () => withTimeout(ipcRenderer.invoke('conversations:list')),

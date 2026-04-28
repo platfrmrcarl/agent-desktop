@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { PERMISSION_OPTIONS, PERMISSION_LABELS, shortenModelName, buildModelOptions } from '../../../shared/constants'
+import { PERMISSION_OPTIONS, PERMISSION_LABELS, buildModelOptions } from '../../../shared/constants'
 import { useModelsStore } from '../../stores/modelsStore'
 import { CheckIcon } from '../icons/CheckIcon'
 import { ChevronDownIcon } from '../icons/ChevronDownIcon'
 import { Checkbox } from '../ui/Checkbox'
+import { SearchableModelPicker } from '../shared/SearchableModelPicker'
 
 export interface McpServerEntry {
   name: string
@@ -19,6 +20,7 @@ export interface KbCollectionEntry {
 
 interface ChatStatusLineProps {
   model: string
+  backend?: string
   permissionMode: string
   mcpServers: McpServerEntry[]
   onModelChange?: (model: string) => void
@@ -47,17 +49,14 @@ function contextColorClass(pct: number): string {
   return 'text-red-500'
 }
 
-export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChange, onPermissionModeChange, onMcpServerToggle, kbCollections, onKbCollectionToggle, onKbAccessToggle, extensionStatus, customModels, contextUsed, contextWindow }: ChatStatusLineProps) {
+export function ChatStatusLine({ model, backend = 'claude-agent-sdk', permissionMode, mcpServers, onModelChange, onPermissionModeChange, onMcpServerToggle, kbCollections, onKbCollectionToggle, onKbAccessToggle, extensionStatus, customModels, contextUsed, contextWindow }: ChatStatusLineProps) {
   const baseModels = useModelsStore((s) => s.models)
   const fetchModels = useModelsStore((s) => s.fetch)
-  useEffect(() => { fetchModels() }, [fetchModels])
-  const shortModel = shortenModelName(model)
+  useEffect(() => { fetchModels(backend) }, [backend, fetchModels])
   const modeLabel = PERMISSION_LABELS[permissionMode] || permissionMode
-  const [modelOpen, setModelOpen] = useState(false)
   const [modeOpen, setModeOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
   const [kbOpen, setKbOpen] = useState(false)
-  const modelRef = useRef<HTMLDivElement>(null)
   const modeRef = useRef<HTMLDivElement>(null)
   const mcpRef = useRef<HTMLDivElement>(null)
   const kbRef = useRef<HTMLDivElement>(null)
@@ -66,11 +65,8 @@ export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChang
   const kbSelectedCount = (kbCollections || []).filter((c) => c.selected).length
 
   useEffect(() => {
-    if (!modelOpen && !modeOpen && !mcpOpen && !kbOpen) return
+    if (!modeOpen && !mcpOpen && !kbOpen) return
     const handleClick = (e: MouseEvent) => {
-      if (modelOpen && modelRef.current && !modelRef.current.contains(e.target as Node)) {
-        setModelOpen(false)
-      }
       if (modeOpen && modeRef.current && !modeRef.current.contains(e.target as Node)) {
         setModeOpen(false)
       }
@@ -87,7 +83,7 @@ export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChang
       document.removeEventListener('mousedown', handleClick)
       document.removeEventListener('touchstart', handleClick as EventListener)
     }
-  }, [modelOpen, modeOpen, mcpOpen, kbOpen])
+  }, [modeOpen, mcpOpen, kbOpen])
 
   return (
     <div
@@ -96,54 +92,16 @@ export function ChatStatusLine({ model, permissionMode, mcpServers, onModelChang
       aria-label="Chat status"
     >
       {/* Model dropdown */}
-      <div className="relative" ref={modelRef}>
-        <button
-          onClick={() => onModelChange && setModelOpen((v) => !v)}
-          className="hover:opacity-70 transition-opacity inline-flex items-center gap-0.5 whitespace-nowrap mobile:py-1 mobile:px-1"
-          style={{ cursor: onModelChange ? 'pointer' : 'default' }}
-          aria-label="Change model"
-          aria-expanded={modelOpen}
-          aria-haspopup="listbox"
-        >
-          <span>{shortModel}</span>
-          {onModelChange && <ChevronDownIcon className="opacity-60 mobile:hidden" />}
-        </button>
-        {modelOpen && (
-          <div
-            className="absolute bottom-full left-0 mb-1 rounded shadow-lg text-xs min-w-[140px] py-1 z-50 compact:max-w-[calc(100vw-2rem)]"
-            style={{
-              backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-text-muted)',
-            }}
-            role="listbox"
-            aria-label="Model selection"
-          >
-            {buildModelOptions(customModels || [], baseModels).map((opt, i) => (
-              <span key={opt.value}>
-                {i === baseModels.length && (customModels?.length ?? 0) > 0 && (
-                  <hr style={{ borderColor: 'var(--color-text-muted)', opacity: 0.2, margin: '2px 0' }} />
-                )}
-                <button
-                  role="option"
-                  aria-selected={opt.value === model}
-                  onClick={() => {
-                    onModelChange!(opt.value)
-                    setModelOpen(false)
-                  }}
-                  className="w-full text-left px-3 hover:opacity-80 transition-opacity flex items-center justify-between py-1.5 mobile:py-2.5"
-                  style={{
-                    color: opt.value === model ? 'var(--color-primary)' : 'var(--color-text)',
-                    backgroundColor: opt.value === model ? 'var(--color-bg)' : 'transparent',
-                  }}
-                >
-                  <span>{opt.label}</span>
-                  {opt.value === model && <CheckIcon size={10} />}
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
+      <SearchableModelPicker
+        value={model}
+        options={buildModelOptions(customModels || [], baseModels)}
+        onChange={(next) => onModelChange?.(next)}
+        buttonLabel="Model"
+        ariaLabel="Change model"
+        placement="up"
+        disabled={!onModelChange}
+        showChevron={!!onModelChange}
+      />
       <span aria-hidden="true">&middot;</span>
       {/* Permission mode dropdown */}
       <div className="relative" ref={modeRef}>

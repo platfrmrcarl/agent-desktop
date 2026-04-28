@@ -50,8 +50,8 @@ export interface AgentAPI {
     onOpenRequest(cb: () => void): () => void
   }
   models: {
-    list(): Promise<{ value: string; label: string }[]>
-    refresh(): Promise<{ value: string; label: string }[]>
+    list(backend?: string): Promise<{ value: string; label: string }[]>
+    refresh(backend?: string): Promise<{ value: string; label: string }[]>
   }
   conversations: {
     list(): Promise<Conversation[]>

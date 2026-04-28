@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { ChatStatusLine } from './ChatStatusLine'
 import type { McpServerEntry } from './ChatStatusLine'
 
@@ -16,7 +16,7 @@ const mixedMcp: McpServerEntry[] = [
 describe('ChatStatusLine', () => {
   it('renders simplified model name', () => {
     render(<ChatStatusLine model="claude-sonnet-4-6" permissionMode="bypassPermissions" mcpServers={noMcp} />)
-    expect(screen.getByText('sonnet-4-6')).toBeDefined()
+    expect(screen.getByText('Sonnet 4.6')).toBeDefined()
   })
 
   it('renders permission mode label', () => {
@@ -80,9 +80,11 @@ describe('ChatStatusLine', () => {
   it('opens model dropdown on click and lists models', () => {
     render(<ChatStatusLine model="claude-opus-4-6" permissionMode="default" mcpServers={noMcp} onModelChange={() => {}} />)
     fireEvent.click(screen.getByLabelText('Change model'))
-    expect(screen.getByText('Sonnet 4.6')).toBeDefined()
-    expect(screen.getByText('Opus 4.6')).toBeDefined()
-    expect(screen.getByText('Haiku 4.5')).toBeDefined()
+    const listbox = screen.getByRole('listbox', { name: 'Model options' })
+    const list = within(listbox)
+    expect(list.getByText('Sonnet 4.6')).toBeDefined()
+    expect(list.getByText('Opus 4.6')).toBeDefined()
+    expect(list.getByText('Haiku 4.5')).toBeDefined()
   })
 
   it('calls onModelChange when a model is selected', () => {

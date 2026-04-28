@@ -598,6 +598,7 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
         <div className="flex-shrink-0 px-4 pt-2">
           <ChatStatusLine
             model={effectiveModel}
+            backend={effectiveSettings['ai_sdkBackend'] || 'claude-agent-sdk'}
             permissionMode={effectivePermissionMode}
             mcpServers={mcpServerEntries}
             onModelChange={handleModelChange}

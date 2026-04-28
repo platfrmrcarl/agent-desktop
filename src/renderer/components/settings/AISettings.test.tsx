@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { AISettings } from './AISettings'
 
@@ -121,6 +121,15 @@ describe('AISettings — PI backend', () => {
     expect(screen.getByLabelText('Maximum agentic turns')).toBeInTheDocument()
     expect(screen.getByLabelText('Maximum thinking tokens')).toBeInTheDocument()
     expect(screen.getByLabelText('Default system prompt')).toBeInTheDocument()
+  })
+
+  it('opens the model search picker in settings', () => {
+    render(<AISettings />)
+
+    fireEvent.click(screen.getByLabelText('Select AI model'))
+
+    expect(screen.getByLabelText('Search models')).toBeInTheDocument()
+    expect(screen.getByRole('listbox', { name: 'Model options' })).toBeInTheDocument()
   })
 })
 
