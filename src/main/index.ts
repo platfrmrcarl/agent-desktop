@@ -5,7 +5,8 @@ import { patchConsoleError } from './bootstrap/mainErrorCapture'
 export const mainErrorBuffer = new ErrorBuffer()
 patchConsoleError(mainErrorBuffer)
 
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, session, shell } from 'electron'
+import type { Session } from 'electron'
 import { join } from 'path'
 import { AgentEngine } from '../core'
 import type { Broadcaster } from '../core/ports/broadcaster'
@@ -57,6 +58,96 @@ if (process.platform === 'linux') {
 // Kill existing instances — new instance wins, old ones are terminated
 if (process.platform === 'linux') {
   killExistingInstances()
+}
+
+// Windows taskbar identity — affects notifications, jump lists, taskbar pinning.
+// Must happen before any BrowserWindow is created.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.agent.desktop')
+}
+
+// --- Security hardening -----------------------------------------------------
+//
+// Single-patch consolidation of the Electron hardening review
+// (.claude/reviews/2026-04-23/07-electron-packaging.md +
+//  .claude/reviews/2026-04-23/01-security.md #14, #18).
+//
+// Kept as pure exported helpers so tests can exercise them against mock
+// session / window objects without spinning up an Electron runtime.
+
+/**
+ * Content-Security-Policy served on every main-window response.
+ *
+ * Tight enough to foreclose script injection (`script-src 'self'`) while
+ * still allowing the preview protocol to serve images/stylesheets into
+ * iframes. Crucially, `connect-src` does NOT list `agent-preview:` — a
+ * compromised renderer therefore cannot fetch arbitrary files through
+ * the preview channel (e.g. `fetch('agent-preview:///home/<u>/.ssh/id_rsa')`).
+ */
+export const CSP_POLICY = [
+  "default-src 'self' agent-preview:",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: agent-preview:",
+  "connect-src 'self' ws: wss: https:",
+  "object-src 'none'",
+  "frame-src 'none'",
+  "base-uri 'none'",
+].join('; ')
+
+/**
+ * Renderer permission allowlist. Anything not in this set is denied when
+ * the page calls a gated API (navigator.mediaDevices, Notification, etc.).
+ */
+export const PERMISSION_ALLOWLIST: ReadonlySet<string> = new Set([
+  'media',
+  'notifications',
+  'clipboard-sanitized-write',
+])
+
+/** Install CSP + permission filter on an Electron Session. */
+export function applySessionHardening(target: Session): void {
+  target.webRequest.onHeadersReceived((details, cb) => {
+    cb({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [CSP_POLICY],
+      },
+    })
+  })
+  target.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(PERMISSION_ALLOWLIST.has(permission))
+  })
+}
+
+/**
+ * Lock a BrowserWindow to its launch origin:
+ *   - `window.open()` / `target=_blank` is denied in-window; http(s) URLs
+ *     are farmed out to the OS shell.
+ *   - Cross-origin top-level navigations are blocked; http(s) URLs are
+ *     opened externally, everything else is silently prevented.
+ *
+ * MUST be called before `loadURL`/`loadFile`, otherwise the first
+ * navigation slips past the guards.
+ */
+export function hardenBrowserWindow(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (ev, targetUrl) => {
+    const currentUrl = win.webContents.getURL()
+    if (!currentUrl) return
+    try {
+      if (new URL(targetUrl).origin !== new URL(currentUrl).origin) {
+        ev.preventDefault()
+        if (/^https?:\/\//i.test(targetUrl)) shell.openExternal(targetUrl)
+      }
+    } catch {
+      // Unparseable target → safest to refuse the navigation outright.
+      ev.preventDefault()
+    }
+  })
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -111,6 +202,10 @@ function createWindow(): void {
 
   registerWindowIpc()
 
+  // Origin-lock the window BEFORE loadURL/loadFile — otherwise the first
+  // navigation dispatches before setWindowOpenHandler/will-navigate are wired.
+  hardenBrowserWindow(mainWindow)
+
   // Load renderer
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -146,6 +241,22 @@ if (!gotLock) {
     }
 
     registerPreviewProtocol()
+
+    // Security hardening — session CSP + permission filter + app-level
+    // guards. Must run after ready; defaultSession is not available before.
+    applySessionHardening(session.defaultSession)
+    if (app.isPackaged) Menu.setApplicationMenu(null)
+    app.on('certificate-error', (_e, _wc, _url, _err, _cert, cb) => cb(false))
+    app.on('render-process-gone', (_e, _wc, details) => {
+      console.error('[crash] renderer', details)
+    })
+    app.on('child-process-gone', (_e, details) => {
+      // Electron 33 folds the former `gpu-process-crashed` event into
+      // child-process-gone with type==='GPU'.
+      if (details.type === 'GPU') console.error('[crash] gpu', details)
+      else console.error('[crash] child-process', details)
+    })
+
     const errorBufferPath = join(app.getPath('userData'), 'error-buffer.json')
     await loadFromDisk(mainErrorBuffer, errorBufferPath)
     attachPersistence(mainErrorBuffer, errorBufferPath)

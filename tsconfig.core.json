@@ -1,0 +1,43 @@
+{
+  // WP5a scaffolding: type-check src/core, src/headless, src/extensions under strict mode.
+  // `noUncheckedIndexedAccess` is aspirational (see brief) — currently off because it surfaces
+  // 80+ `string|undefined` errors across files owned by WP1/WP5b/WP6. Turn on in WP5b after
+  // the `db as any` sweep + ownership releases.
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "outDir": "./out/core-typecheck",
+    "tsBuildInfoFile": "./out/core-typecheck/.tsbuildinfo",
+    "declaration": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": false,
+
+    "paths": {
+      "@shared/*": ["./src/shared/*"]
+    },
+    "baseUrl": "."
+  },
+  "include": [
+    "src/core/**/*.ts",
+    "src/headless/**/*.ts",
+    "src/extensions/**/*.ts",
+    "src/shared/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.integration.test.ts",
+    "**/__tests__/**",
+    "node_modules"
+  ]
+}
