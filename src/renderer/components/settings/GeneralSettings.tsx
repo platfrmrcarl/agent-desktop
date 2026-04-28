@@ -3,6 +3,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { NOTIFICATION_EVENTS, DEFAULT_NOTIFICATION_CONFIG } from '../../../shared/constants'
 import type { NotificationConfig, NotificationEvent } from '../../../shared/types'
 import { ChevronDownIcon } from '../icons/ChevronDownIcon'
+import { tint } from '../../utils/colorMix'
 
 interface ToggleOption {
   key: string
@@ -116,7 +117,8 @@ export function GeneralSettings() {
       {toggleOptions.map((opt) => (
         <div key={opt.key}>
           <div
-            className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10"
+            className="flex items-center justify-between py-3 border-b"
+            style={{ borderColor: tint('--color-text-muted', 10) }}
           >
             <div className="flex flex-col gap-0.5 pr-4">
               <span
@@ -191,7 +193,10 @@ export function GeneralSettings() {
                     ))}
                   </div>
 
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--color-text-muted)]/10">
+                  <div
+                    className="flex items-center justify-between mt-3 pt-3 border-t"
+                    style={{ borderColor: tint('--color-text-muted', 10) }}
+                  >
                     <div className="flex flex-col gap-0.5">
                       <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>
                         Desktop notification trigger
@@ -203,8 +208,8 @@ export function GeneralSettings() {
                     <select
                       value={settings.notificationDesktopMode ?? 'unfocused'}
                       onChange={(e) => setSetting('notificationDesktopMode', e.target.value)}
-                      className="text-xs rounded px-2 py-1 border border-[var(--color-text-muted)]/20 mobile:text-base mobile:py-2"
-                      style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)' }}
+                      className="text-xs rounded px-2 py-1 border mobile:text-base mobile:py-2"
+                      style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
                       aria-label="Desktop notification trigger mode"
                     >
                       <option value="hidden">Hidden only</option>
@@ -219,7 +224,10 @@ export function GeneralSettings() {
         </div>
       ))}
 
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Response timeout
@@ -234,14 +242,17 @@ export function GeneralSettings() {
           step={30}
           value={settings.streamingTimeoutSeconds ?? '300'}
           onChange={(e) => setSetting('streamingTimeoutSeconds', e.target.value)}
-          className="w-24 text-sm rounded px-2 py-1 border border-[var(--color-text-muted)]/20 text-right mobile:text-base"
-          style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)' }}
+          className="w-24 text-sm rounded px-2 py-1 border text-right mobile:text-base"
+          style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
           aria-label="Response timeout in seconds"
         />
       </div>
 
       {/* Auto-retry settings */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Auto-retry on error
@@ -259,7 +270,10 @@ export function GeneralSettings() {
 
       {getValue('retry_enabled', 'true') && (
         <>
-          <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+          <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
             <div className="flex flex-col gap-0.5 pr-4">
               <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
                 Max retry attempts
@@ -278,13 +292,16 @@ export function GeneralSettings() {
                 const val = Math.max(1, Math.min(10, Number(e.target.value) || 3))
                 setSetting('retry_maxAttempts', String(val))
               }}
-              className="w-24 text-sm rounded px-2 py-1 border border-[var(--color-text-muted)]/20 text-right mobile:text-base"
-              style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)' }}
+              className="w-24 text-sm rounded px-2 py-1 border text-right mobile:text-base"
+              style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
               aria-label="Max retry attempts"
             />
           </div>
 
-          <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+          <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
             <div className="flex flex-col gap-0.5 pr-4">
               <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
                 Initial retry delay
@@ -303,8 +320,8 @@ export function GeneralSettings() {
                 const seconds = Math.max(1, Math.min(30, Number(e.target.value) || 2))
                 setSetting('retry_initialDelayMs', String(seconds * 1000))
               }}
-              className="w-24 text-sm rounded px-2 py-1 border border-[var(--color-text-muted)]/20 text-right mobile:text-base"
-              style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)' }}
+              className="w-24 text-sm rounded px-2 py-1 border text-right mobile:text-base"
+              style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
               aria-label="Initial retry delay in seconds"
             />
           </div>
@@ -312,7 +329,10 @@ export function GeneralSettings() {
       )}
 
       {/* Default sort order */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Default conversation sort
@@ -325,8 +345,8 @@ export function GeneralSettings() {
           <select
             value={settings.sort_criterion ?? 'updated_at'}
             onChange={(e) => setSetting('sort_criterion', e.target.value)}
-            className="text-xs rounded px-2 py-1 border border-[var(--color-text-muted)]/20 mobile:text-base mobile:py-2"
-            style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)' }}
+            className="text-xs rounded px-2 py-1 border mobile:text-base mobile:py-2"
+            style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
             aria-label="Sort criterion"
           >
             <option value="updated_at">Last message date</option>
@@ -336,8 +356,8 @@ export function GeneralSettings() {
           <select
             value={settings.sort_direction ?? 'desc'}
             onChange={(e) => setSetting('sort_direction', e.target.value)}
-            className="text-xs rounded px-2 py-1 border border-[var(--color-text-muted)]/20 mobile:text-base mobile:py-2"
-            style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)' }}
+            className="text-xs rounded px-2 py-1 border mobile:text-base mobile:py-2"
+            style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
             aria-label="Sort direction"
           >
             <option value="desc">Descending</option>

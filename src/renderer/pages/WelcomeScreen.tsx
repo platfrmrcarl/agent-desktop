@@ -111,7 +111,7 @@ export function WelcomeScreen() {
           className="w-full px-6 py-3 rounded-md font-medium transition-opacity"
           style={{
             backgroundColor: 'var(--color-primary)',
-            color: '#fff',
+            color: 'var(--color-text-contrast)',
             opacity: isLoading ? 0.6 : 1,
             cursor: isLoading ? 'wait' : 'pointer',
           }}

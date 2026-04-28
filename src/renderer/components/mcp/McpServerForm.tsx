@@ -177,8 +177,10 @@ export function McpServerForm({ server, onClose }: McpServerFormProps) {
     }
   }, [name, serverType, command, argRows, envRows, url, headerRows, isValid, isEdit, server, addServer, updateServer, onClose])
 
+  // NOTE: Border opacity (was /30) lost — Tailwind opacity modifiers don't work with raw CSS var values.
+  // To restore tinted borders, refactor each input to set `style={{ borderColor: tint('--color-text-muted', 30) }}` directly.
   const inputClass =
-    'w-full bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-text-muted)]/30 rounded px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)] mobile:text-base'
+    'w-full bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-text-muted)] rounded px-3 py-2 text-sm outline-none focus:border-[var(--color-primary)] mobile:text-base'
 
   const typeOptions: { value: McpTransportType; label: string }[] = [
     { value: 'stdio', label: 'stdio' },

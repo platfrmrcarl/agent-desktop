@@ -3,6 +3,7 @@ import { useSchedulerStore } from '../../stores/schedulerStore'
 import { TaskCard } from './TaskCard'
 import { TaskFormModal } from './TaskFormModal'
 import type { ScheduledTask, CreateScheduledTask } from '../../../shared/types'
+import { tint } from '../../utils/colorMix'
 
 function BackgroundToggle() {
   const [bgEnabled, setBgEnabled] = useState(false)
@@ -102,7 +103,10 @@ export function SchedulerPage({ onClose }: Props) {
         style={{ backgroundColor: 'var(--color-surface)' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 compact:px-4 py-4 border-b border-[var(--color-text-muted)]/10 flex-shrink-0">
+        <div
+          className="flex items-center justify-between px-6 compact:px-4 py-4 border-b flex-shrink-0"
+          style={{ borderColor: tint('--color-text-muted', 10) }}
+        >
           <div className="flex items-center gap-3">
             <svg className="w-5 h-5" style={{ color: 'var(--color-primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -179,7 +183,10 @@ export function SchedulerPage({ onClose }: Props) {
         </div>
 
         {/* Footer: background scheduling toggle */}
-        <div className="px-6 compact:px-4 py-3 border-t border-[var(--color-text-muted)]/10 flex-shrink-0">
+        <div
+          className="px-6 compact:px-4 py-3 border-t flex-shrink-0"
+          style={{ borderColor: tint('--color-text-muted', 10) }}
+        >
           <BackgroundToggle />
         </div>
       </div>

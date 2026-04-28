@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { SystemInfo, UpdateStatus } from '../../../shared/types'
 import { useBugReportStore } from '../../stores/bugReportStore'
+import { tint } from '../../utils/colorMix'
 
 export function AboutSection() {
   const [info, setInfo] = useState<SystemInfo | null>(null)
@@ -124,7 +125,8 @@ export function AboutSection() {
 
       {/* License */}
       <div
-        className="pt-4 border-t border-[var(--color-text-muted)]/10"
+        className="pt-4 border-t"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
       >
         <p
           className="text-xs"

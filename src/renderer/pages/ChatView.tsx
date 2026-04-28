@@ -535,7 +535,7 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
         {error && (
           <div
             className="flex-shrink-0 px-4 py-2 text-sm"
-            style={{ backgroundColor: 'var(--color-error)', color: '#fff' }}
+            style={{ backgroundColor: 'var(--color-error)', color: 'var(--color-text-contrast)' }}
           >
             {error}
           </div>

@@ -3,6 +3,7 @@ import { CheckIcon } from '../icons/CheckIcon'
 import { ChevronDownIcon } from '../icons/ChevronDownIcon'
 import { fuzzyHighlight, fuzzyMatch } from '../../utils/fuzzyMatch'
 import { shortenModelName } from '../../../shared/constants'
+import { tint } from '../../utils/colorMix'
 
 export interface ModelPickerOption {
   value: string
@@ -120,7 +121,7 @@ export function SearchableModelPicker({
             border: '1px solid var(--color-text-muted)',
           }}
         >
-          <div className="p-2 border-b border-[var(--color-text-muted)]/15">
+          <div className="p-2 border-b" style={{ borderColor: tint('--color-text-muted', 15) }}>
             <input
               ref={inputRef}
               value={query}

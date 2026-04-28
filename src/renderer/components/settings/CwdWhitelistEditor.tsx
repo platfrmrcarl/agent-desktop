@@ -1,4 +1,5 @@
 import type { CwdWhitelistEntry } from '../../../shared/types'
+import { tint } from '../../utils/colorMix'
 
 interface CwdWhitelistEditorProps {
   entries: CwdWhitelistEntry[]
@@ -41,9 +42,10 @@ export function CwdWhitelistEditor({ entries, onChange, disabled }: CwdWhitelist
             value={entry.access}
             onChange={(e) => handleAccessChange(index, e.target.value as 'read' | 'readwrite')}
             disabled={disabled}
-            className="px-1.5 py-0.5 rounded text-[0.6875rem] border border-[var(--color-text-muted)]/20 outline-none"
+            className="px-1.5 py-0.5 rounded text-[0.6875rem] border outline-none"
             style={{
               backgroundColor: 'var(--color-bg)',
+              borderColor: tint('--color-text-muted', 20),
               color: disabled ? 'var(--color-text-muted)' : 'var(--color-text)',
               opacity: disabled ? 0.5 : 1,
             }}

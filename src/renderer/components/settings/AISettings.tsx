@@ -7,6 +7,7 @@ import { SearchableModelPicker } from '../shared/SearchableModelPicker'
 import { SystemPromptEditorModal } from './SystemPromptEditorModal'
 import { CwdWhitelistEditor } from './CwdWhitelistEditor'
 import type { CwdWhitelistEntry } from '../../../shared/types'
+import { tint } from '../../utils/colorMix'
 
 export function AISettings() {
   const { settings, loadSettings, setSetting } = useSettingsStore()
@@ -129,7 +130,10 @@ export function AISettings() {
   return (
     <div className="flex flex-col gap-1">
       {/* ─── Agent Identity ─────────────────────────────── */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Agent Name
@@ -143,16 +147,20 @@ export function AISettings() {
           value={agentName}
           onChange={(e) => setSetting('agent_name', e.target.value)}
           placeholder="Claude"
-          className="w-48 px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base"
+          className="w-48 px-3 py-1.5 rounded text-sm border outline-none mobile:text-base"
           style={{
             backgroundColor: 'var(--color-bg)',
             color: 'var(--color-text)',
+            borderColor: tint('--color-text-muted', 20),
           }}
           aria-label="Agent name"
         />
       </div>
 
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Language
@@ -166,16 +174,20 @@ export function AISettings() {
           value={agentLanguage}
           onChange={(e) => setSetting('agent_language', e.target.value)}
           placeholder="e.g. Français, English, Español"
-          className="w-48 px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base"
+          className="w-48 px-3 py-1.5 rounded text-sm border outline-none mobile:text-base"
           style={{
             backgroundColor: 'var(--color-bg)',
             color: 'var(--color-text)',
+            borderColor: tint('--color-text-muted', 20),
           }}
           aria-label="Agent language"
         />
       </div>
 
-      <div className="flex flex-col gap-2 py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex flex-col gap-2 py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Personality
@@ -189,17 +201,21 @@ export function AISettings() {
           onChange={(e) => setSetting('agent_personality', e.target.value)}
           rows={2}
           placeholder="e.g. concis et technique, chaleureux et pédagogue"
-          className="w-full px-3 py-2 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none resize-y mobile:text-base"
+          className="w-full px-3 py-2 rounded text-sm border outline-none resize-y mobile:text-base"
           style={{
             backgroundColor: 'var(--color-bg)',
             color: 'var(--color-text)',
+            borderColor: tint('--color-text-muted', 20),
           }}
           aria-label="Agent personality"
         />
       </div>
 
       {/* Backend */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Backend
@@ -211,10 +227,11 @@ export function AISettings() {
         <select
           value={sdkBackend}
           onChange={(e) => setSetting('ai_sdkBackend', e.target.value)}
-          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
+          className="px-3 py-1.5 rounded text-sm border outline-none mobile:text-base mobile:py-2"
           style={{
             backgroundColor: 'var(--color-bg)',
             color: 'var(--color-text)',
+            borderColor: tint('--color-text-muted', 20),
           }}
           aria-label="Select SDK backend"
         >
@@ -228,7 +245,10 @@ export function AISettings() {
 
       {/* PI Extensions Directory (PI only) */}
       {!isClaudeBackend && (
-        <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               Extensions Directory
@@ -243,10 +263,11 @@ export function AISettings() {
               value={piExtensionsDir}
               onChange={(e) => setSetting('pi_extensionsDir', e.target.value)}
               placeholder="~/.pi/agent/extensions/"
-              className="w-56 px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
+              className="w-56 px-3 py-1.5 rounded text-sm border outline-none font-mono mobile:text-base"
               style={{
                 backgroundColor: 'var(--color-bg)',
                 color: 'var(--color-text)',
+                borderColor: tint('--color-text-muted', 20),
               }}
               aria-label="PI extensions directory"
             />
@@ -267,7 +288,10 @@ export function AISettings() {
 
       {/* Discovered PI Extensions (PI only) */}
       {!isClaudeBackend && piExtensions.length > 0 && (
-        <div className="py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+          className="py-3 border-b"
+          style={{ borderColor: tint('--color-text-muted', 10) }}
+        >
           <span className="text-xs font-medium mb-2 block" style={{ color: 'var(--color-text-muted)' }}>
             Discovered Extensions
           </span>
@@ -304,7 +328,10 @@ export function AISettings() {
 
       {/* API Key (Claude only) */}
       {isClaudeBackend && (
-        <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               API Key
@@ -319,10 +346,11 @@ export function AISettings() {
               value={apiKey}
               onChange={(e) => handleApiKeyChange(e.target.value)}
               placeholder="sk-ant-..."
-              className="w-48 px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
+              className="w-48 px-3 py-1.5 rounded text-sm border outline-none font-mono mobile:text-base"
               style={{
                 backgroundColor: 'var(--color-bg)',
                 color: 'var(--color-text)',
+                borderColor: tint('--color-text-muted', 20),
               }}
               aria-label="API key"
             />
@@ -341,7 +369,10 @@ export function AISettings() {
 
       {/* Base URL (only when API key is set, Claude only) */}
       {isClaudeBackend && apiKey && (
-        <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               Base URL
@@ -355,10 +386,11 @@ export function AISettings() {
             value={baseUrl}
             onChange={(e) => setSetting('ai_baseUrl', e.target.value)}
             placeholder="https://api.anthropic.com"
-            className="w-56 px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
+            className="w-56 px-3 py-1.5 rounded text-sm border outline-none font-mono mobile:text-base"
             style={{
               backgroundColor: 'var(--color-bg)',
               color: 'var(--color-text)',
+              borderColor: tint('--color-text-muted', 20),
             }}
             aria-label="Base URL"
           />
@@ -366,7 +398,10 @@ export function AISettings() {
       )}
 
       {/* Model */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Model
@@ -402,10 +437,11 @@ export function AISettings() {
               onBlur={() => saveCustomModel(customModel)}
               onKeyDown={(e) => { if (e.key === 'Enter') saveCustomModel(customModel) }}
               placeholder="model-id (saved on Enter/blur)"
-              className="w-48 px-3 py-1.5 rounded text-xs border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
+              className="w-48 px-3 py-1.5 rounded text-xs border outline-none font-mono mobile:text-base"
               style={{
                 backgroundColor: 'var(--color-bg)',
                 color: 'var(--color-text)',
+                borderColor: tint('--color-text-muted', 20),
               }}
               aria-label="Custom model ID"
             />
@@ -464,7 +500,10 @@ export function AISettings() {
       </div>
 
       {/* Context token counter mode */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Context counter
@@ -477,10 +516,11 @@ export function AISettings() {
           value={settings['ai_contextTokenCounter'] ?? 'local'}
           onChange={(e) => setSetting('ai_contextTokenCounter', e.target.value)}
           disabled={!isClaudeBackend}
-          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none disabled:opacity-50 mobile:text-base mobile:py-2"
+          className="px-3 py-1.5 rounded text-sm border outline-none disabled:opacity-50 mobile:text-base mobile:py-2"
           style={{
             backgroundColor: 'var(--color-bg)',
             color: 'var(--color-text)',
+            borderColor: tint('--color-text-muted', 20),
           }}
           aria-label="Select context token counter mode"
           title={isClaudeBackend ? undefined : 'Only available on Claude Agent SDK backend'}
@@ -491,7 +531,10 @@ export function AISettings() {
       </div>
 
       {/* Max Turns */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Max Turns
@@ -508,17 +551,21 @@ export function AISettings() {
             const v = Math.max(0, Number(e.target.value) || 0)
             setSetting('ai_maxTurns', String(v))
           }}
-          className="w-20 px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none text-right mobile:text-base"
+          className="w-20 px-3 py-1.5 rounded text-sm border outline-none text-right mobile:text-base"
           style={{
             backgroundColor: 'var(--color-bg)',
             color: 'var(--color-text)',
+            borderColor: tint('--color-text-muted', 20),
           }}
           aria-label="Maximum agentic turns"
         />
       </div>
 
       {/* Max Thinking Tokens */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Max Thinking Tokens
@@ -537,10 +584,11 @@ export function AISettings() {
             const v = Math.max(0, Math.min(100000, Number(e.target.value) || 0))
             setSetting('ai_maxThinkingTokens', String(v))
           }}
-          className="w-24 px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none text-right mobile:text-base"
+          className="w-24 px-3 py-1.5 rounded text-sm border outline-none text-right mobile:text-base"
           style={{
             backgroundColor: 'var(--color-bg)',
             color: 'var(--color-text)',
+            borderColor: tint('--color-text-muted', 20),
           }}
           aria-label="Maximum thinking tokens"
         />
@@ -548,7 +596,10 @@ export function AISettings() {
 
       {/* Max Budget USD — both backends (PI via budgetTracker module, Phase 5) */}
       {(
-        <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               Max Budget (USD)
@@ -567,10 +618,11 @@ export function AISettings() {
               const v = Math.max(0, Math.min(10, Number(e.target.value) || 0))
               setSetting('ai_maxBudgetUsd', String(v))
             }}
-            className="w-24 px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none text-right mobile:text-base"
+            className="w-24 px-3 py-1.5 rounded text-sm border outline-none text-right mobile:text-base"
             style={{
               backgroundColor: 'var(--color-bg)',
               color: 'var(--color-text)',
+              borderColor: tint('--color-text-muted', 20),
             }}
             aria-label="Maximum budget in USD"
           />
@@ -579,7 +631,10 @@ export function AISettings() {
 
       {/* Permission Mode — both backends (PI via permissionModes module) */}
       {(
-        <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               Permission Mode
@@ -591,10 +646,11 @@ export function AISettings() {
           <select
             value={permissionMode}
             onChange={(e) => setSetting('ai_permissionMode', e.target.value)}
-            className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
+            className="px-3 py-1.5 rounded text-sm border outline-none mobile:text-base mobile:py-2"
             style={{
               backgroundColor: 'var(--color-bg)',
               color: 'var(--color-text)',
+              borderColor: tint('--color-text-muted', 20),
             }}
             aria-label="Select permission mode"
           >
@@ -609,7 +665,10 @@ export function AISettings() {
 
       {/* Require Plan Approval — both backends */}
       {(
-        <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)', opacity: permissionMode === 'bypassPermissions' ? 1 : 0.5 }}>
               Ask before leaving Plan mode
@@ -640,7 +699,10 @@ export function AISettings() {
 
       {/* Setting Sources — both backends (PI via skillsBridge module, Phase 4) */}
       {(
-        <div className="flex flex-col gap-2 py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+        className="flex flex-col gap-2 py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-0.5 pr-4">
               <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
@@ -653,10 +715,11 @@ export function AISettings() {
             <select
               value={skills}
               onChange={(e) => setSetting('ai_skills', e.target.value)}
-              className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none whitespace-nowrap mobile:text-base mobile:py-2"
+              className="px-3 py-1.5 rounded text-sm border outline-none whitespace-nowrap mobile:text-base mobile:py-2"
               style={{
                 backgroundColor: 'var(--color-bg)',
                 color: 'var(--color-text)',
+                borderColor: tint('--color-text-muted', 20),
               }}
               aria-label="Select setting sources"
             >
@@ -708,7 +771,10 @@ export function AISettings() {
 
       {/* Skills Toggle — both backends */}
       {(
-        <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)', opacity: skills === 'off' ? 0.5 : 1 }}>
               Skills
@@ -740,7 +806,10 @@ export function AISettings() {
       )}
 
       {/* Include Installed Plugin Skills — both backends (PI: skillsBridge contributes paths; Claude: informational, SDK loads natively) */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)', opacity: skills === 'off' || skillsEnabled !== 'true' ? 0.5 : 1 }}>
             Include Installed Plugin Skills
@@ -770,7 +839,10 @@ export function AISettings() {
 
       {/* Per-Skill List — both backends (informational; PI cannot enforce per-skill disable, see skills-bridge) */}
       {(skills !== 'off' && skillsEnabled === 'true' && discoveredSkills.length > 0) && (
-        <div className="py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+          className="py-3 border-b"
+          style={{ borderColor: tint('--color-text-muted', 10) }}
+        >
           <span className="text-xs font-medium mb-2 block" style={{ color: 'var(--color-text-muted)' }}>
             Discovered Skills
           </span>
@@ -809,7 +881,10 @@ export function AISettings() {
 
       {/* CWD Restriction — both backends (PI via cwdGuard module) */}
       {(
-        <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
           <div className="flex flex-col gap-0.5 pr-4">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               CWD Write Restriction
@@ -875,7 +950,10 @@ export function AISettings() {
 
       {/* CWD Whitelist — both backends */}
       {cwdRestriction === 'true' && (
-        <div className="py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+          className="py-3 border-b"
+          style={{ borderColor: tint('--color-text-muted', 10) }}
+        >
           <div className="flex flex-col gap-0.5 mb-2">
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               Allowed Directories
@@ -892,7 +970,10 @@ export function AISettings() {
       )}
 
       {/* Share Claude Config */}
-      <div className="flex items-center justify-between py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex items-center justify-between py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <div className="flex flex-col gap-0.5 pr-4">
           <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
             Share Claude Config
@@ -904,10 +985,11 @@ export function AISettings() {
         <select
           value={sharedHooks}
           onChange={(e) => setSetting('settings_sharedAcrossBackends', e.target.value)}
-          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
+          className="px-3 py-1.5 rounded text-sm border outline-none mobile:text-base mobile:py-2"
           style={{
             backgroundColor: 'var(--color-bg)',
             color: 'var(--color-text)',
+            borderColor: tint('--color-text-muted', 20),
           }}
           aria-label="Share Claude config across backends"
         >
@@ -948,17 +1030,21 @@ export function AISettings() {
           onChange={(e) => setSetting('ai_defaultSystemPrompt', e.target.value)}
           rows={4}
           placeholder="Enter a default system prompt..."
-          className="w-full px-3 py-2 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none resize-y mobile:text-base"
+          className="w-full px-3 py-2 rounded text-sm border outline-none resize-y mobile:text-base"
           style={{
             backgroundColor: 'var(--color-bg)',
             color: 'var(--color-text)',
+            borderColor: tint('--color-text-muted', 20),
           }}
           aria-label="Default system prompt"
         />
       </div>
 
       {/* Compact Model (global only) */}
-      <div className="flex flex-col gap-1.5 py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex flex-col gap-1.5 py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <label className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
           Compact Model
         </label>
@@ -972,8 +1058,8 @@ export function AISettings() {
               setSetting('ai_compactModel', val)
             }
           }}
-          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
-          style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+          className="px-3 py-1.5 rounded text-sm border outline-none mobile:text-base mobile:py-2"
+          style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
           aria-label="Compact model"
         >
           <option value="">Auto (current model)</option>
@@ -988,8 +1074,8 @@ export function AISettings() {
             value={compactModel}
             onChange={(e) => setSetting('ai_compactModel', e.target.value)}
             placeholder="model-id"
-            className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
-            style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+            className="px-3 py-1.5 rounded text-sm border outline-none font-mono mobile:text-base"
+            style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
             aria-label="Custom compact model"
           />
         )}
@@ -999,7 +1085,10 @@ export function AISettings() {
       </div>
 
       {/* Title Model (global only) */}
-      <div className="flex flex-col gap-1.5 py-3 border-b border-[var(--color-text-muted)]/10">
+      <div
+        className="flex flex-col gap-1.5 py-3 border-b"
+        style={{ borderColor: tint('--color-text-muted', 10) }}
+      >
         <label className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
           Title Model
         </label>
@@ -1013,8 +1102,8 @@ export function AISettings() {
               setSetting('ai_titleModel', val)
             }
           }}
-          className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none mobile:text-base mobile:py-2"
-          style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+          className="px-3 py-1.5 rounded text-sm border outline-none mobile:text-base mobile:py-2"
+          style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
           aria-label="Title model"
         >
           <option value="">Auto (current model)</option>
@@ -1029,8 +1118,8 @@ export function AISettings() {
             value={titleModel}
             onChange={(e) => setSetting('ai_titleModel', e.target.value)}
             placeholder="model-id"
-            className="px-3 py-1.5 rounded text-sm border border-[var(--color-text-muted)]/20 outline-none font-mono mobile:text-base"
-            style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+            className="px-3 py-1.5 rounded text-sm border outline-none font-mono mobile:text-base"
+            style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
             aria-label="Custom title model"
           />
         )}

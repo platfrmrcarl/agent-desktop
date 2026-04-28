@@ -16,6 +16,7 @@ import { WebServerSettings } from '../components/settings/WebServerSettings'
 import { DiscordSettings } from '../components/settings/DiscordSettings'
 import { MacrosSettings } from '../components/settings/MacrosSettings'
 import { useMobileMode, useCompactMode } from '../hooks/useMobileMode'
+import { tint } from '../utils/colorMix'
 
 interface SettingsPageProps {
   onClose: () => void
@@ -90,8 +91,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         {compact ? (
           /* Compact/mobile: horizontal scrollable tab band at top */
           <div
-            className="flex-shrink-0 border-b border-[var(--color-text-muted)]/10"
-            style={{ backgroundColor: 'var(--color-deep)' }}
+            className="flex-shrink-0 border-b"
+            style={{ backgroundColor: 'var(--color-deep)', borderColor: tint('--color-text-muted', 10) }}
           >
             <div className="flex items-center justify-between px-4 py-3">
               <h2
@@ -120,7 +121,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                     backgroundColor:
                       activeCategory === cat ? 'var(--color-primary)' : 'transparent',
                     color:
-                      activeCategory === cat ? '#fff' : 'var(--color-text-muted)',
+                      activeCategory === cat ? 'var(--color-text-contrast)' : 'var(--color-text-muted)',
                   }}
                 >
                   {cat}
@@ -131,8 +132,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         ) : (
           /* Wide desktop: sidebar */
           <div
-            className="w-[200px] flex-shrink-0 flex flex-col py-4 border-r border-[var(--color-text-muted)]/10"
-            style={{ backgroundColor: 'var(--color-deep)' }}
+            className="w-[200px] flex-shrink-0 flex flex-col py-4 border-r"
+            style={{ backgroundColor: 'var(--color-deep)', borderColor: tint('--color-text-muted', 10) }}
           >
             <h2
               className="px-4 pb-3 text-lg font-semibold"
@@ -150,7 +151,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                     backgroundColor:
                       activeCategory === cat ? 'var(--color-primary)' : 'transparent',
                     color:
-                      activeCategory === cat ? '#fff' : 'var(--color-text-muted)',
+                      activeCategory === cat ? 'var(--color-text-contrast)' : 'var(--color-text-muted)',
                   }}
                 >
                   {cat}
@@ -163,7 +164,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         {/* Content */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Header with close button (desktop only — mobile has it in the tab band) */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-text-muted)]/10 compact:hidden">
+          <div
+            className="flex items-center justify-between px-6 py-4 border-b compact:hidden"
+            style={{ borderColor: tint('--color-text-muted', 10) }}
+          >
             <h2
               className="text-lg font-semibold"
               style={{ color: 'var(--color-text)' }}

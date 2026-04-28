@@ -3,6 +3,7 @@ import { useShortcutsStore } from '../../stores/shortcutsStore'
 import { formatKeybinding } from '../../utils/shortcutMatcher'
 import type { SystemInfo } from '../../../shared/types'
 import { useMobileMode } from '../../hooks/useMobileMode'
+import { tint } from '../../utils/colorMix'
 
 const GLOBAL_SHORTCUT_ACTIONS = new Set(['quick_chat', 'quick_voice', 'show_app', 'stop_tts'])
 
@@ -216,8 +217,8 @@ function ShortcutTable({
     <div className="flex flex-col">
       {/* Header */}
       <div
-        className="flex items-center py-2 border-b border-[var(--color-text-muted)]/20 text-xs font-medium"
-        style={{ color: 'var(--color-text-muted)' }}
+        className="flex items-center py-2 border-b text-xs font-medium"
+        style={{ color: 'var(--color-text-muted)', borderColor: tint('--color-text-muted', 20) }}
       >
         <span className="flex-1">Action</span>
         <span className="w-48">Keybinding</span>
@@ -228,7 +229,8 @@ function ShortcutTable({
       {shortcuts.map((shortcut) => (
         <div
           key={shortcut.id}
-          className="flex items-center py-3 border-b border-[var(--color-text-muted)]/10"
+          className="flex items-center py-3 border-b"
+          style={{ borderColor: tint('--color-text-muted', 10) }}
         >
           <span
             className="flex-1 text-sm"

@@ -274,7 +274,7 @@ export function WebServerSettings() {
               <button
                 onClick={copyUrl}
                 className="text-xs px-2 py-1 mobile:text-sm mobile:px-3 mobile:py-2 rounded"
-                style={{ backgroundColor: 'var(--color-primary)', color: '#fff' }}
+                style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-text-contrast)' }}
               >
                 Copy
               </button>
@@ -299,7 +299,7 @@ export function WebServerSettings() {
                     if (status.urlHostname) navigator.clipboard.writeText(status.urlHostname).catch(() => {})
                   }}
                   className="text-xs px-2 py-1 mobile:text-sm mobile:px-3 mobile:py-2 rounded"
-                  style={{ backgroundColor: 'var(--color-primary)', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-text-contrast)' }}
                 >
                   Copy
                 </button>
@@ -329,7 +329,7 @@ export function WebServerSettings() {
               <button
                 onClick={copyToken}
                 className="text-xs px-2 py-1 mobile:text-sm mobile:px-3 mobile:py-2 rounded"
-                style={{ backgroundColor: 'var(--color-primary)', color: '#fff' }}
+                style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-text-contrast)' }}
               >
                 Copy
               </button>

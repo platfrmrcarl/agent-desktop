@@ -189,7 +189,7 @@ export function DiscordSettings() {
           <div className="flex items-center gap-2">
             <span
               className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: status.connected ? '#22c55e' : 'var(--color-text-muted)' }}
+              style={{ backgroundColor: status.connected ? 'var(--color-success)' : 'var(--color-text-muted)' }}
             />
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               {status.connected
@@ -210,7 +210,7 @@ export function DiscordSettings() {
               <button
                 onClick={handleConnect}
                 className="text-xs px-3 py-1.5 mobile:text-sm mobile:px-4 mobile:py-2 rounded"
-                style={{ backgroundColor: 'var(--color-primary)', color: '#fff' }}
+                style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-text-contrast)' }}
               >
                 Connect
               </button>

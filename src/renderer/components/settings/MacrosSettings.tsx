@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Macro } from '../../../shared/types'
+import { tint } from '../../utils/colorMix'
 
 const MACRO_NAME_RE = /^[a-zA-Z0-9_-]+$/
 
@@ -215,7 +216,10 @@ function MacroForm({ existing, existingNames, onClose }: MacroFormProps) {
         className="w-full max-w-2xl rounded-lg shadow-xl flex flex-col max-h-[85vh]"
         style={{ backgroundColor: 'var(--color-surface)' }}
       >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-text-muted)]/10">
+        <div
+          className="flex items-center justify-between px-5 py-3 border-b"
+          style={{ borderColor: tint('--color-text-muted', 10) }}
+        >
           <h3 className="text-base font-semibold text-body">
             {isEdit ? `Éditer /${existing?.name}` : 'Nouvelle macro'}
           </h3>
@@ -325,7 +329,10 @@ function MacroForm({ existing, existingNames, onClose }: MacroFormProps) {
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--color-text-muted)]/10">
+        <div
+          className="flex items-center justify-end gap-2 px-5 py-3 border-t"
+          style={{ borderColor: tint('--color-text-muted', 10) }}
+        >
           <button
             onClick={() => onClose(false)}
             disabled={saving}

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import type { ScheduledTask, CreateScheduledTask, IntervalUnit, VariableInfo, PreRunAction } from '../../../shared/types'
 import { useConversationsStore } from '../../stores/conversationsStore'
 import { RadioGroup } from '../shared/RadioGroup'
+import { tint } from '../../utils/colorMix'
 
 interface Props {
   task?: ScheduledTask | null
@@ -95,7 +96,10 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
         style={{ backgroundColor: 'var(--color-surface)' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 compact:px-4 py-4 border-b border-[var(--color-text-muted)]/10">
+        <div
+          className="flex items-center justify-between px-6 compact:px-4 py-4 border-b"
+          style={{ borderColor: tint('--color-text-muted', 10) }}
+        >
           <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
             {task ? 'Edit Task' : 'New Scheduled Task'}
           </h2>
@@ -395,7 +399,7 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
               type="submit"
               disabled={saving}
               className="px-4 py-2 rounded text-sm font-medium transition-colors disabled:opacity-50"
-              style={{ backgroundColor: 'var(--color-primary)', color: '#fff' }}
+              style={{ backgroundColor: 'var(--color-primary)', color: 'var(--color-text-contrast)' }}
             >
               {saving ? 'Saving...' : task ? 'Save Changes' : 'Create Task'}
             </button>
