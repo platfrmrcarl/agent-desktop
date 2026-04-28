@@ -10,6 +10,27 @@
  * surface. New handlers are opt-in: the default policy is "reachable from
  * every origin." Add entries here when a handler drives spawn, fs, git, or
  * destructive DB work.
+ *
+ * ─── Channel categorisation ────────────────────────────────────────────────
+ *
+ * Cat A — open to WS (registered in core/handlers/, reachable via engine.dispatch)
+ *   auth:*, conversations:*, folders:*, settings:* (read), messages:*, files:*
+ *   (read/write, gated by CWD whitelist), themes:*, commands:*, macros:*,
+ *   knowledge:* (kb:listCollections, kb:getCollectionFiles), scheduler:*,
+ *   tts:*, whisper:*, voice:*, system:getLogs, system:clearCache, mcp:* (read),
+ *   tools:*, shortcuts:*, models:*, attachments:*, git:* (read), bug:*,
+ *   webServerAuth:*
+ *
+ * Cat B — WS_BLOCKED_CHANNELS: credentialed control-plane; refused over WS
+ *   regardless of authenticated state.
+ *
+ * Cat C — ELECTRON_ONLY_CHANNELS: local-only Electron features; refused over
+ *   WS and discord/scheduler origins even when the handler is present in
+ *   engine.dispatch (mirrored there via withSanitizedErrors in main/ipc.ts).
+ *
+ * Note: tray:*, globalShortcuts:*, deeplink:*, protocol:*, waylandShortcuts:*,
+ * webhook:*, schedulerBridge:* are NOT registered via ipcMain.handle so they
+ * never enter engine.dispatch at all — no entry needed here.
  */
 
 export type DispatchOrigin = 'electron' | 'ws' | 'discord' | 'scheduler'
@@ -24,6 +45,11 @@ export type DispatchOrigin = 'electron' | 'ws' | 'discord' | 'scheduler'
  *  - Touches the filesystem outside the conversation CWD
  *  - Executes destructive DB operations without user confirmation
  *  - Invokes git with attacker-controlled positional arguments
+ *  - Opens host-OS GUI dialogs or file manager windows
+ *  - Controls Electron overlay windows (quickChat)
+ *  - Manages Electron auto-updater lifecycle
+ *  - Spawns/terminates local Jupyter kernels
+ *  - Compiles local SCAD files
  */
 export const ELECTRON_ONLY_CHANNELS: ReadonlySet<string> = new Set([
   // MCP server management — arbitrary command+args, turn-key RCE via testConnection
@@ -39,6 +65,43 @@ export const ELECTRON_ONLY_CHANNELS: ReadonlySet<string> = new Set([
   // Git positional-argument injection (--upload-pack=, etc.)
   'git:fetch',
   'git:checkout',
+  // System integration — opens host OS dialogs or external apps; uses event.sender
+  'system:getInfo',
+  'system:openExternal',
+  'system:showNotification',
+  'system:selectFolder',
+  'system:selectFile',
+  // File manager integration — launches host GUI; no meaning on mobile
+  'files:revealInFileManager',
+  'files:openWithDefault',
+  // File deletion — destructive; mobile clients must not initiate trash ops on the host
+  'files:trash',
+  // Knowledge folder reveal — opens host file manager
+  'kb:openKnowledgesFolder',
+  // Jupyter — spawns/terminates local kernel processes; local-only
+  'jupyter:startKernel',
+  'jupyter:executeCell',
+  'jupyter:interruptKernel',
+  'jupyter:restartKernel',
+  'jupyter:shutdownKernel',
+  'jupyter:getStatus',
+  'jupyter:detectJupyter',
+  // OpenSCAD — compiles .scad files using local toolchain
+  'openscad:compile',
+  'openscad:validateConfig',
+  // Quick Chat — Electron overlay window control
+  'quickChat:getConversationId',
+  'quickChat:purge',
+  'quickChat:hide',
+  'quickChat:setBubbleMode',
+  'quickChat:reregisterShortcuts',
+  // Electron auto-updater — manages app lifecycle on the host
+  'updates:check',
+  'updates:download',
+  'updates:install',
+  'updates:getStatus',
+  // PI extensions — local extension registry, host filesystem
+  'pi:listExtensions',
 ])
 
 /**

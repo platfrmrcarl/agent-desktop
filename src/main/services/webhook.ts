@@ -1,5 +1,5 @@
 import { net } from 'electron'
-import { validateWebhookUrl } from '../../core/utils/webhookValidation'
+import { validateWebhookUrl, validateWebhookUrlAsync } from '../../core/utils/webhookValidation'
 
 export type { WebhookValidationResult } from '../../core/utils/webhookValidation'
 export { validateWebhookUrl } from '../../core/utils/webhookValidation'
@@ -20,7 +20,7 @@ export async function fireCompletionWebhook(
   url: string,
   payload: CompletionPayload
 ): Promise<void> {
-  const validation = validateWebhookUrl(url)
+  const validation = await validateWebhookUrlAsync(url)
   if (!validation.ok) {
     console.warn(`[webhook] rejected URL: ${validation.reason}`)
     return

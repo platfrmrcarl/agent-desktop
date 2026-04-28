@@ -19,6 +19,15 @@ const MAX_PASTE_SIZE = 5_000_000 // 5MB — clipboard paste limit
 const MAX_PREVIEW_SIZE = 10 * 1024 * 1024 // 10MB — hard limit for file preview
 const BINARY_MODEL_EXTS = new Set(['stl', '3mf', 'ply'])
 
+// Audit S5-3 (2026-04-28): allowlist of known-safe terminal binaries resolved from
+// process.env.TERMINAL. Basenames are matched so full-path entries (e.g. /usr/bin/kitty) work.
+// If TERMINAL is unset or points to a binary not on this list we fall back to 'xterm'.
+const KNOWN_TERMINALS: ReadonlySet<string> = new Set([
+  'xterm', 'konsole', 'gnome-terminal', 'alacritty', 'kitty', 'wezterm',
+  'foot', 'tilix', 'terminator', 'urxvt', 'rxvt', 'st',
+  'xfce4-terminal', 'lxterminal', 'mate-terminal', 'xdg-terminal-exec',
+])
+
 // Extensions that can execute arbitrary code via the OS default handler.
 // Refused in files:openWithDefault and files:revealInFileManager.
 const EXECUTABLE_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -259,13 +268,23 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
   })
 
   ipcMain.handle('files:openTerminalHere', async (_event, filePath: string) => {
+    // Audit S5-3 (2026-04-28): path gated via validatePathSafe + validatePathSafeAsync
+    // (symlink resolution), checkReadAllowed for whitelist parity with other read handlers.
+    // spawn uses argv array (no shell interpolation). TERMINAL env validated against
+    // KNOWN_TERMINALS by basename; falls back to 'xterm' if unset or not in allowlist.
     validateString(filePath, 'filePath')
     const resolved = expandTilde(filePath)
     validatePathSafe(resolved)
-    const stats = await fsp.stat(resolved)
-    const dir = stats.isDirectory() ? resolved : dirname(resolved)
-    const term = process.env.TERMINAL || 'xterm'
-    const args = term.includes('xdg-terminal-exec') ? [`--dir=${dir}`] : []
+    const realResolved = await validatePathSafeAsync(resolved)
+    const stats = await fsp.stat(realResolved)
+    const dir = stats.isDirectory() ? realResolved : dirname(realResolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outside = checkReadAllowed(dir, whitelist)
+    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
+    const envTerm = process.env.TERMINAL ?? ''
+    const termBasename = basename(envTerm)
+    const term = envTerm && KNOWN_TERMINALS.has(termBasename) ? envTerm : 'xterm'
+    const args = termBasename === 'xdg-terminal-exec' ? [`--dir=${dir}`] : []
     spawn(term, args, { cwd: dir, detached: true, stdio: 'ignore' }).unref()
   })
 
