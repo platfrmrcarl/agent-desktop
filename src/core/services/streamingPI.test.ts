@@ -890,12 +890,16 @@ describe('streamMessagePI — MCP integration', () => {
       1,
     )
 
-    // A system_message chunk mentioning 'broken' was emitted
+    // System_message chunks: spawn_started + spawn_failed (broken) + spawn_complete
     const sysChunks = mockSendFn.mock.calls.filter(
       (c: unknown[]) => c[0] === 'messages:stream' && (c[1] as { type: string }).type === 'system_message'
     )
-    expect(sysChunks).toHaveLength(1)
-    expect((sysChunks[0][1] as { content: string }).content).toContain('broken')
+    expect(sysChunks).toHaveLength(3)
+    const spawnFailed = sysChunks.find(
+      (c) => (c[1] as { hookEvent?: string }).hookEvent === 'spawn_failed'
+    )
+    expect(spawnFailed).toBeDefined()
+    expect((spawnFailed![1] as { content: string }).content).toContain('broken')
 
     // Stream finished normally (not aborted, no error chunk)
     expect(result.aborted).toBe(false)
