@@ -7,6 +7,7 @@ import { spawn } from 'child_process'
 import { expandTilde } from '../utils/paths'
 import { validateString, validatePositiveInt, validatePathSafe, checkReadAllowed, checkWriteAllowed, validatePathSafeAsync } from '../utils/validate'
 import { isChildPath } from '../../shared/pathUtils'
+import { findBinaryInPath } from '../utils/env'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -440,8 +441,9 @@ export function registerFilesHandlers(
   registrar.handle('files:openTerminalHere', async (_event, filePath: unknown) => {
     // Audit S5-3 (2026-04-28): path gated via validatePathSafe + validatePathSafeAsync
     // (symlink resolution), checkReadAllowed for whitelist parity with other read handlers.
-    // spawn uses argv array (no shell interpolation). TERMINAL env validated against
-    // KNOWN_TERMINALS by basename; falls back to 'xterm' if unset or not in allowlist.
+    // spawn uses argv array (no shell interpolation). $TERMINAL is validated against
+    // KNOWN_TERMINALS by basename; if absent or not allowlisted, we walk a fallback
+    // chain of common terminals and pick the first one actually installed in PATH.
     const fp = validateString(filePath, 'filePath')
     const resolved = expandTilde(fp)
     validatePathSafe(resolved)
@@ -451,11 +453,49 @@ export function registerFilesHandlers(
     const whitelist = getGlobalWhitelist(db)
     const outside = checkReadAllowed(dir, whitelist)
     if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
+
+    // Build candidate chain: env TERMINAL first (allowlisted), then common installed emulators.
     const envTerm = process.env.TERMINAL ?? ''
-    const termBasename = basename(envTerm)
-    const term = envTerm && KNOWN_TERMINALS.has(termBasename) ? envTerm : 'xterm'
-    const args = termBasename === 'xdg-terminal-exec' ? [`--dir=${dir}`] : []
-    spawn(term, args, { cwd: dir, detached: true, stdio: 'ignore' }).unref()
+    const envBasename = basename(envTerm)
+    const candidates: string[] = []
+    if (envTerm && KNOWN_TERMINALS.has(envBasename)) candidates.push(envTerm)
+    for (const t of [
+      'alacritty', 'kitty', 'wezterm', 'foot', 'gnome-terminal', 'konsole',
+      'xfce4-terminal', 'tilix', 'terminator', 'mate-terminal', 'lxterminal',
+      'urxvt', 'rxvt', 'st', 'xterm',
+    ]) {
+      if (!candidates.includes(t)) candidates.push(t)
+    }
+
+    // Per-terminal cwd argument convention. Most respect the spawn `cwd` directly;
+    // gnome-terminal / xfce4-terminal need an explicit flag. xdg-terminal-exec is
+    // a thin wrapper that itself reads $TERMINAL — we just rely on cwd.
+    function argsFor(termName: string): string[] {
+      const b = basename(termName)
+      if (b === 'gnome-terminal' || b === 'xfce4-terminal' || b === 'mate-terminal') {
+        return [`--working-directory=${dir}`]
+      }
+      return []
+    }
+
+    // findBinaryInPath weeds out absent emulators so we only spawn an installed one.
+    // (Truly broken binaries — present but unrunnable — would still spawn-and-die
+    // silently, same as before, since stdio is 'ignore'.)
+    let lastErr: unknown = null
+    for (const term of candidates) {
+      const bin = term.includes('/') ? term : findBinaryInPath(term)
+      if (!bin) continue
+      try {
+        spawn(bin, argsFor(term), { cwd: dir, detached: true, stdio: 'ignore' }).unref()
+        return
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    throw new Error(
+      `No working terminal emulator found. Set $TERMINAL to one of: ${[...KNOWN_TERMINALS].join(', ')}. ` +
+      `Last error: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`
+    )
   })
 
   registrar.handle('files:prepareSession', async (
