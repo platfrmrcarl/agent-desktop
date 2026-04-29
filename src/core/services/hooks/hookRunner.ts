@@ -82,8 +82,21 @@ function execHook(
         resolve(null)
       }
     })
-    child.stdin?.write(JSON.stringify(input))
-    child.stdin?.end()
+    // Hook commands that exit before consuming stdin cause an EPIPE 'error'
+    // event on the writable stream. Without a listener Node treats it as
+    // unhandled and crashes the parent process. Attach a no-op handler so
+    // EPIPE just resolves to null (the exec callback also fires with err
+    // and we already resolve(null) there).
+    const stdin = child.stdin
+    if (stdin) {
+      stdin.on('error', () => { /* swallow EPIPE — handled via exec callback */ })
+      try {
+        stdin.write(JSON.stringify(input))
+      } catch { /* sync write throw — same handling */ }
+      try {
+        stdin.end()
+      } catch { /* idem */ }
+    }
   })
 }
 
