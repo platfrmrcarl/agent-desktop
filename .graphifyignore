@@ -1,0 +1,20 @@
+# Build artifacts (not caught by graphify's built-in _SKIP_DIRS — those only match
+# exact names like "dist"/"out"/"build", not "dist-headless"/"dist-electron")
+dist-headless
+dist-electron
+release
+
+# Cache + self-reference (graphify scanning its own outputs would create cycles)
+graphify-out
+.cache
+
+# Personal/non-source folders accidentally in the repo root
+présentation
+
+# Exported PI sessions stored at the project root — large HTML files,
+# not part of the codebase architecture
+pi-session-*.html
+
+# Top-level HTML reports / scratchpads (none belong to source)
+specs.txt
+research.md
