@@ -19,7 +19,7 @@ import { getSchedulerMcpConfig } from './schedulerBridge'
 import { streamMessage, injectApiKeyEnv, registerStreamWindow } from './streaming'
 import { invalidateSession } from './sessionManager'
 import { broadcast } from '../utils/broadcast'
-import { speak as ttsSpeak } from './tts'
+import { speak as ttsSpeak, speakResponse } from './tts'
 import {
   SchedulerService,
 } from '../../core/services/scheduler'
@@ -138,8 +138,28 @@ export async function executeTask(db: SqlJsAdapter, task: ScheduledTask): Promis
   // Voice notification (TTS) — Electron-only, not in core
   if (task.notify_voice) {
     const updated = schedulerService.get(task.id)
-    const content = updated?.last_status === 'success' ? 'Task completed' : 'Task failed'
-    ttsSpeak(content, db).catch(err => console.error('[scheduler] Voice notification error:', err))
+    if (updated?.last_status === 'success') {
+      // Speak the assistant's actual response (last assistant message in the
+      // task's target conversation). Honors the cascade tts_responseMode
+      // (full / summary / auto / off) per-conv aiSettings via speakResponse.
+      const targetConvId = updated.conversation_id
+      try {
+        const lastMsg = (db as any).prepare(
+          "SELECT content FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1"
+        ).get(targetConvId) as { content: string } | undefined
+        if (lastMsg?.content) {
+          const aiSettings = ctx.getAISettings(targetConvId)
+          speakResponse(lastMsg.content, db, targetConvId, aiSettings).catch(err =>
+            console.error('[scheduler] Voice notification error:', err))
+        }
+      } catch (err) {
+        console.error('[scheduler] Failed to fetch last assistant message for TTS:', err)
+      }
+    } else {
+      // On failure, keep a short audible cue so the user knows.
+      ttsSpeak('Task failed', db).catch(err =>
+        console.error('[scheduler] Voice notification error:', err))
+    }
   }
 }
 
