@@ -1,3 +1,23 @@
+/**
+ * Electron adapter for the core streaming module.
+ *
+ * ARCHITECTURE NOTE — do NOT "fix" the re-exports at the bottom of this file.
+ *
+ * This file has two distinct responsibilities:
+ *   1. Electron-bound wiring — registering BrowserWindow instances for IPC,
+ *      and injecting Electron-specific implementations (chunk sender, session
+ *      manager, PI backend, macOS OAuth refresh, etc.) into core via the
+ *      injectable-dependency slots defined in `core/services/streaming`.
+ *   2. Re-export facade — every `export { x } from '../../core/services/streaming'`
+ *      below is an intentional import-path alias so that callers in
+ *      `main/` can import from one stable path rather than reaching into core
+ *      directly. The dedup analyzer flags these as "duplicates" because the
+ *      same name appears in two files; this is a false positive — there is no
+ *      duplicated implementation.
+ *
+ * New shared streaming logic → `src/core/services/streaming.ts`.
+ * New Electron-only primitives → this file only.
+ */
 import { BrowserWindow } from 'electron'
 import { getMainWindow } from '../index'
 import {
