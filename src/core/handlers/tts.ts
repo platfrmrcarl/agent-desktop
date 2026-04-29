@@ -1,6 +1,6 @@
 import type { HandleRegistrar } from '../dispatch'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
-import { spawn, spawnSync, execFile } from 'child_process'
+import { spawn, spawnSync } from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { promises as fsp } from 'fs'
 import * as os from 'os'
@@ -10,12 +10,27 @@ import { getSetting } from '../utils/db'
 import { validateString, validatePositiveInt } from '../utils/validate'
 import { HAIKU_MODEL } from '../types/constants'
 import { loadAgentSDK } from '../services/anthropic'
+import { injectApiKeyEnv } from '../services/streaming'
+import { duckOtherStreams, restoreOtherStreams } from '../utils/volume'
 
 // ─── Module state ───────────────────────────────────────────
 
 let currentProcess: ChildProcess | null = null
 let cachedPlayer: string | null = null
 let currentMessageId: number | null = null
+
+// ─── Speaking state listener (set by Electron main) ────────
+
+type SpeakingStateListener = (speaking: boolean, messageId: number | null) => void
+let speakingStateListener: SpeakingStateListener | null = null
+
+export function setSpeakingStateListener(listener: SpeakingStateListener | null): void {
+  speakingStateListener = listener
+}
+
+function notifySpeakingState(speaking: boolean): void {
+  speakingStateListener?.(speaking, currentMessageId)
+}
 
 // ─── Inline helpers ─────────────────────────────────────────
 
@@ -87,119 +102,6 @@ function playAudioFile(filePath: string, db: any): Promise<void> {
       }
     })
   })
-}
-
-// ─── Per-stream volume ducking (pactl) ──────────────────────
-
-interface SavedStream {
-  index: number
-  volume: number
-  appName?: string
-}
-
-let savedStreams: SavedStream[] | null = null
-let duckStreamsPromise: Promise<void> | null = null
-
-function exec(binary: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(binary, args, { timeout: 5000 }, (err, stdout) => {
-      if (err) reject(err)
-      else resolve((stdout || '').trim())
-    })
-  })
-}
-
-async function listSinkInputs(pactlPath: string): Promise<SavedStream[]> {
-  const out = await exec(pactlPath, ['list', 'sink-inputs'])
-  const inputs: SavedStream[] = []
-  const blocks = out.split(/^Sink Input #(\d+)/m).slice(1)
-  for (let i = 0; i < blocks.length; i += 2) {
-    const index = parseInt(blocks[i], 10)
-    const body = blocks[i + 1] || ''
-    const volMatch = body.match(/Volume:.*?(\d+)%/)
-    if (volMatch) {
-      const appMatch = body.match(/application\.process\.binary\s*=\s*"([^"]+)"/)
-      inputs.push({ index, volume: parseInt(volMatch[1], 10), appName: appMatch?.[1] })
-    }
-  }
-  return inputs
-}
-
-function duckOtherStreams(reductionPercent: number): Promise<void> {
-  if (reductionPercent <= 0 || savedStreams !== null) return Promise.resolve()
-
-  const pactlPath = findBinaryInPath('pactl')
-  if (!pactlPath) return Promise.resolve()
-
-  duckStreamsPromise = (async () => {
-    try {
-      const inputs = await listSinkInputs(pactlPath)
-      if (inputs.length === 0) return
-
-      savedStreams = inputs
-      for (const input of inputs) {
-        const target = Math.max(0, input.volume - reductionPercent)
-        await exec(pactlPath, ['set-sink-input-volume', String(input.index), `${target}%`])
-      }
-    } catch (err) {
-      savedStreams = null
-      console.warn('[volume] Duck streams failed:', err)
-    }
-  })()
-  return duckStreamsPromise
-}
-
-async function restoreOtherStreams(): Promise<void> {
-  if (duckStreamsPromise) {
-    await duckStreamsPromise
-    duckStreamsPromise = null
-  }
-
-  if (!savedStreams) return
-
-  const pactlPath = findBinaryInPath('pactl')
-  if (!pactlPath) { savedStreams = null; return }
-
-  const streams = savedStreams
-  savedStreams = null
-
-  let currentInputs: SavedStream[] | null = null
-  try {
-    currentInputs = await listSinkInputs(pactlPath)
-  } catch {
-    // Fall through to index-only restore
-  }
-
-  if (!currentInputs) {
-    for (const saved of streams) {
-      try {
-        await exec(pactlPath, ['set-sink-input-volume', String(saved.index), `${saved.volume}%`])
-      } catch { /* stream may have ended */ }
-    }
-    return
-  }
-
-  const currentIndices = new Set(currentInputs.map(s => s.index))
-  const matched = new Set<number>()
-
-  for (const saved of streams) {
-    if (!currentIndices.has(saved.index)) continue
-    try {
-      await exec(pactlPath, ['set-sink-input-volume', String(saved.index), `${saved.volume}%`])
-      matched.add(saved.index)
-    } catch { /* stream ended */ }
-  }
-
-  for (const saved of streams) {
-    if (matched.has(saved.index) || !saved.appName) continue
-    const candidate = currentInputs.find(c => c.appName === saved.appName && !matched.has(c.index))
-    if (candidate) {
-      try {
-        await exec(pactlPath, ['set-sink-input-volume', String(candidate.index), `${saved.volume}%`])
-        matched.add(candidate.index)
-      } catch { /* stream ended */ }
-    }
-  }
 }
 
 // ─── Provider implementations ───────────────────────────────
@@ -326,12 +228,13 @@ function stopInternal(): void {
   }
 }
 
-function stop(): void {
+export function stop(): void {
   stopInternal()
   currentMessageId = null
+  notifySpeakingState(false)
 }
 
-async function speak(text: string, db: any): Promise<void> {
+export async function speak(text: string, db: any): Promise<void> {
   stopInternal()
 
   const provider = getSetting(db, 'tts_provider')
@@ -341,6 +244,8 @@ async function speak(text: string, db: any): Promise<void> {
   const stripped = stripMarkdown(text)
   const cleanText = maxLength > 0 ? stripped.slice(0, maxLength) : stripped
   if (!cleanText) return
+
+  notifySpeakingState(true)
 
   const duck = Number(getSetting(db, 'voice_volumeDuck')) || 0
   if (duck > 0) await duckOtherStreams(duck)
@@ -378,6 +283,7 @@ async function speak(text: string, db: any): Promise<void> {
     }
   } finally {
     await restoreOtherStreams().catch(() => {})
+    notifySpeakingState(false)
   }
 }
 
@@ -398,26 +304,16 @@ async function generateSummary(
   const promptTemplate = aiSettings.ttsSummaryPrompt || defaultPrompt
   const prompt = promptTemplate.replace('{response}', truncatedContent)
 
-  // Set up API key env vars
   const apiKey = aiSettings.apiKey || getSetting(db, 'ai_apiKey') || undefined
   const baseUrl = aiSettings.baseUrl || getSetting(db, 'ai_baseUrl') || undefined
-  const envBackup: Record<string, string | undefined> = {}
-
-  if (apiKey) {
-    envBackup.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
-    process.env.ANTHROPIC_API_KEY = apiKey
-  }
-  if (baseUrl) {
-    envBackup.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL
-    process.env.ANTHROPIC_BASE_URL = baseUrl
-  }
+  const restoreEnv = injectApiKeyEnv(apiKey, baseUrl)
 
   try {
-    const { query } = await loadAgentSDK()
+    const sdk = await loadAgentSDK()
 
     let summary = ''
     const summaryModel = aiSettings.ttsSummaryModel || HAIKU_MODEL
-    const agentQuery = query({
+    const agentQuery = sdk.query({
       prompt,
       options: {
         model: summaryModel,
@@ -454,14 +350,11 @@ async function generateSummary(
     console.warn('[tts] Summary generation failed, using truncated original:', err)
     return truncatedContent
   } finally {
-    for (const [key, val] of Object.entries(envBackup)) {
-      if (val === undefined) delete process.env[key]
-      else process.env[key] = val
-    }
+    restoreEnv?.()
   }
 }
 
-async function speakResponse(
+export async function speakResponse(
   content: string,
   db: any,
   _conversationId: number,
@@ -491,24 +384,20 @@ async function speakResponse(
   }
 }
 
-async function speakMessage(text: string, db: any, conversationId: number, messageId: number): Promise<void> {
+export async function speakMessage(text: string, db: any, conversationId: number, messageId: number): Promise<void> {
   currentMessageId = messageId
   try {
-    // Dynamic import of getAISettings from messages service would create circular dep.
-    // In headless mode, retrieve settings directly from DB.
-    const settingsRow = (db as any).prepare("SELECT value FROM settings WHERE key = 'tts_responseMode'").get() as { value: string } | undefined
-    const aiSettings = {
-      ttsResponseMode: settingsRow?.value || 'off',
-    }
+    const { getAISettings } = await import('./messages')
+    const aiSettings = getAISettings(db, conversationId)
     await speakResponse(text, db, conversationId, aiSettings)
   } finally {
     currentMessageId = null
   }
 }
 
-function validateConfig(
+export async function validateConfig(
   db: any
-): { provider: string; providerFound: boolean; playerFound: boolean; playerPath: string; error?: string } {
+): Promise<{ provider: string; providerFound: boolean; playerFound: boolean; playerPath: string; error?: string }> {
   const provider = getSetting(db, 'tts_provider') || 'off'
   let providerFound = false
   let playerFound = false
@@ -545,6 +434,7 @@ function validateConfig(
       const resolved = findBinaryInPath('spd-say')
       providerFound = !!resolved
       if (!resolved) error = 'spd-say binary not found'
+      // spd-say plays directly, no separate player needed
       playerFound = true
       break
     }
@@ -556,6 +446,7 @@ function validateConfig(
       const resolved = findBinaryInPath('say')
       providerFound = !!resolved
       if (!resolved) error = 'say binary not found (unexpected on macOS)'
+      // say plays directly, no separate player needed
       playerFound = true
       playerPath = resolved || '/usr/bin/say'
       break
@@ -567,14 +458,14 @@ function validateConfig(
   return { provider, providerFound, playerFound, playerPath, error }
 }
 
-function detectPlayers(): { name: string; path: string; available: boolean }[] {
+export function detectPlayers(): { name: string; path: string; available: boolean }[] {
   return PLAYER_NAMES.map((name) => {
     const found = findBinaryInPath(name)
     return { name, path: found || '', available: !!found }
   })
 }
 
-function listSayVoices(): { name: string; locale: string }[] {
+export function listSayVoices(): { name: string; locale: string }[] {
   if (process.platform !== 'darwin') return []
   try {
     const result = spawnSync('say', ['-v', '?'], { encoding: 'utf8', timeout: 5000 })

@@ -13,23 +13,23 @@ vi.mock('../index', () => ({
   getMainWindow: vi.fn(() => null),
 }))
 
-vi.mock('./anthropic', () => ({
+vi.mock('../../core/services/anthropic', () => ({
   loadAgentSDK: vi.fn(),
 }))
 
-vi.mock('./streaming', () => ({
+vi.mock('../../core/services/streaming', () => ({
   injectApiKeyEnv: vi.fn(() => null),
 }))
 
-vi.mock('../utils/env', () => ({
+vi.mock('../../core/utils/env', () => ({
   findBinaryInPath: vi.fn(),
 }))
 
-vi.mock('../utils/db', () => ({
+vi.mock('../../core/utils/db', () => ({
   getSetting: vi.fn(),
 }))
 
-vi.mock('../utils/volume', () => ({
+vi.mock('../../core/utils/volume', () => ({
   duckOtherStreams: vi.fn().mockResolvedValue(undefined),
   restoreOtherStreams: vi.fn().mockResolvedValue(undefined),
 }))
@@ -38,6 +38,10 @@ vi.mock('../../core/handlers/messages', () => ({
   getAISettings: vi.fn(() => ({
     ttsResponseMode: 'full',
   })),
+}))
+
+vi.mock('../utils/broadcast', () => ({
+  broadcast: vi.fn(),
 }))
 
 // Mock child_process spawn with controllable process events
@@ -68,6 +72,7 @@ const mockSpawn = vi.fn(() => createMockProc())
 
 vi.mock('child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
+  spawnSync: vi.fn(() => ({ stdout: '' })),
 }))
 
 vi.mock('fs', () => ({
@@ -80,11 +85,11 @@ vi.mock('fs', () => ({
 // ─── Imports (after mocks) ───────────────────────────────────
 
 import { stop, speak, speakResponse, speakMessage, validateConfig, detectPlayers, registerHandlers } from './tts'
-import { findBinaryInPath } from '../utils/env'
-import { getSetting } from '../utils/db'
-import { loadAgentSDK } from './anthropic'
-import { injectApiKeyEnv } from './streaming'
-import { duckOtherStreams, restoreOtherStreams } from '../utils/volume'
+import { findBinaryInPath } from '../../core/utils/env'
+import { getSetting } from '../../core/utils/db'
+import { loadAgentSDK } from '../../core/services/anthropic'
+import { injectApiKeyEnv } from '../../core/services/streaming'
+import { duckOtherStreams, restoreOtherStreams } from '../../core/utils/volume'
 import { getMainWindow } from '../index'
 import { getAISettings } from '../../core/handlers/messages'
 
@@ -762,99 +767,11 @@ describe('tts service', () => {
   // ── registerHandlers ──────────────────────────────────────
 
   describe('registerHandlers', () => {
-    function createMockIpcMain() {
-      const handlers = new Map<string, (...args: any[]) => any>()
-      return {
-        handle: (channel: string, handler: (...args: any[]) => any) => {
-          handlers.set(channel, handler)
-        },
-        invoke: async (channel: string, ...args: any[]) => {
-          const handler = handlers.get(channel)
-          if (!handler) throw new Error(`No handler for ${channel}`)
-          return handler({} as any, ...args)
-        },
-      }
-    }
-
-    it('registers all four IPC handlers', () => {
-      const ipc = createMockIpcMain()
+    it('registers as no-op (core dispatch owns tts:* channels)', () => {
+      const ipc = { handle: vi.fn() }
       registerHandlers(ipc as any, db)
-
-      expect(ipc.invoke('tts:speak', 'hello')).toBeDefined()
-      expect(ipc.invoke('tts:stop')).toBeDefined()
-      expect(ipc.invoke('tts:validate')).toBeDefined()
-      expect(ipc.invoke('tts:detectPlayers')).toBeDefined()
-    })
-
-    it('tts:speak validates input', async () => {
-      const ipc = createMockIpcMain()
-      registerHandlers(ipc as any, db)
-
-      await expect(ipc.invoke('tts:speak', 42)).rejects.toThrow('text must be a string')
-    })
-
-    it('tts:stop calls stop()', async () => {
-      const ipc = createMockIpcMain()
-      registerHandlers(ipc as any, db)
-
-      // Should not throw
-      await ipc.invoke('tts:stop')
-    })
-
-    it('tts:validate returns config', async () => {
-      settingsMap({ tts_provider: 'off' })
-      const ipc = createMockIpcMain()
-      registerHandlers(ipc as any, db)
-
-      const result = await ipc.invoke('tts:validate')
-      expect(result.provider).toBe('off')
-      expect(result.providerFound).toBe(true)
-    })
-
-    it('tts:detectPlayers returns player list', async () => {
-      mockFindBinary.mockReturnValue(null)
-      const ipc = createMockIpcMain()
-      registerHandlers(ipc as any, db)
-
-      const result = await ipc.invoke('tts:detectPlayers')
-      expect(result).toHaveLength(4)
-    })
-
-    it('tts:speakMessage validates text input', async () => {
-      const ipc = createMockIpcMain()
-      registerHandlers(ipc as any, db)
-
-      await expect(ipc.invoke('tts:speakMessage', 42, 1, 1)).rejects.toThrow('text must be a string')
-    })
-
-    it('tts:speakMessage validates conversationId', async () => {
-      const ipc = createMockIpcMain()
-      registerHandlers(ipc as any, db)
-
-      await expect(ipc.invoke('tts:speakMessage', 'hello', 'bad', 1)).rejects.toThrow('conversationId must be a positive integer')
-    })
-
-    it('tts:speakMessage validates messageId', async () => {
-      const ipc = createMockIpcMain()
-      registerHandlers(ipc as any, db)
-
-      await expect(ipc.invoke('tts:speakMessage', 'hello', 1, 0)).rejects.toThrow('messageId must be a positive integer')
-    })
-
-    it('tts:speakMessage validates negative messageId', async () => {
-      const ipc = createMockIpcMain()
-      registerHandlers(ipc as any, db)
-
-      await expect(ipc.invoke('tts:speakMessage', 'hello', 1, -5)).rejects.toThrow('messageId must be a positive integer')
-    })
-
-    it('tts:speakMessage calls speakMessage with valid args', async () => {
-      settingsMap({ tts_provider: 'off' })
-      const ipc = createMockIpcMain()
-      registerHandlers(ipc as any, db)
-
-      // Should not throw — provider is off so speakResponse returns early
-      await expect(ipc.invoke('tts:speakMessage', 'hello', 1, 42)).resolves.toBeUndefined()
+      // main's registerHandlers is intentionally empty — core dispatch owns all channels
+      expect(ipc.handle).not.toHaveBeenCalled()
     })
   })
 
