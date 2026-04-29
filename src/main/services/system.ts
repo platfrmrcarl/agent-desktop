@@ -1,33 +1,11 @@
 import type { IpcMain } from 'electron'
 import type Database from 'better-sqlite3'
-import type { LogEntry } from '../../shared/types'
 import { app, dialog, shell, Notification, BrowserWindow } from 'electron'
 import { getSessionType } from '../utils/env'
 
-const LOG_BUFFER_MAX = 500
-const logBuffer: LogEntry[] = []
+export { log } from '../../core/handlers/system'
 
-function logToBuffer(entry: LogEntry): void {
-  logBuffer.push(entry)
-  if (logBuffer.length > LOG_BUFFER_MAX) {
-    logBuffer.shift()
-  }
-}
-
-export function log(
-  level: LogEntry['level'],
-  message: string,
-  details?: string
-): void {
-  logToBuffer({
-    level,
-    message,
-    timestamp: new Date().toISOString(),
-    details,
-  })
-}
-
-export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void {
+export function registerHandlers(ipcMain: IpcMain, _db: Database.Database): void {
   ipcMain.handle('system:getInfo', async () => ({
     version: app.getVersion(),
     electron: process.versions.electron,
@@ -37,19 +15,6 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     configPath: app.getPath('userData'),
     sessionType: getSessionType(),
   }))
-
-  ipcMain.handle('system:getLogs', async (_event, limit?: number) => {
-    // Validate limit parameter
-    if (limit !== undefined && (typeof limit !== 'number' || limit < 0)) {
-      throw new Error('Invalid limit parameter')
-    }
-    const maxEntries = Math.min(limit ?? 100, 1000)
-    return logBuffer.slice(-maxEntries)
-  })
-
-  ipcMain.handle('system:clearCache', async () => {
-    logBuffer.length = 0
-  })
 
   ipcMain.handle('system:openExternal', async (_event, url: string) => {
     // Validate URL and restrict to safe protocols
@@ -108,29 +73,5 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
       : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
-  })
-
-  ipcMain.handle('system:purgeConversations', async () => {
-    const purge = db.transaction(() => {
-      const convCount = (db.prepare('SELECT COUNT(*) as c FROM conversations').get() as { c: number }).c
-      const folderCount = (db.prepare('SELECT COUNT(*) as c FROM folders').get() as { c: number }).c
-      db.exec('DELETE FROM conversations') // cascades → messages, conversation_knowledge
-      db.exec('DELETE FROM folders')
-      return { conversations: convCount, folders: folderCount }
-    })
-    return purge()
-  })
-
-  ipcMain.handle('system:purgeAll', async () => {
-    const purge = db.transaction(() => {
-      const convCount = (db.prepare('SELECT COUNT(*) as c FROM conversations').get() as { c: number }).c
-      db.exec('DELETE FROM conversations') // cascades → messages, conversation_knowledge
-      db.exec('DELETE FROM folders')
-      db.exec('DELETE FROM knowledge_files')
-      db.exec('DELETE FROM mcp_servers')
-      db.exec('DELETE FROM keyboard_shortcuts')
-      return { conversations: convCount }
-    })
-    return purge()
   })
 }

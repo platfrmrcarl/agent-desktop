@@ -44,10 +44,15 @@ describe('Security: Cross-Cutting Tests', () => {
     const { registerHandlers: registerKnowledge } = await import('./knowledge')
     const { registerHandlers: registerMcp } = await import('./mcp')
     const { registerHandlers: registerSystem } = await import('./system')
+    const { registerSystemHandlers } = await import('../../core/handlers/system')
 
     registerKnowledge(ipc as any, db)
     registerMcp(ipc as any, db)
     registerSystem(ipc as any, db)
+    // Core dispatch handlers (system:getLogs, system:clearCache, system:purgeConversations, system:purgeAll)
+    // moved from main/services/system.ts to core/handlers/system.ts; register them here so security
+    // tests that invoke those channels still resolve handlers.
+    registerSystemHandlers(ipc as any, db)
   })
 
   afterEach(() => {

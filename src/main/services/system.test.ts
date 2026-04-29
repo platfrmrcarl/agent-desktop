@@ -59,44 +59,6 @@ describe('System Service', () => {
     })
   })
 
-  describe('system:getLogs', () => {
-    it('returns logs with default limit', async () => {
-      const logs = await ipc.invoke('system:getLogs')
-      expect(Array.isArray(logs)).toBe(true)
-    })
-
-    it('returns logs with custom limit', async () => {
-      const logs = await ipc.invoke('system:getLogs', 50)
-      expect(Array.isArray(logs)).toBe(true)
-    })
-
-    it('throws on invalid limit (negative)', async () => {
-      await expect(ipc.invoke('system:getLogs', -1)).rejects.toThrow(
-        'Invalid limit parameter'
-      )
-    })
-
-    it('throws on invalid limit (non-number)', async () => {
-      await expect(ipc.invoke('system:getLogs', 'invalid' as any)).rejects.toThrow(
-        'Invalid limit parameter'
-      )
-    })
-
-    it('clamps limit to maximum of 1000', async () => {
-      const logs = await ipc.invoke('system:getLogs', 9999)
-      expect(Array.isArray(logs)).toBe(true)
-      expect(logs.length).toBeLessThanOrEqual(1000)
-    })
-  })
-
-  describe('system:clearCache', () => {
-    it('clears the log buffer', async () => {
-      await ipc.invoke('system:clearCache')
-      const logs = await ipc.invoke('system:getLogs')
-      expect(logs).toEqual([])
-    })
-  })
-
   describe('system:openExternal', () => {
     it('opens valid HTTP URL', async () => {
       const { shell } = await import('electron')
@@ -232,70 +194,4 @@ describe('System Service', () => {
     })
   })
 
-  describe('system:purgeConversations', () => {
-    it('deletes conversations and folders, preserves settings', async () => {
-      // Add test data (default folder already exists from migration)
-      db.prepare('INSERT INTO folders (name) VALUES (?)').run('Test Folder')
-      db.prepare('INSERT INTO conversations (title) VALUES (?)').run('Test Conv')
-
-      const result = await ipc.invoke('system:purgeConversations')
-      expect(result.conversations).toBe(1)
-      expect(result.folders).toBe(2) // default folder + Test Folder
-
-      // Verify deletion
-      const convs = db.prepare('SELECT COUNT(*) as c FROM conversations').get() as { c: number }
-      const folders = db.prepare('SELECT COUNT(*) as c FROM folders').get() as { c: number }
-      expect(convs.c).toBe(0)
-      expect(folders.c).toBe(0)
-
-      // Verify settings preserved
-      const settings = db.prepare('SELECT COUNT(*) as c FROM settings').get() as { c: number }
-      expect(settings.c).toBeGreaterThan(0)
-    })
-
-    it('returns default folder count when no user data to delete', async () => {
-      const result = await ipc.invoke('system:purgeConversations')
-      expect(result.conversations).toBe(0)
-      expect(result.folders).toBe(1) // default folder
-    })
-  })
-
-  describe('system:purgeAll', () => {
-    it('deletes conversations, folders, KB, MCP, themes, shortcuts', async () => {
-      // Add test data
-      db.prepare('INSERT INTO conversations (title) VALUES (?)').run('Test Conv')
-      db.prepare('INSERT INTO folders (name) VALUES (?)').run('Test Folder')
-      db.prepare(
-        'INSERT INTO knowledge_files (path, name, content_hash, size) VALUES (?, ?, ?, ?)'
-      ).run('/tmp/test', 'test.txt', 'hash', 100)
-      db.prepare('INSERT INTO mcp_servers (name, command, args, env) VALUES (?, ?, ?, ?)').run(
-        'test',
-        'node',
-        '[]',
-        '{}'
-      )
-
-      const result = await ipc.invoke('system:purgeAll')
-      expect(result.conversations).toBe(1)
-
-      // Verify deletion
-      const convs = db.prepare('SELECT COUNT(*) as c FROM conversations').get() as { c: number }
-      const folders = db.prepare('SELECT COUNT(*) as c FROM folders').get() as { c: number }
-      const kb = db.prepare('SELECT COUNT(*) as c FROM knowledge_files').get() as { c: number }
-      const mcp = db.prepare('SELECT COUNT(*) as c FROM mcp_servers').get() as { c: number }
-      expect(convs.c).toBe(0)
-      expect(folders.c).toBe(0)
-      expect(kb.c).toBe(0)
-      expect(mcp.c).toBe(0)
-
-      // Verify settings and auth preserved
-      const settings = db.prepare('SELECT COUNT(*) as c FROM settings').get() as { c: number }
-      expect(settings.c).toBeGreaterThan(0)
-    })
-
-    it('returns zero count when no conversations to delete', async () => {
-      const result = await ipc.invoke('system:purgeAll')
-      expect(result.conversations).toBe(0)
-    })
-  })
 })
