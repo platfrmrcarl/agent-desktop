@@ -242,6 +242,7 @@ export async function getSystemPrompt(
           writablePaths.push(resolved)
         }
 
+        const KB_BUDGET = 500_000
         async function readCollectionFiles(dir: string): Promise<void> {
           let entries
           try {
@@ -253,13 +254,26 @@ export async function getSystemPrompt(
             const fullPath = join(dir, entry.name)
             if (entry.isDirectory()) {
               await readCollectionFiles(fullPath)
+              if (totalSize >= KB_BUDGET) return
             } else if (supportedExts.has(extname(entry.name).toLowerCase())) {
               try {
-                const content = await fsp.readFile(fullPath, 'utf-8')
+                let content = await fsp.readFile(fullPath, 'utf-8')
+                // Truncate the file to fit the remaining budget rather than
+                // dropping it entirely — a single file larger than the whole
+                // budget would otherwise leave kbContent empty for that
+                // collection (silent loss of context).
+                const remaining = KB_BUDGET - totalSize
+                if (remaining <= 0) return
+                let truncated = false
+                if (content.length > remaining) {
+                  content = content.slice(0, remaining)
+                  truncated = true
+                }
                 totalSize += content.length
-                if (totalSize > 500_000) return
                 const relPath = relative(collectionPath, fullPath)
-                kbContent += `\n\n--- Knowledge [${access}]: ${sel.folder}/${relPath} ---\n${content}\n---`
+                const suffix = truncated ? '\n[...truncated]' : ''
+                kbContent += `\n\n--- Knowledge [${access}]: ${sel.folder}/${relPath} ---\n${content}${suffix}\n---`
+                if (totalSize >= KB_BUDGET) return
               } catch {
                 continue
               }
@@ -268,7 +282,7 @@ export async function getSystemPrompt(
         }
 
         await readCollectionFiles(collectionPath)
-        if (totalSize > 500_000) break
+        if (totalSize >= KB_BUDGET) break
       }
 
       if (kbContent) {
