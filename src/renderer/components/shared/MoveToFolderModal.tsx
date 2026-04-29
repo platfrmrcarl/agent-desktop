@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import type { Folder } from '../../../shared/types'
+import { useEscapeKey } from '../../hooks/useEscapeKey'
 
 interface Props {
   folders: Folder[]
@@ -11,13 +12,7 @@ interface Props {
 export function MoveToFolderModal({ folders, onSelect, onClose, title = 'Move to folder' }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === overlayRef.current) onClose()

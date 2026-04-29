@@ -3,6 +3,7 @@ import type { ScheduledTask, CreateScheduledTask, IntervalUnit, VariableInfo, Pr
 import { useConversationsStore } from '../../stores/conversationsStore'
 import { RadioGroup } from '../shared/RadioGroup'
 import { tint } from '../../utils/colorMix'
+import { useEscapeKey } from '../../hooks/useEscapeKey'
 
 interface Props {
   task?: ScheduledTask | null
@@ -48,13 +49,7 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
       .catch(() => setVariables([]))
   }, [])
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

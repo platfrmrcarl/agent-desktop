@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { SlashCommand } from '../../../shared/types'
 import { fuzzyMatch, fuzzyHighlight } from '../../utils/fuzzyMatch'
+import { useClickOutside } from '../../hooks/useClickOutside'
 
 interface SlashCommandDropdownProps {
   commands: SlashCommand[]
@@ -29,20 +30,7 @@ export function SlashCommandDropdown({ commands, filter, selectedIndex, onSelect
     }
   }, [selectedIndex])
 
-  // Click-outside to close (mousedown + touchstart for mobile)
-  useEffect(() => {
-    const handle = (e: MouseEvent | TouchEvent) => {
-      if (listRef.current && !listRef.current.contains(e.target as Node)) {
-        onClose()
-      }
-    }
-    document.addEventListener('mousedown', handle)
-    document.addEventListener('touchstart', handle)
-    return () => {
-      document.removeEventListener('mousedown', handle)
-      document.removeEventListener('touchstart', handle)
-    }
-  }, [onClose])
+  useClickOutside(listRef, onClose)
 
   if (filtered.length === 0) {
     return (

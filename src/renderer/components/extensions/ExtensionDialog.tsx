@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, type CSSProperties } from 're
 import type { PiUIDialog, PiUIResponse } from '../../../shared/piUITypes'
 import { keyEventToTerminal } from '../../utils/keyToTerminal'
 import { pxToRem } from '../../utils/fontScale'
+import { useEscapeKey } from '../../hooks/useEscapeKey'
 
 interface ExtensionDialogProps {
   dialog: PiUIDialog
@@ -78,13 +79,7 @@ export function ExtensionDialog({ dialog, onRespond }: ExtensionDialogProps) {
     onRespond({ id: dialog.id, cancelled: true })
   }, [dialog.id, onRespond])
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') cancel()
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [cancel])
+  useEscapeKey(cancel)
 
   return (
     <div style={backdropStyle} data-testid="extension-dialog-backdrop">

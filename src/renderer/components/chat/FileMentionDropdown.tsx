@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { FileNode } from '../../../shared/types'
 import { fuzzyMatch, fuzzyHighlight } from '../../utils/fuzzyMatch'
+import { useClickOutside } from '../../hooks/useClickOutside'
 
 export interface FlatFile {
   name: string
@@ -59,20 +60,7 @@ export function FileMentionDropdown({ files, filter, selectedIndex, onSelect, on
     selectedRef.current?.scrollIntoView({ block: 'nearest' })
   }, [selectedIndex])
 
-  // Click-outside to close (mousedown + touchstart for mobile)
-  useEffect(() => {
-    const handle = (e: MouseEvent | TouchEvent) => {
-      if (listRef.current && !listRef.current.contains(e.target as Node)) {
-        onClose()
-      }
-    }
-    document.addEventListener('mousedown', handle)
-    document.addEventListener('touchstart', handle)
-    return () => {
-      document.removeEventListener('mousedown', handle)
-      document.removeEventListener('touchstart', handle)
-    }
-  }, [onClose])
+  useClickOutside(listRef, onClose)
 
   if (filtered.length === 0) {
     return (

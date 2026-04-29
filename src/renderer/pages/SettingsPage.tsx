@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { GeneralSettings } from '../components/settings/GeneralSettings'
 import { AISettings } from '../components/settings/AISettings'
 import { AppearanceSettings } from '../components/settings/AppearanceSettings'
@@ -16,6 +16,7 @@ import { WebServerSettings } from '../components/settings/WebServerSettings'
 import { DiscordSettings } from '../components/settings/DiscordSettings'
 import { MacrosSettings } from '../components/settings/MacrosSettings'
 import { useMobileMode, useCompactMode } from '../hooks/useMobileMode'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import { tint } from '../utils/colorMix'
 
 interface SettingsPageProps {
@@ -67,13 +68,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const mobile = useMobileMode()
   const compact = useCompactMode()
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   const ActiveComponent = categoryComponents[activeCategory]
 

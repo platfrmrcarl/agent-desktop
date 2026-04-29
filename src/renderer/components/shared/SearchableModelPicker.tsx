@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckIcon } from '../icons/CheckIcon'
 import { ChevronDownIcon } from '../icons/ChevronDownIcon'
 import { fuzzyHighlight, fuzzyMatch } from '../../utils/fuzzyMatch'
 import { shortenModelName } from '../../../shared/constants'
 import { tint } from '../../utils/colorMix'
+import { useClickOutside } from '../../hooks/useClickOutside'
 
 export interface ModelPickerOption {
   value: string
@@ -52,22 +53,6 @@ export function SearchableModelPicker({
     inputRef.current?.select()
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false)
-        setQuery('')
-      }
-    }
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('touchstart', handlePointerDown)
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('touchstart', handlePointerDown)
-    }
-  }, [open])
-
   const filtered = !query.trim()
     ? allOptions.map((opt) => ({
         ...opt,
@@ -86,10 +71,12 @@ export function SearchableModelPicker({
         .filter((opt) => opt.match.match)
         .sort((a, b) => b.match.score - a.match.score)
 
-  const close = () => {
+  const close = useCallback(() => {
     setOpen(false)
     setQuery('')
-  }
+  }, [])
+
+  useClickOutside(rootRef, close)
 
   return (
     <div ref={rootRef} className={`relative inline-flex flex-col items-end gap-1 ${className ?? ''}`}>
