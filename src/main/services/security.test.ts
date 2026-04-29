@@ -45,6 +45,7 @@ describe('Security: Cross-Cutting Tests', () => {
     const { registerHandlers: registerMcp } = await import('./mcp')
     const { registerHandlers: registerSystem } = await import('./system')
     const { registerSystemHandlers } = await import('../../core/handlers/system')
+    const { registerKnowledgeHandlers } = await import('../../core/handlers/knowledge')
 
     registerKnowledge(ipc as any, db)
     registerMcp(ipc as any, db)
@@ -53,6 +54,10 @@ describe('Security: Cross-Cutting Tests', () => {
     // moved from main/services/system.ts to core/handlers/system.ts; register them here so security
     // tests that invoke those channels still resolve handlers.
     registerSystemHandlers(ipc as any, db)
+    // Core dispatch handlers (kb:listCollections, kb:getCollectionFiles)
+    // moved from main/services/knowledge.ts to core/handlers/knowledge.ts; register them here so
+    // security tests that invoke those channels still resolve handlers.
+    registerKnowledgeHandlers(ipc as any, '/tmp/test-home/.agent-desktop/knowledges')
   })
 
   afterEach(() => {

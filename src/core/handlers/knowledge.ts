@@ -1,4 +1,5 @@
 import type { HandleRegistrar } from '../dispatch'
+import type { KnowledgeCollection } from '../types/types'
 import { join, extname, relative } from 'path'
 import { promises as fsp } from 'fs'
 import { validateString } from '../utils/validate'
@@ -12,18 +13,9 @@ const TEXT_EXTENSIONS = new Set([
   '.txt', '.md', '.js', '.ts', '.py', '.json', '.csv', '.yaml', '.yml',
 ])
 
-// ─── Types ──────────────────────────────────────────────────
-
-interface KnowledgeCollection {
-  name: string
-  path: string
-  fileCount: number
-  totalSize: number
-}
-
 // ─── Internals ──────────────────────────────────────────────
 
-async function findSupportedFiles(dirPath: string): Promise<{ name: string; path: string; size: number }[]> {
+export async function findSupportedFiles(dirPath: string): Promise<{ name: string; path: string; size: number }[]> {
   const results: { name: string; path: string; size: number }[] = []
   const fileCount = { value: 0 }
 
@@ -50,6 +42,7 @@ async function findSupportedFiles(dirPath: string): Promise<{ name: string; path
       }
     }
 
+    // Batch stat calls for text files
     const statResults = await Promise.all(
       textFiles.map(async (fullPath) => {
         try {
@@ -67,6 +60,7 @@ async function findSupportedFiles(dirPath: string): Promise<{ name: string; path
       }
     }
 
+    // Recurse into subdirectories
     for (const subdir of subdirs) {
       if (fileCount.value >= MAX_FILES) break
       await scan(subdir, depth + 1)
