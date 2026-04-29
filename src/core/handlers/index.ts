@@ -17,7 +17,7 @@ import { registerThemesHandlers } from './themes'
 import { registerCommandsHandlers } from './commands'
 import { registerKnowledgeHandlers } from './knowledge'
 import { registerSchedulerHandlers } from './scheduler'
-import { registerTtsHandlers } from './tts'
+import { registerTtsHandlers, speakResponse, stop as ttsStop } from './tts'
 import { registerWhisperHandlers } from './whisper'
 import { registerSystemHandlers } from './system'
 import { registerGitHandlers } from './git'
@@ -52,6 +52,14 @@ export function registerCoreHandlers(
     broadcaster: options.broadcaster,
     hookRunner: options.hookRunner,
     sessionsBase: options.sessionsBase,
+    knowledgesDir: options.knowledgesDir,
+    // Auto-fire TTS at end-of-stream. speakResponse honors per-conv aiSettings
+    // (full / summary / auto / off), so off-providers no-op cleanly.
+    onTtsSpeak: (content, convId, aiSettings) => {
+      speakResponse(content, db, convId, aiSettings).catch(err =>
+        console.error('[messages] auto-tts error:', err))
+    },
+    onTtsStop: () => ttsStop(),
   })
   registerFilesHandlers(registrar, db, { sessionsBase: options.sessionsBase })
   registerThemesHandlers(registrar, options.themesDir)
