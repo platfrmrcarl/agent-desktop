@@ -6,6 +6,8 @@ import { expandTilde } from '../utils/paths'
 import { validatePathSafe } from '../utils/validate'
 import type { SlashCommand } from '../../shared/types'
 import { discoverPIExtensionCommands } from './piExtensions'
+import { extractDescription } from '../../core/handlers/commands'
+import { getSetting } from '../utils/db'
 
 const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'compact', description: 'Compact conversation history', source: 'builtin' },
@@ -14,38 +16,7 @@ const BUILTIN_COMMANDS: SlashCommand[] = [
 ]
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/
-const DESCRIPTION_RE = /^description:\s*(.+)$/m
 const NAME_RE = /^name:\s*(.+)$/m
-
-/** Extract description from frontmatter, handling single-line, quoted, and YAML folded block (>) formats */
-function extractDescription(frontmatter: string): string {
-  // Try single-line: description: text  OR  description: "text"
-  const lineMatch = frontmatter.match(DESCRIPTION_RE)
-  if (lineMatch) {
-    const val = lineMatch[1].trim()
-    // Strip surrounding quotes
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      return val.slice(1, -1)
-    }
-    // Folded block scalar (>): collect indented continuation lines
-    if (val === '>') {
-      const descIdx = frontmatter.indexOf('description:')
-      const afterDesc = frontmatter.slice(descIdx)
-      const lines = afterDesc.split('\n').slice(1) // skip the "description: >" line
-      const parts: string[] = []
-      for (const line of lines) {
-        if (line.match(/^\s+/)) {
-          parts.push(line.trim())
-        } else {
-          break // hit a non-indented line (next YAML key or end)
-        }
-      }
-      return parts.join(' ')
-    }
-    return val
-  }
-  return ''
-}
 
 /** Read first 2KB of a file and parse frontmatter */
 async function readFrontmatter(filePath: string): Promise<{ name?: string; description: string }> {
@@ -225,10 +196,7 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
 
     // Pi extension commands (always attempted — silently skipped if SDK unavailable)
     try {
-      const extDirRow = db
-        .prepare("SELECT value FROM settings WHERE key = 'pi_extensionsDir'")
-        .get() as { value: string } | undefined
-      const piCommands = await discoverPIExtensionCommands(extDirRow?.value || undefined)
+      const piCommands = await discoverPIExtensionCommands(getSetting(db, 'pi_extensionsDir') || undefined)
       for (const cmd of piCommands) {
         results.set(cmd.name, cmd)
       }

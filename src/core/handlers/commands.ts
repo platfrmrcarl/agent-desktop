@@ -30,23 +30,27 @@ function getMacrosDir(): string {
   return expandTilde('~/.agent-desktop/macros')
 }
 
-function extractDescription(frontmatter: string): string {
+/** Extract description from frontmatter, handling single-line, quoted, and YAML folded block (>) formats */
+export function extractDescription(frontmatter: string): string {
+  // Try single-line: description: text  OR  description: "text"
   const lineMatch = frontmatter.match(DESCRIPTION_RE)
   if (lineMatch) {
     const val = lineMatch[1].trim()
+    // Strip surrounding quotes
     if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
       return val.slice(1, -1)
     }
+    // Folded block scalar (>): collect indented continuation lines
     if (val === '>') {
       const descIdx = frontmatter.indexOf('description:')
       const afterDesc = frontmatter.slice(descIdx)
-      const lines = afterDesc.split('\n').slice(1)
+      const lines = afterDesc.split('\n').slice(1) // skip the "description: >" line
       const parts: string[] = []
       for (const line of lines) {
         if (line.match(/^\s+/)) {
           parts.push(line.trim())
         } else {
-          break
+          break // hit a non-indented line (next YAML key or end)
         }
       }
       return parts.join(' ')
