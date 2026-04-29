@@ -11,11 +11,12 @@ vi.mock('../index', () => ({
   getMainWindow: vi.fn(() => null),
 }))
 
-vi.mock('./messages', () => ({
+vi.mock('../../core/handlers/messages', () => ({
   buildMessageHistory: vi.fn(),
   getAISettings: vi.fn(() => ({})),
   getSystemPrompt: vi.fn().mockResolvedValue(''),
   saveMessage: vi.fn(),
+  compactConversation: vi.fn().mockResolvedValue({ summary: '', clearedAt: '' }),
 }))
 
 vi.mock('./streaming', () => ({
@@ -31,7 +32,7 @@ vi.mock('./tts', () => ({
 import { computeNextRun, getExpectedThemeFilename, executeTask, reassignOrphanedTasks } from './scheduler'
 import { createTestDb } from '../__tests__/db-helper'
 import type { ScheduledTask } from '../../shared/types'
-import type Database from 'better-sqlite3'
+import type { SqlJsAdapter } from '../../core/db/sqljs-adapter'
 
 const BASE = new Date('2025-01-15T10:00:00.000Z')
 
@@ -183,7 +184,7 @@ describe('getExpectedThemeFilename', () => {
 })
 
 describe('reassignOrphanedTasks', () => {
-  let db: Database.Database
+  let db: SqlJsAdapter
 
   beforeEach(async () => {
     db = await createTestDb()
@@ -267,7 +268,7 @@ describe('reassignOrphanedTasks', () => {
 })
 
 describe('executeTask', () => {
-  let db: Database.Database
+  let db: SqlJsAdapter
 
   function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     return {

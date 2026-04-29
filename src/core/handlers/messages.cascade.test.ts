@@ -1,4 +1,4 @@
-import { vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Must be at top level, before imports
 vi.mock('electron', () => ({
@@ -8,17 +8,20 @@ vi.mock('electron', () => ({
   },
 }))
 
-vi.mock('../index', () => ({
-  getMainWindow: vi.fn(() => null),
+vi.mock('../services/anthropic', () => ({
+  loadAgentSDK: vi.fn().mockResolvedValue({
+    query: vi.fn().mockReturnValue({
+      [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }),
+    }),
+  }),
 }))
 
-vi.mock('./anthropic', () => ({
-  loadAgentSDK: vi.fn(),
-}))
-
-vi.mock('./streaming', () => ({
+vi.mock('../services/streaming', () => ({
   streamMessage: vi.fn().mockResolvedValue({ content: 'AI response', toolCalls: [], aborted: false, sessionId: null }),
   abortStream: vi.fn(),
+  respondToApproval: vi.fn(),
+  sendChunk: vi.fn(),
+  notifyConversationUpdated: vi.fn(),
   injectApiKeyEnv: vi.fn(() => null),
 }))
 
@@ -27,7 +30,7 @@ vi.mock('fs', async () => {
   return { ...actual, mkdirSync: vi.fn() }
 })
 
-import { createTestDb } from '../__tests__/db-helper'
+import { createTestDb } from '../../main/__tests__/db-helper'
 
 import {
   buildMessageHistory,
@@ -37,10 +40,25 @@ import {
   copyAttachmentsToSession,
   compactConversation,
 } from './messages'
-import type Database from 'better-sqlite3'
+import { noopHookRunner } from '../ports/hookRunner'
+import type { MessagesHandlerOptions } from './messages'
+import type { Broadcaster } from '../ports/broadcaster'
+import type { SqlJsAdapter } from '../db/sqljs-adapter'
+import { tmpdir } from 'os'
+import { join as pathJoin } from 'path'
 
-describe('Messages Service', () => {
-  let db: Database.Database
+function createTestOptions(overrides?: Partial<MessagesHandlerOptions>): MessagesHandlerOptions {
+  const broadcaster: Broadcaster = { broadcast: () => {} }
+  return {
+    broadcaster,
+    hookRunner: noopHookRunner,
+    sessionsBase: pathJoin(tmpdir(), 'agent-test-sessions'),
+    ...overrides,
+  }
+}
+
+describe('Messages Service (cascade behaviors)', () => {
+  let db: SqlJsAdapter
   let convId: number
 
   beforeEach(async () => {

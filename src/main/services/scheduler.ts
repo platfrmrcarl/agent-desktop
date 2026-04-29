@@ -1,11 +1,21 @@
 import type { IpcMain } from 'electron'
-import type Database from 'better-sqlite3'
+import type { SqlJsAdapter } from '../../core/db/sqljs-adapter'
+import type { MessagesHandlerOptions } from '../../core/handlers/messages'
 import { Notification } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
 import { promises as fsp } from 'fs'
 import { getMainWindow } from '../index'
-import { buildMessageHistory, getAISettings, getSystemPrompt, saveMessage, compactConversation as compactConversationImpl } from './messages'
+import {
+  buildMessageHistory,
+  getAISettings,
+  getSystemPrompt,
+  saveMessage,
+  compactConversation as compactConversationImpl,
+} from '../../core/handlers/messages'
+import { noopHookRunner } from '../../core/ports/hookRunner'
+import { getKnowledgesDir, getSupportedExtensions } from './knowledge'
+import { getSchedulerMcpConfig } from './schedulerBridge'
 import { streamMessage, injectApiKeyEnv, registerStreamWindow } from './streaming'
 import { invalidateSession } from './sessionManager'
 import { broadcast } from '../utils/broadcast'
@@ -24,7 +34,7 @@ export { computeNextRun, getExpectedThemeFilename } from '../../core/services/sc
 
 let tickInterval: ReturnType<typeof setInterval> | null = null
 let schedulerService: SchedulerService | null = null
-let schedulerDb: Database.Database | null = null
+let schedulerDb: SqlJsAdapter | null = null
 
 const HEADLESS_DIR = join(homedir(), '.config', 'agent-desktop', 'headless')
 
@@ -38,17 +48,34 @@ function notifyRenderer(event: string, data: unknown): void {
   broadcast(event, data)
 }
 
-export function createElectronContext(db: Database.Database): TaskRunContext {
+export function createElectronContext(db: SqlJsAdapter): TaskRunContext {
+  const messagesOpts: MessagesHandlerOptions = {
+    broadcaster: { broadcast },
+    hookRunner: noopHookRunner,
+    sessionsBase: join(homedir(), '.agent-desktop', 'sessions-folder'),
+    knowledgesDir: getKnowledgesDir(),
+    supportedKnowledgeExts: getSupportedExtensions(),
+    getSchedulerMcpConfig,
+    onSessionInvalidate: invalidateSession,
+  }
   return {
     db,
     buildHistory(conversationId: number) {
       return buildMessageHistory(db, conversationId)
     },
     getAISettings(conversationId: number) {
-      return getAISettings(db, conversationId)
+      return getAISettings(db, conversationId, {
+        sessionsBase: messagesOpts.sessionsBase,
+        knowledgesDir: messagesOpts.knowledgesDir,
+        getSchedulerMcpConfig: messagesOpts.getSchedulerMcpConfig,
+      })
     },
     async getSystemPrompt(conversationId: number, cwd: string) {
-      return getSystemPrompt(db, conversationId, cwd)
+      return getSystemPrompt(db, conversationId, cwd, {
+        knowledgesDir: messagesOpts.knowledgesDir,
+        supportedKnowledgeExts: messagesOpts.supportedKnowledgeExts,
+        getSchedulerMcpConfig: messagesOpts.getSchedulerMcpConfig,
+      })
     },
     async streamMessage(history, systemPrompt, aiSettings, conversationId) {
       // Inject API key env if configured
@@ -91,14 +118,14 @@ export function createElectronContext(db: Database.Database): TaskRunContext {
       invalidateSession(conversationId)
     },
     async compactConversation(conversationId: number) {
-      await compactConversationImpl(db, conversationId)
+      await compactConversationImpl(db, conversationId, messagesOpts)
     },
   }
 }
 
 // ─── Task execution (backward-compatible wrapper) ──────────
 
-export async function executeTask(db: Database.Database, task: ScheduledTask): Promise<void> {
+export async function executeTask(db: SqlJsAdapter, task: ScheduledTask): Promise<void> {
   if (!schedulerService || schedulerDb !== db) {
     schedulerDb = db
     schedulerService = new SchedulerService(db)
@@ -116,7 +143,7 @@ export async function executeTask(db: Database.Database, task: ScheduledTask): P
 }
 
 /** Backward-compatible reassignOrphanedTasks for existing callers (conversations.ts) */
-export function reassignOrphanedTasks(db: Database.Database, conversationId: number): void {
+export function reassignOrphanedTasks(db: SqlJsAdapter, conversationId: number): void {
   if (!schedulerService || schedulerDb !== db) {
     schedulerDb = db
     schedulerService = new SchedulerService(db)
@@ -144,7 +171,7 @@ function tick(): void {
   }
 }
 
-export async function startScheduler(db: Database.Database): Promise<void> {
+export async function startScheduler(db: SqlJsAdapter): Promise<void> {
   schedulerDb = db
   schedulerService = new SchedulerService(db)
 
@@ -198,7 +225,7 @@ export async function stopScheduler(): Promise<void> {
 // ─── Platform scheduler management ─────────────────────────
 
 /** Extract headless script to stable path and install/verify OS scheduler */
-async function verifyPlatformScheduler(db: Database.Database): Promise<void> {
+async function verifyPlatformScheduler(db: SqlJsAdapter): Promise<void> {
   const bgEnabled = db.prepare("SELECT value FROM settings WHERE key = 'scheduler_background_enabled'")
     .get() as { value: string } | undefined
   if (bgEnabled?.value !== 'true') return
@@ -260,7 +287,7 @@ async function verifyPlatformScheduler(db: Database.Database): Promise<void> {
 }
 
 /** Install or uninstall the platform scheduler based on the setting */
-export async function togglePlatformScheduler(db: Database.Database, enabled: boolean): Promise<void> {
+export async function togglePlatformScheduler(db: SqlJsAdapter, enabled: boolean): Promise<void> {
   const platformScheduler = createPlatformScheduler()
 
   if (enabled) {
@@ -278,7 +305,7 @@ export function getSchedulerService(): SchedulerService | null {
 
 // ─── IPC Handlers ───────────────────────────────────────────
 
-export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void {
+export function registerHandlers(ipcMain: IpcMain, db: SqlJsAdapter): void {
   // Ensure service exists for IPC calls (startScheduler may not have been called yet)
   const svc = () => {
     if (!schedulerService) schedulerService = new SchedulerService(db)

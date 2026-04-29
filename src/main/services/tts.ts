@@ -409,7 +409,7 @@ export async function speakResponse(
 export async function speakMessage(text: string, db: Database.Database, conversationId: number, messageId: number): Promise<void> {
   currentMessageId = messageId
   try {
-    const { getAISettings } = await import('./messages')
+    const { getAISettings } = await import('../../core/handlers/messages')
     const aiSettings = getAISettings(db, conversationId)
     await speakResponse(text, db, conversationId, aiSettings)
   } finally {

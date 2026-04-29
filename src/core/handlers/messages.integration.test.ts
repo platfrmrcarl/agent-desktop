@@ -1,6 +1,12 @@
-import { initMemoryAdapter, SqlJsAdapter } from '../../core/db/sqljs-adapter'
-import { createTables } from '../../core/db/schema'
-import { seedDefaults } from '../../core/db/seed'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { initMemoryAdapter, SqlJsAdapter } from '../db/sqljs-adapter'
+import { createTables } from '../db/schema'
+import { seedDefaults } from '../db/seed'
+import { DispatchRegistry } from '../dispatch'
+import { tmpdir } from 'os'
+import { join as pathJoin } from 'path'
+import type { Broadcaster } from '../ports/broadcaster'
+import type { HookRunner } from '../ports/hookRunner'
 
 vi.mock('electron', () => ({
   app: {
@@ -10,30 +16,17 @@ vi.mock('electron', () => ({
   },
 }))
 
-vi.mock('../index', () => ({
-  getMainWindow: vi.fn(() => null),
-}))
-
-// Shared mock between `./anthropic` (main re-export) and `../../core/services/anthropic`
-// (canonical). Both paths must resolve to the same mock so tests setting up
-// mockLoadAgentSDK intercept both older call sites (main re-export) and newer
-// ones routing through summarizeWithModel (canonical).
 const { _loadAgentSDK } = vi.hoisted(() => ({ _loadAgentSDK: vi.fn() }))
-vi.mock('./anthropic', () => ({ loadAgentSDK: _loadAgentSDK }))
-vi.mock('../../core/services/anthropic', () => ({ loadAgentSDK: _loadAgentSDK }))
+vi.mock('../services/anthropic', () => ({ loadAgentSDK: _loadAgentSDK }))
 
 const mockStreamMessage = vi.fn().mockResolvedValue({ content: 'AI response', toolCalls: [], aborted: false, sessionId: null })
-vi.mock('./streaming', () => ({
+vi.mock('../services/streaming', () => ({
   streamMessage: (...args: unknown[]) => mockStreamMessage(...args),
   abortStream: vi.fn(),
   injectApiKeyEnv: vi.fn(() => null),
   notifyConversationUpdated: vi.fn(),
   sendChunk: vi.fn(),
-}))
-
-const mockRunHooks = vi.fn().mockResolvedValue([])
-vi.mock('./hookRunner', () => ({
-  runUserPromptSubmitHooks: (...args: unknown[]) => mockRunHooks(...args),
+  respondToApproval: vi.fn(),
 }))
 
 vi.mock('fs', async () => {
@@ -41,11 +34,17 @@ vi.mock('fs', async () => {
   return { ...actual, mkdirSync: vi.fn(), readdirSync: vi.fn(() => []), writeFileSync: vi.fn() }
 })
 
-import { registerHandlers } from './messages'
-import { abortStream } from './streaming'
-import { loadAgentSDK } from './anthropic'
+import { registerMessagesHandlers } from './messages'
+import { abortStream } from '../services/streaming'
+import { loadAgentSDK } from '../services/anthropic'
+import type { MessagesHandlerOptions } from './messages'
 
 const mockLoadAgentSDK = loadAgentSDK as ReturnType<typeof vi.fn>
+
+const mockRunHooks = vi.fn().mockResolvedValue([])
+const testHookRunner: HookRunner = {
+  runUserPromptSubmitHooks: (...args: Parameters<HookRunner['runUserPromptSubmitHooks']>) => mockRunHooks(...args),
+}
 
 async function createTestDb() {
   const db = await initMemoryAdapter()
@@ -56,19 +55,26 @@ async function createTestDb() {
   return db
 }
 
-type HandlerFn = (...args: unknown[]) => Promise<unknown>
-
 function createMockIpcMain() {
-  const handlers: Record<string, HandlerFn> = {}
+  const registry = new DispatchRegistry()
   return {
-    handle: (channel: string, handler: HandlerFn) => {
-      handlers[channel] = handler
-    },
+    registry,
+    handle: registry.handle.bind(registry),
     invoke: async (channel: string, ...args: unknown[]) => {
-      const handler = handlers[channel]
+      const handler = registry.get(channel)
       if (!handler) throw new Error(`No handler for ${channel}`)
-      return handler({}, ...args)
+      return handler(...args)
     },
+  }
+}
+
+function createTestOptions(overrides?: Partial<MessagesHandlerOptions>): MessagesHandlerOptions {
+  const broadcaster: Broadcaster = { broadcast: () => {} }
+  return {
+    broadcaster,
+    hookRunner: testHookRunner,
+    sessionsBase: pathJoin(tmpdir(), 'agent-test-sessions'),
+    ...overrides,
   }
 }
 
@@ -80,7 +86,7 @@ describe('messages integration', () => {
   beforeEach(async () => {
     db = await createTestDb()
     ipc = createMockIpcMain()
-    registerHandlers(ipc as never, db as any)
+    registerMessagesHandlers(ipc.registry, db, createTestOptions())
     mockStreamMessage.mockReset()
     mockStreamMessage.mockResolvedValue({ content: 'AI response', toolCalls: [], aborted: false, sessionId: null })
     mockRunHooks.mockReset()

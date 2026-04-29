@@ -34,7 +34,7 @@ vi.mock('../utils/volume', () => ({
   restoreOtherStreams: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('./messages', () => ({
+vi.mock('../../core/handlers/messages', () => ({
   getAISettings: vi.fn(() => ({
     ttsResponseMode: 'full',
   })),
@@ -86,7 +86,7 @@ import { loadAgentSDK } from './anthropic'
 import { injectApiKeyEnv } from './streaming'
 import { duckOtherStreams, restoreOtherStreams } from '../utils/volume'
 import { getMainWindow } from '../index'
-import { getAISettings } from './messages'
+import { getAISettings } from '../../core/handlers/messages'
 
 const mockFindBinary = vi.mocked(findBinaryInPath)
 const mockGetSetting = vi.mocked(getSetting)

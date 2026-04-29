@@ -30,14 +30,14 @@ vi.mock('./tts', () => ({
 // and saveMessage so we can verify the ms-collision mitigation end-to-end.
 
 import { createElectronContext } from './scheduler'
-import { buildMessageHistory, saveMessage } from './messages'
+import { buildMessageHistory, saveMessage } from '../../core/handlers/messages'
 import { createTestDb } from '../__tests__/db-helper'
-import type Database from 'better-sqlite3'
+import type { SqlJsAdapter } from '../../core/db/sqljs-adapter'
 
 const FIXED_MS = new Date('2025-06-01T12:00:00.000Z').getTime()
 
 describe('clearConversation ms-collision mitigation', () => {
-  let db: Database.Database
+  let db: SqlJsAdapter
   let convId: number
 
   beforeEach(async () => {
