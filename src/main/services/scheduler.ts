@@ -28,7 +28,7 @@ import type { TaskRunContext } from '../../core/services/taskExecutor'
 import type { ScheduledTask } from '../../core/types'
 import { createPlatformScheduler } from './platformScheduler'
 import { findBinaryInPath } from '../utils/env'
-import { getSetting } from '../../core/utils/db'
+import { getBackgroundSchedulerEnabled } from '../../core/db/queries'
 
 // Re-export core functions for backward compatibility with existing importers
 export { computeNextRun, getExpectedThemeFilename } from '../../core/services/scheduler'
@@ -197,7 +197,7 @@ export async function startScheduler(db: SqlJsAdapter): Promise<void> {
   schedulerService = new SchedulerService(db)
 
   // Check if background mode is active
-  const backgroundMode = getSetting(db, 'scheduler_background_enabled') === 'true'
+  const backgroundMode = getBackgroundSchedulerEnabled(db)
 
   if (backgroundMode) {
     // Background mode: systemd timer / cron handles scheduling.
@@ -245,7 +245,7 @@ export async function stopScheduler(): Promise<void> {
 
 /** Extract headless script to stable path and install/verify OS scheduler */
 async function verifyPlatformScheduler(db: SqlJsAdapter): Promise<void> {
-  if (getSetting(db, 'scheduler_background_enabled') !== 'true') return
+  if (!getBackgroundSchedulerEnabled(db)) return
 
   const platformScheduler = createPlatformScheduler()
 
@@ -374,7 +374,7 @@ export function registerHandlers(ipcMain: IpcMain, db: SqlJsAdapter): void {
   })
 
   ipcMain.handle('scheduler:backgroundStatus', async () => {
-    const enabled = getSetting(db, 'scheduler_background_enabled') === 'true'
+    const enabled = getBackgroundSchedulerEnabled(db)
     const platformScheduler = createPlatformScheduler()
     const installed = await platformScheduler.isInstalled()
     return { enabled, installed }

@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3'
+import type { SqlJsAdapter } from './sqljs-adapter'
+import { getDefaultFolderId } from './queries'
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS settings (
@@ -285,14 +287,13 @@ function runMigrations(db: Database.Database): void {
   }
 
   // Ensure exactly one default folder exists
-  const hasDefault = db.prepare('SELECT id FROM folders WHERE is_default = 1').get()
-  if (!hasDefault) {
+  if (getDefaultFolderId(db as unknown as SqlJsAdapter) === null) {
     db.prepare(
       `INSERT INTO folders (name, is_default, position, updated_at) VALUES ('Unsorted', 1, -1, datetime('now'))`
     ).run()
   }
 
   // Migrate all NULL folder_id conversations to the default folder
-  const defaultRow = db.prepare('SELECT id FROM folders WHERE is_default = 1').get() as { id: number }
-  db.prepare('UPDATE conversations SET folder_id = ? WHERE folder_id IS NULL').run(defaultRow.id)
+  const defaultFolderId = getDefaultFolderId(db as unknown as SqlJsAdapter)!
+  db.prepare('UPDATE conversations SET folder_id = ? WHERE folder_id IS NULL').run(defaultFolderId)
 }

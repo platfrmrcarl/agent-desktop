@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3'
 import { validateString, validatePositiveInt } from '../utils/validate'
 import { DEFAULT_MODEL } from '../types/constants'
 import type { ScheduledTask, CreateScheduledTask, IntervalUnit, PreRunAction } from '../types'
+import { getDefaultFolderId, getDefaultModel, conversationExists } from '../db/queries'
+import type { SqlJsAdapter } from '../db/sqljs-adapter'
 
 const VALID_PRE_RUN_ACTIONS: readonly PreRunAction[] = ['none', 'clear', 'compact']
 
@@ -157,16 +159,14 @@ export class SchedulerService {
     let conversationId: number
     if (data.conversation_id) {
       validatePositiveInt(data.conversation_id, 'conversation_id')
-      const conv = this.db.prepare('SELECT id FROM conversations WHERE id = ?').get(data.conversation_id)
-      if (!conv) throw new Error('Conversation not found')
+      if (!conversationExists(this.db as unknown as SqlJsAdapter, data.conversation_id)) throw new Error('Conversation not found')
       conversationId = data.conversation_id
     } else {
-      const modelRow = this.db.prepare("SELECT value FROM settings WHERE key = 'ai_model'").get() as { value: string } | undefined
-      const model = modelRow?.value || DEFAULT_MODEL
-      const defaultFolder = this.db.prepare('SELECT id FROM folders WHERE is_default = 1').get() as { id: number } | undefined
+      const model = getDefaultModel(this.db as unknown as SqlJsAdapter) || DEFAULT_MODEL
+      const defaultFolderId = getDefaultFolderId(this.db as unknown as SqlJsAdapter)
       const convResult = this.db.prepare(
         "INSERT INTO conversations (title, folder_id, model, updated_at) VALUES (?, ?, ?, datetime('now'))"
-      ).run(data.name, defaultFolder?.id ?? null, model)
+      ).run(data.name, defaultFolderId ?? null, model)
       conversationId = convResult.lastInsertRowid as number
     }
 
@@ -228,8 +228,7 @@ export class SchedulerService {
     }
     if (data.conversation_id !== undefined) {
       validatePositiveInt(data.conversation_id, 'conversation_id')
-      const conv = this.db.prepare('SELECT id FROM conversations WHERE id = ?').get(data.conversation_id)
-      if (!conv) throw new Error('Conversation not found')
+      if (!conversationExists(this.db as unknown as SqlJsAdapter, data.conversation_id)) throw new Error('Conversation not found')
       updates.push('conversation_id = ?')
       values.push(data.conversation_id)
     }
@@ -401,15 +400,14 @@ export class SchedulerService {
 
     if (tasks.length === 0) return
 
-    const modelRow = this.db.prepare("SELECT value FROM settings WHERE key = 'ai_model'").get() as { value: string } | undefined
-    const model = modelRow?.value || DEFAULT_MODEL
-    const defaultFolder = this.db.prepare('SELECT id FROM folders WHERE is_default = 1').get() as { id: number } | undefined
+    const model = getDefaultModel(this.db as unknown as SqlJsAdapter) || DEFAULT_MODEL
+    const defaultFolderId = getDefaultFolderId(this.db as unknown as SqlJsAdapter)
     const now = new Date().toISOString()
 
     for (const task of tasks) {
       const convResult = this.db.prepare(
         "INSERT INTO conversations (title, folder_id, model, updated_at) VALUES (?, ?, ?, datetime('now'))"
-      ).run(task.name, defaultFolder?.id ?? null, model)
+      ).run(task.name, defaultFolderId ?? null, model)
       this.db.prepare('UPDATE scheduled_tasks SET conversation_id = ?, updated_at = ? WHERE id = ?')
         .run(convResult.lastInsertRowid as number, now, task.id)
       console.log(`[scheduler] Task "${task.name}" (id=${task.id}): conversation ${conversationId} deleted, reassigned to new conversation ${convResult.lastInsertRowid}`)
@@ -418,17 +416,15 @@ export class SchedulerService {
 
   /** Ensure the task's conversation exists. Recreates if deleted. Returns updated task if conversation changed. */
   ensureConversation(task: ScheduledTask): ScheduledTask {
-    const conv = this.db.prepare('SELECT id FROM conversations WHERE id = ?').get(task.conversation_id) as { id: number } | undefined
-    if (conv) return task
+    if (conversationExists(this.db as unknown as SqlJsAdapter, task.conversation_id)) return task
 
-    const modelRow = this.db.prepare("SELECT value FROM settings WHERE key = 'ai_model'").get() as { value: string } | undefined
-    const model = modelRow?.value || DEFAULT_MODEL
-    const defaultFolder = this.db.prepare('SELECT id FROM folders WHERE is_default = 1').get() as { id: number } | undefined
+    const model = getDefaultModel(this.db as unknown as SqlJsAdapter) || DEFAULT_MODEL
+    const defaultFolderId = getDefaultFolderId(this.db as unknown as SqlJsAdapter)
     const now = new Date().toISOString()
 
     const convResult = this.db.prepare(
       "INSERT INTO conversations (title, folder_id, model, updated_at) VALUES (?, ?, ?, datetime('now'))"
-    ).run(task.name, defaultFolder?.id ?? null, model)
+    ).run(task.name, defaultFolderId ?? null, model)
     const newConvId = convResult.lastInsertRowid as number
 
     this.db.prepare('UPDATE scheduled_tasks SET conversation_id = ?, updated_at = ? WHERE id = ?')
@@ -440,7 +436,7 @@ export class SchedulerService {
 
   /** Check if conversation still exists (used during streaming to verify it wasn't deleted) */
   conversationExists(conversationId: number): boolean {
-    return this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(conversationId) !== undefined
+    return conversationExists(this.db as unknown as SqlJsAdapter, conversationId)
   }
 
   /** Check if any enabled tasks exist */

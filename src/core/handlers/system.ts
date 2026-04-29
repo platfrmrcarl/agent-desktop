@@ -1,5 +1,6 @@
 import type { HandleRegistrar } from '../dispatch'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
+import { countConversations } from '../db/queries'
 
 // ─── Log buffer ─────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ export function registerSystemHandlers(registrar: HandleRegistrar, db: SqlJsAdap
   registrar.handle('system:purgeConversations', async () => {
     const d = db as any
     const purge = d.transaction(() => {
-      const convCount = (d.prepare('SELECT COUNT(*) as c FROM conversations').get() as { c: number }).c
+      const convCount = countConversations(db)
       const folderCount = (d.prepare('SELECT COUNT(*) as c FROM folders').get() as { c: number }).c
       d.exec('DELETE FROM conversations')
       d.exec('DELETE FROM folders')
@@ -50,7 +51,7 @@ export function registerSystemHandlers(registrar: HandleRegistrar, db: SqlJsAdap
   registrar.handle('system:purgeAll', async () => {
     const d = db as any
     const purge = d.transaction(() => {
-      const convCount = (d.prepare('SELECT COUNT(*) as c FROM conversations').get() as { c: number }).c
+      const convCount = countConversations(db)
       d.exec('DELETE FROM conversations')
       d.exec('DELETE FROM folders')
       d.exec('DELETE FROM knowledge_files')

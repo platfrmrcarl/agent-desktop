@@ -2,11 +2,17 @@ import type Database from 'better-sqlite3'
 import { validateString, validatePositiveInt } from '../utils/validate'
 import { DEFAULT_MODEL } from '../types/constants'
 import type { Conversation, ConversationWithMessages } from '../types'
+import { getDefaultFolderId, getDefaultModel } from '../db/queries'
+import type { SqlJsAdapter } from '../db/sqljs-adapter'
 
 const SEARCH_RESULTS_LIMIT = 50
 
 export class ConversationService {
   constructor(private db: Database.Database) {}
+
+  private getById(id: number): Conversation | null {
+    return ((this.db as any).prepare('SELECT * FROM conversations WHERE id = ?').get(id) as Conversation | undefined) ?? null
+  }
 
   list(): Conversation[] {
     return this.db
@@ -65,9 +71,7 @@ export class ConversationService {
 
   get(id: number): ConversationWithMessages | null {
     validatePositiveInt(id, 'conversationId')
-    const conversation = this.db
-      .prepare('SELECT * FROM conversations WHERE id = ?')
-      .get(id) as Conversation | undefined
+    const conversation = this.getById(id)
     if (!conversation) return null
     const messages = this.db
       .prepare(
@@ -80,13 +84,9 @@ export class ConversationService {
   create(title?: string, folderId?: number): Conversation {
     if (title !== undefined) validateString(title, 'title', 500)
     if (folderId !== undefined) validatePositiveInt(folderId, 'folderId')
-    const modelRow = this.db
-      .prepare("SELECT value FROM settings WHERE key = 'ai_model'")
-      .get() as { value: string } | undefined
-    const globalModel = modelRow?.value || DEFAULT_MODEL
+    const globalModel = getDefaultModel(this.db as unknown as SqlJsAdapter) || DEFAULT_MODEL
 
-    const resolvedFolderId = folderId ??
-      (this.db.prepare('SELECT id FROM folders WHERE is_default = 1').get() as { id: number }).id
+    const resolvedFolderId = folderId ?? getDefaultFolderId(this.db as unknown as SqlJsAdapter)!
 
     const folderRow = this.db.prepare('SELECT default_cwd, ai_overrides FROM folders WHERE id = ?')
       .get(resolvedFolderId) as { default_cwd: string | null; ai_overrides: string | null } | undefined
@@ -100,9 +100,7 @@ export class ConversationService {
          VALUES (?, ?, ?, ?, datetime('now'))`
       )
       .run(title || 'New Conversation', resolvedFolderId, model, defaultCwd)
-    return this.db
-      .prepare('SELECT * FROM conversations WHERE id = ?')
-      .get(result.lastInsertRowid) as Conversation
+    return this.getById(result.lastInsertRowid as number)!
   }
 
   /** Update conversation fields. Returns true if cwd was changed (for cache invalidation). */
@@ -177,9 +175,7 @@ export class ConversationService {
   export(id: number, format: 'markdown' | 'json'): string {
     validatePositiveInt(id, 'conversationId')
     validateString(format, 'format', 20)
-    const conversation = this.db
-      .prepare('SELECT * FROM conversations WHERE id = ?')
-      .get(id) as Record<string, unknown> | undefined
+    const conversation = this.getById(id) as Record<string, unknown> | null
     if (!conversation) return ''
     const messages = this.db
       .prepare(
@@ -213,7 +209,7 @@ export class ConversationService {
     const systemPrompt = (typeof conversation?.system_prompt === 'string') ? conversation.system_prompt : null
     const kbEnabled = conversation?.kb_enabled === 1 ? 1 : 0
 
-    const defaultFolderId = (this.db.prepare('SELECT id FROM folders WHERE is_default = 1').get() as { id: number }).id
+    const defaultFolderId = getDefaultFolderId(this.db as unknown as SqlJsAdapter)!
 
     const insertConv = this.db.prepare(
       `INSERT INTO conversations (title, folder_id, model, system_prompt, kb_enabled, updated_at)
@@ -246,7 +242,7 @@ export class ConversationService {
     })
 
     const newId = importConv()
-    return this.db.prepare('SELECT * FROM conversations WHERE id = ?').get(newId) as Conversation
+    return this.getById(newId as number)!
   }
 
   search(query: string): Conversation[] {
@@ -268,9 +264,7 @@ export class ConversationService {
     validatePositiveInt(sourceConversationId, 'sourceConversationId')
     validatePositiveInt(messageId, 'messageId')
 
-    const source = this.db
-      .prepare('SELECT * FROM conversations WHERE id = ?')
-      .get(sourceConversationId) as Record<string, unknown> | undefined
+    const source = this.getById(sourceConversationId) as Record<string, unknown> | null
     if (!source) throw new Error('Conversation not found')
 
     const targetMessage = this.db
@@ -323,8 +317,6 @@ export class ConversationService {
       return newId
     })()
 
-    return this.db
-      .prepare('SELECT * FROM conversations WHERE id = ?')
-      .get(forkConv) as Conversation
+    return this.getById(forkConv as number)!
   }
 }

@@ -1,6 +1,8 @@
 import type Database from 'better-sqlite3'
 import { validateString, validatePositiveInt } from '../utils/validate'
 import type { Folder } from '../types'
+import { getDefaultFolderId } from '../db/queries'
+import type { SqlJsAdapter } from '../db/sqljs-adapter'
 
 export class FolderService {
   constructor(private db: Database.Database) {}
@@ -71,7 +73,7 @@ export class FolderService {
     const folder = this.db.prepare('SELECT is_default FROM folders WHERE id = ?').get(id) as { is_default: number } | undefined
     if (folder?.is_default === 1) throw new Error('Cannot delete the default folder')
 
-    const defaultFolder = this.db.prepare('SELECT id FROM folders WHERE is_default = 1').get() as { id: number }
+    const defaultFolder = { id: getDefaultFolderId(this.db as unknown as SqlJsAdapter)! }
 
     if (mode === 'delete') {
       const allIds: number[] = [id]
