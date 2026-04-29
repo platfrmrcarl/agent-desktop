@@ -28,6 +28,7 @@ import type { TaskRunContext } from '../../core/services/taskExecutor'
 import type { ScheduledTask } from '../../core/types'
 import { createPlatformScheduler } from './platformScheduler'
 import { findBinaryInPath } from '../utils/env'
+import { getSetting } from '../../core/utils/db'
 
 // Re-export core functions for backward compatibility with existing importers
 export { computeNextRun, getExpectedThemeFilename } from '../../core/services/scheduler'
@@ -176,9 +177,7 @@ export async function startScheduler(db: SqlJsAdapter): Promise<void> {
   schedulerService = new SchedulerService(db)
 
   // Check if background mode is active
-  const bgRow = db.prepare("SELECT value FROM settings WHERE key = 'scheduler_background_enabled'")
-    .get() as { value: string } | undefined
-  const backgroundMode = bgRow?.value === 'true'
+  const backgroundMode = getSetting(db, 'scheduler_background_enabled') === 'true'
 
   if (backgroundMode) {
     // Background mode: systemd timer / cron handles scheduling.
@@ -226,9 +225,7 @@ export async function stopScheduler(): Promise<void> {
 
 /** Extract headless script to stable path and install/verify OS scheduler */
 async function verifyPlatformScheduler(db: SqlJsAdapter): Promise<void> {
-  const bgEnabled = db.prepare("SELECT value FROM settings WHERE key = 'scheduler_background_enabled'")
-    .get() as { value: string } | undefined
-  if (bgEnabled?.value !== 'true') return
+  if (getSetting(db, 'scheduler_background_enabled') !== 'true') return
 
   const platformScheduler = createPlatformScheduler()
 
@@ -357,9 +354,7 @@ export function registerHandlers(ipcMain: IpcMain, db: SqlJsAdapter): void {
   })
 
   ipcMain.handle('scheduler:backgroundStatus', async () => {
-    const setting = db.prepare("SELECT value FROM settings WHERE key = 'scheduler_background_enabled'")
-      .get() as { value: string } | undefined
-    const enabled = setting?.value === 'true'
+    const enabled = getSetting(db, 'scheduler_background_enabled') === 'true'
     const platformScheduler = createPlatformScheduler()
     const installed = await platformScheduler.isInstalled()
     return { enabled, installed }

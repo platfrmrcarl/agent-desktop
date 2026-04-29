@@ -72,7 +72,7 @@ import {
   getBotStatus,
   splitMessage,
   getChannelConversations,
-} from './discord'
+} from '../../core/services/discord'
 import { DispatchRegistry } from '../../core/dispatch'
 
 // ─── Helpers ────────────────────────────────────────

@@ -12,7 +12,7 @@ vi.mock('../../core/utils/cert', () => ({
 }))
 
 // Import AFTER mocks are declared (ES module hoisting handles ordering)
-import { startServer, stopServer, getServerStatus } from './webServer'
+import { startServer, stopServer, getServerStatus } from '../../core/services/webServer'
 import { DispatchRegistry } from '../../core/dispatch'
 import { ensureSelfSignedCert } from '../../core/utils/cert'
 import { createWebPasswordService } from '../../core/auth'

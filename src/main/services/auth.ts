@@ -7,6 +7,7 @@ import type Database from 'better-sqlite3'
 import type { AuthStatus, AuthDiagnostics } from '../../shared/types'
 import { loadAgentSDK } from './anthropic'
 import { findBinaryInPath, isAppImage } from '../utils/env'
+import { getSetting } from '../../core/utils/db'
 
 /**
  * Check whether Claude credentials are available.
@@ -83,8 +84,7 @@ async function getStatus(db?: Database.Database): Promise<AuthStatus> {
   // Check for API key auth first — bypass OAuth entirely when set
   if (db) {
     try {
-      const row = db.prepare("SELECT value FROM settings WHERE key = 'ai_apiKey'").get() as { value: string } | undefined
-      if (row?.value) {
+      if (getSetting(db, 'ai_apiKey')) {
         return {
           authenticated: true,
           user: { email: 'API Key', name: 'API Key User' },

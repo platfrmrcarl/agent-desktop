@@ -9,29 +9,23 @@ import { broadcast } from '../utils/broadcast'
 import { DEFAULT_MODEL } from '../../shared/constants'
 import { duckVolume, restoreVolume } from '../utils/volume'
 import { ConversationService } from '../../core/services/conversations'
+import { getSetting } from '../../core/utils/db'
 
 let overlayWindow: BrowserWindow | null = null
 let headlessActive = false
 let db: Database.Database
 
-// --- Conversation Management ---
-
-function getSetting(key: string): string {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
-  return row?.value || ''
-}
-
 function resolveResumeTarget(mode: 'text' | 'voice'): number | null {
   const resumeKey = mode === 'voice'
     ? 'quickChat_resumeLastConversationVoice'
     : 'quickChat_resumeLastConversationText'
-  if (getSetting(resumeKey) !== 'true') return null
+  if (getSetting(db, resumeKey) !== 'true') return null
 
-  const textId = Number(getSetting('quickChat_conversationId')) || 0
-  const voiceId = Number(getSetting('quickChat_voiceConversationId')) || 0
+  const textId = Number(getSetting(db, 'quickChat_conversationId')) || 0
+  const voiceId = Number(getSetting(db, 'quickChat_voiceConversationId')) || 0
   const excludeIds = [textId, voiceId].filter((n) => n > 0)
 
-  const preferLastOpened = getSetting('quickChat_resumePreferLastOpened') === 'true'
+  const preferLastOpened = getSetting(db, 'quickChat_resumePreferLastOpened') === 'true'
   const service = new ConversationService(db)
   return preferLastOpened
     ? service.findLastOpenedConversationId(excludeIds)
@@ -43,12 +37,12 @@ function ensureConversation(mode?: 'text' | 'voice'): number {
   const resumedId = resolveResumeTarget(resolvedMode)
   if (resumedId !== null) return resumedId
 
-  const separate = getSetting('quickChat_separateVoiceConversation') === 'true'
+  const separate = getSetting(db, 'quickChat_separateVoiceConversation') === 'true'
   const useVoiceKey = separate && mode === 'voice'
   const settingKey = useVoiceKey ? 'quickChat_voiceConversationId' : 'quickChat_conversationId'
   const title = useVoiceKey ? 'Quick Chat (Voice)' : 'Quick Chat'
 
-  const existingId = Number(getSetting(settingKey)) || 0
+  const existingId = Number(getSetting(db, settingKey)) || 0
 
   if (existingId > 0) {
     const exists = db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(existingId)
@@ -56,7 +50,7 @@ function ensureConversation(mode?: 'text' | 'voice'): number {
   }
 
   // Create new Quick Chat conversation
-  const model = getSetting('ai_model') || DEFAULT_MODEL
+  const model = getSetting(db, 'ai_model') || DEFAULT_MODEL
 
   const result = db.prepare(
     `INSERT INTO conversations (title, model, updated_at) VALUES (?, ?, datetime('now'))`
@@ -76,12 +70,12 @@ function ensureConversation(mode?: 'text' | 'voice'): number {
 }
 
 function purgeConversation(): void {
-  const textId = Number(getSetting('quickChat_conversationId')) || 0
+  const textId = Number(getSetting(db, 'quickChat_conversationId')) || 0
   if (textId > 0) {
     db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(textId)
   }
 
-  const voiceId = Number(getSetting('quickChat_voiceConversationId')) || 0
+  const voiceId = Number(getSetting(db, 'quickChat_voiceConversationId')) || 0
   if (voiceId > 0 && voiceId !== textId) {
     db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(voiceId)
   }
@@ -151,15 +145,13 @@ export function showOverlay(mode: 'text' | 'voice'): void {
     overlayWindow = null
   }
 
-  const isHeadless = mode === 'voice' &&
-    (db.prepare("SELECT value FROM settings WHERE key = 'quickChat_voiceHeadless'")
-      .get() as { value: string } | undefined)?.value === 'true'
+  const isHeadless = mode === 'voice' && getSetting(db, 'quickChat_voiceHeadless') === 'true'
 
   headlessActive = !!isHeadless
   overlayWindow = createOverlay(mode === 'voice', isHeadless)
 
   if (mode === 'voice') {
-    const duck = Number(getSetting('voice_volumeDuck')) || 0
+    const duck = Number(getSetting(db, 'voice_volumeDuck')) || 0
     if (duck > 0) duckVolume(duck)
   }
 }

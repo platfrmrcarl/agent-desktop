@@ -11,6 +11,7 @@ import { join } from 'path'
 import { AgentEngine } from '../core'
 import type { Broadcaster } from '../core/ports/broadcaster'
 import { getDatabase, closeDatabase } from '../core/db/database'
+import { getSetting } from '../core/utils/db'
 import { bridgeDispatchToIpc } from './ipc'
 import { createTray, setTrayUpdateCallbacks, rebuildTrayMenu, toggleAppWindow } from './services/tray'
 import { initAutoUpdater, stopAutoUpdater, checkForUpdates, installUpdate } from './services/updater'
@@ -25,7 +26,7 @@ import { startBridge, stopBridge } from './services/schedulerBridge'
 import { shutdownAllKernels } from './services/jupyter'
 import { shutdownAllSessions } from './services/sessionManager'
 import { stop as stopTts } from './services/tts'
-import { startServer, stopServer } from './services/webServer'
+import { startServer, stopServer } from '../core/services/webServer'
 import { loadFromDisk, attachPersistence } from './services/errorBufferPersist'
 import { sendBugReport } from './services/bugReport'
 import { scrub as scrubLog } from './services/logScrubber'
@@ -173,8 +174,7 @@ function registerWindowIpc(): void {
   ipcMain.on('window:close', () => {
     try {
       const db = getDatabase()
-      const row = db.prepare("SELECT value FROM settings WHERE key = 'minimizeToTray'").get() as { value: string } | undefined
-      if (row?.value === 'true') {
+      if (getSetting(db, 'minimizeToTray') === 'true') {
         mainWindow?.hide()
         return
       }
@@ -295,12 +295,6 @@ if (!gotLock) {
           // engine.db is valid after init(); this closure is only invoked at
           // handler call time, never at registration time.
           const db = engine.db as any
-          const aiBackendRow = db
-            .prepare("SELECT value FROM settings WHERE key = 'ai_sdkBackend'")
-            .get() as { value: string } | undefined
-          const themeRow = db
-            .prepare("SELECT value FROM settings WHERE key = 'activeTheme'")
-            .get() as { value: string } | undefined
           return {
             version: app.getVersion(),
             platform: `${process.platform} (${process.arch})`,
@@ -312,8 +306,8 @@ if (!gotLock) {
                   : ('unknown' as const),
             electron: process.versions.electron ?? 'unknown',
             node: process.versions.node ?? 'unknown',
-            aiBackend: aiBackendRow?.value ?? 'claude-agent-sdk',
-            theme: themeRow?.value ?? 'default',
+            aiBackend: getSetting(db, 'ai_sdkBackend') || 'claude-agent-sdk',
+            theme: getSetting(db, 'activeTheme') || 'default',
             webMode: process.env.AGENT_WEB_MODE ? ('yes' as const) : ('no' as const),
           }
         },
@@ -344,15 +338,13 @@ if (!gotLock) {
     createTray(getMainWindow, createWindow)
 
     // Auto-start web server if configured
-    const autoStartRow = db.prepare("SELECT value FROM settings WHERE key = 'server_autoStart'").get() as { value: string } | undefined
-    if (autoStartRow?.value === 'true') {
-      const portRow = db.prepare("SELECT value FROM settings WHERE key = 'server_port'").get() as { value: string } | undefined
-      const shortCodeRow = db.prepare("SELECT value FROM settings WHERE key = 'server_shortCode'").get() as { value: string } | undefined
-      const accessModeRow = db.prepare("SELECT value FROM settings WHERE key = 'server_accessMode'").get() as { value: string } | undefined
-      const port = parseInt(portRow?.value || '3484', 10) || 3484
+    if (getSetting(db, 'server_autoStart') === 'true') {
+      const port = parseInt(getSetting(db, 'server_port') || '3484', 10) || 3484
+      const shortCode = getSetting(db, 'server_shortCode') || undefined
+      const accessMode = getSetting(db, 'server_accessMode')
       startServer(port, {
-        shortCode: shortCodeRow?.value || undefined,
-        accessMode: accessModeRow?.value === 'all' ? 'all' : 'lan',
+        shortCode,
+        accessMode: accessMode === 'all' ? 'all' : 'lan',
         sslDir: join(app.getPath('userData'), 'ssl'),
         rendererDir: join(__dirname, '../renderer'),
         dispatch: engine.dispatch,
@@ -398,8 +390,7 @@ if (!gotLock) {
   app.on('window-all-closed', () => {
     try {
       const db = getDatabase()
-      const row = db.prepare("SELECT value FROM settings WHERE key = 'minimizeToTray'").get() as { value: string } | undefined
-      if (row?.value === 'true') return
+      if (getSetting(db, 'minimizeToTray') === 'true') return
     } catch {
       // Fall through to quit
     }
