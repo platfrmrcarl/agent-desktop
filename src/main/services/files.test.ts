@@ -32,7 +32,7 @@ import { tmpdir } from 'os'
 import { createTestDb } from '../__tests__/db-helper'
 import { createMockIpcMain } from '../__tests__/ipc-helper'
 import { classifyFileExt, mimeToExt, registerHandlers } from './files'
-import type Database from 'better-sqlite3'
+import type { SqlJsAdapter } from '../../core/db/sqljs-adapter'
 
 describe('classifyFileExt', () => {
   it('returns html for .html', () => {
@@ -109,14 +109,20 @@ describe('mimeToExt', () => {
 })
 
 describe('files IPC handlers', () => {
-  let db: Database.Database
+  let db: SqlJsAdapter
   let ipc: ReturnType<typeof createMockIpcMain>
   let testDir: string
 
   beforeEach(async () => {
     db = await createTestDb()
     ipc = createMockIpcMain()
-    registerHandlers(ipc as any, db)
+    // Electron-only handlers: revealInFileManager, openWithDefault, trash
+    registerHandlers(ipc as any, db as any)
+    // Core dispatch handlers: listTree, listDir, readFile, rename, duplicate, writeFile,
+    // move, createFile, createFolder, savePastedFile, prepareSession, openTerminalHere
+    const { registerFilesHandlers } = await import('../../core/handlers/files')
+    const sessionsBase = join('/tmp/test-agent', '.agent-desktop', 'sessions-folder')
+    registerFilesHandlers(ipc as any, db as any, { sessionsBase })
     mockShell.showItemInFolder.mockClear()
     mockShell.openPath.mockClear().mockResolvedValue('')
     mockShell.trashItem.mockClear().mockResolvedValue(undefined)

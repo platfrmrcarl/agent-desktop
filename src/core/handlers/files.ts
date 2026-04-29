@@ -1,7 +1,7 @@
 import type { HandleRegistrar } from '../dispatch'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import { promises as fsp } from 'fs'
-import { join, resolve as pathResolve, extname, dirname, basename } from 'path'
+import { join, extname, dirname, basename } from 'path'
 import os from 'os'
 import { spawn } from 'child_process'
 import { expandTilde } from '../utils/paths'
@@ -19,6 +19,15 @@ const BINARY_MODEL_EXTS = new Set(['stl', '3mf', 'ply'])
 
 const IMAGE_EXTS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif',
+])
+
+// Audit S5-3 (2026-04-28): allowlist of known-safe terminal binaries resolved from
+// process.env.TERMINAL. Basenames are matched so full-path entries (e.g. /usr/bin/kitty) work.
+// If TERMINAL is unset or points to a binary not on this list we fall back to 'xterm'.
+const KNOWN_TERMINALS: ReadonlySet<string> = new Set([
+  'xterm', 'konsole', 'gnome-terminal', 'alacritty', 'kitty', 'wezterm',
+  'foot', 'tilix', 'terminator', 'urxvt', 'rxvt', 'st',
+  'xfce4-terminal', 'lxterminal', 'mate-terminal', 'xdg-terminal-exec',
 ])
 
 function getImageMime(ext: string): string {
@@ -429,13 +438,23 @@ export function registerFilesHandlers(
   })
 
   registrar.handle('files:openTerminalHere', async (_event, filePath: unknown) => {
+    // Audit S5-3 (2026-04-28): path gated via validatePathSafe + validatePathSafeAsync
+    // (symlink resolution), checkReadAllowed for whitelist parity with other read handlers.
+    // spawn uses argv array (no shell interpolation). TERMINAL env validated against
+    // KNOWN_TERMINALS by basename; falls back to 'xterm' if unset or not in allowlist.
     const fp = validateString(filePath, 'filePath')
     const resolved = expandTilde(fp)
     validatePathSafe(resolved)
-    const stats = await fsp.stat(resolved)
-    const dir = stats.isDirectory() ? resolved : dirname(resolved)
-    const term = process.env.TERMINAL || 'xterm'
-    const args = term.includes('xdg-terminal-exec') ? [`--dir=${dir}`] : []
+    const realResolved = await validatePathSafeAsync(resolved)
+    const stats = await fsp.stat(realResolved)
+    const dir = stats.isDirectory() ? realResolved : dirname(realResolved)
+    const whitelist = getGlobalWhitelist(db)
+    const outside = checkReadAllowed(dir, whitelist)
+    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
+    const envTerm = process.env.TERMINAL ?? ''
+    const termBasename = basename(envTerm)
+    const term = envTerm && KNOWN_TERMINALS.has(termBasename) ? envTerm : 'xterm'
+    const args = termBasename === 'xdg-terminal-exec' ? [`--dir=${dir}`] : []
     spawn(term, args, { cwd: dir, detached: true, stdio: 'ignore' }).unref()
   })
 

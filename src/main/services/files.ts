@@ -1,32 +1,14 @@
 import type { IpcMain } from 'electron'
 import type Database from 'better-sqlite3'
 import { promises as fsp } from 'fs'
-import { join, extname, dirname, basename } from 'path'
+import { join, extname } from 'path'
 import os from 'os'
-import { shell, app } from 'electron'
-import { spawn } from 'child_process'
-import type { FileNode } from '../../shared/types'
-import { validateString, validatePathSafe, validatePositiveInt, checkReadAllowed, checkWriteAllowed, validatePathSafeAsync } from '../utils/validate'
-import { isChildPath } from '../../shared/pathUtils'
+import { shell } from 'electron'
+import { validateString, validatePathSafe, checkWriteAllowed, validatePathSafeAsync } from '../utils/validate'
 import { expandTilde } from '../utils/paths'
-import { IMAGE_EXTS, getImageMime, mimeToExt } from '../utils/mime'
+import { getSetting } from '../../core/utils/db'
 
 export { mimeToExt } from '../utils/mime'
-
-const MAX_DEPTH = 10
-const MAX_FILES = 500
-const MAX_PASTE_SIZE = 5_000_000 // 5MB — clipboard paste limit
-const MAX_PREVIEW_SIZE = 10 * 1024 * 1024 // 10MB — hard limit for file preview
-const BINARY_MODEL_EXTS = new Set(['stl', '3mf', 'ply'])
-
-// Audit S5-3 (2026-04-28): allowlist of known-safe terminal binaries resolved from
-// process.env.TERMINAL. Basenames are matched so full-path entries (e.g. /usr/bin/kitty) work.
-// If TERMINAL is unset or points to a binary not on this list we fall back to 'xterm'.
-const KNOWN_TERMINALS: ReadonlySet<string> = new Set([
-  'xterm', 'konsole', 'gnome-terminal', 'alacritty', 'kitty', 'wezterm',
-  'foot', 'tilix', 'terminator', 'urxvt', 'rxvt', 'st',
-  'xfce4-terminal', 'lxterminal', 'mate-terminal', 'xdg-terminal-exec',
-])
 
 // Extensions that can execute arbitrary code via the OS default handler.
 // Refused in files:openWithDefault and files:revealInFileManager.
@@ -61,114 +43,6 @@ export function classifyFileExt(ext: string): string | null {
   }
 }
 
-// Recursive tree (used by @mention autocomplete) — budget-limited
-async function listTree(basePath: string, depth = 0, fileCount = { value: 0 }, excludeSet: Set<string> = new Set(['node_modules'])): Promise<FileNode[]> {
-  if (depth >= MAX_DEPTH || fileCount.value >= MAX_FILES) return []
-
-  let entries: string[]
-  try {
-    entries = await fsp.readdir(basePath)
-  } catch {
-    return []
-  }
-
-  const nodes: FileNode[] = []
-
-  for (const entry of entries) {
-    if (fileCount.value >= MAX_FILES) break
-    if (entry.startsWith('.') || excludeSet.has(entry)) continue
-
-    const fullPath = join(basePath, entry)
-    let stat: Awaited<ReturnType<typeof fsp.stat>>
-    try {
-      stat = await fsp.stat(fullPath)
-    } catch {
-      continue
-    }
-
-    fileCount.value++
-
-    if (stat.isDirectory()) {
-      const children = await listTree(fullPath, depth + 1, fileCount, excludeSet)
-      nodes.push({ name: entry, path: fullPath, isDirectory: true, children })
-    } else {
-      nodes.push({ name: entry, path: fullPath, isDirectory: false })
-    }
-  }
-
-  nodes.sort((a, b) => {
-    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
-    return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-  })
-
-  return nodes
-}
-
-// Flat single-level listing (used by file explorer lazy loading)
-// No recursion, no budget, no skip list — only hides hidden files (. prefix)
-// Resolves symlinks to determine actual type (directory vs file)
-async function listDir(basePath: string): Promise<FileNode[]> {
-  let entries: import('fs').Dirent[]
-  try {
-    entries = await fsp.readdir(basePath, { withFileTypes: true })
-  } catch {
-    return []
-  }
-
-  const nodes: FileNode[] = []
-
-  for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue
-    const fullPath = join(basePath, entry.name)
-    
-    // Check if symlink: if so, stat() follows the link to get actual type
-    let isDir = entry.isDirectory()
-    if (entry.isSymbolicLink()) {
-      try {
-        const stat = await fsp.stat(fullPath)
-        isDir = stat.isDirectory()
-      } catch {
-        // Broken symlink or access denied — treat as file
-        isDir = false
-      }
-    }
-    
-    nodes.push({ name: entry.name, path: fullPath, isDirectory: isDir })
-  }
-
-  nodes.sort((a, b) => {
-    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
-    return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-  })
-
-  return nodes
-}
-
-async function generateCopyPath(originalPath: string): Promise<string> {
-  const stat = await fsp.stat(originalPath)
-  const dir = dirname(originalPath)
-  let base: string
-  let ext: string
-  if (stat.isDirectory()) {
-    base = basename(originalPath)
-    ext = ''
-  } else {
-    ext = extname(originalPath)
-    base = basename(originalPath, ext)
-  }
-
-  let candidate = join(dir, `${base} (copy)${ext}`)
-  for (let i = 2; i <= 100; i++) {
-    try {
-      await fsp.access(candidate)
-      candidate = join(dir, `${base} (copy ${i})${ext}`)
-    } catch {
-      return candidate
-    }
-  }
-  throw new Error('Could not generate unique copy name')
-}
-
 export async function cleanupPastedFiles(): Promise<void> {
   const tmpDir = join(os.tmpdir(), 'agent-paste')
   try {
@@ -187,9 +61,9 @@ export async function cleanupPastedFiles(): Promise<void> {
 /** Read the global hooks_cwdWhitelist setting from the database. */
 function getGlobalWhitelist(db: Database.Database): Array<{ path: string; access: 'read' | 'readwrite' }> {
   try {
-    const row = (db as any).prepare('SELECT value FROM settings WHERE key = ?').get('hooks_cwdWhitelist') as { value: string } | undefined
-    if (!row?.value) return []
-    const parsed = JSON.parse(row.value)
+    const value = getSetting(db, 'hooks_cwdWhitelist')
+    if (!value) return []
+    const parsed = JSON.parse(value)
     return Array.isArray(parsed) ? parsed : []
   } catch {
     return []
@@ -197,63 +71,12 @@ function getGlobalWhitelist(db: Database.Database): Array<{ path: string; access
 }
 
 export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void {
-  ipcMain.handle('files:listTree', async (_event, basePath: string, excludePatterns?: string[]) => {
-    validateString(basePath, 'basePath')
-    const resolved = expandTilde(basePath)
-    validatePathSafe(resolved)
-    const realResolved = await validatePathSafeAsync(resolved)
-    const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(realResolved, whitelist)
-    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
-    const excludeSet = new Set(Array.isArray(excludePatterns) ? excludePatterns : ['node_modules'])
-    return listTree(realResolved, 0, { value: 0 }, excludeSet)
-  })
-
-  ipcMain.handle('files:listDir', async (_event, basePath: string) => {
-    validateString(basePath, 'basePath')
-    const resolved = expandTilde(basePath)
-    validatePathSafe(resolved)
-    const realResolved = await validatePathSafeAsync(resolved)
-    const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(realResolved, whitelist)
-    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
-    return listDir(realResolved)
-  })
-
-  ipcMain.handle('files:readFile', async (_event, filePath: string) => {
-    validateString(filePath, 'filePath')
-    const resolved = expandTilde(filePath)
-    validatePathSafe(resolved)
-    const realResolved = await validatePathSafeAsync(resolved)
-    const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(realResolved, whitelist)
-    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
-
-    const ext = extname(realResolved).slice(1).toLowerCase()
-    const stat = await fsp.stat(realResolved)
-    if (stat.size > MAX_PREVIEW_SIZE) {
-      throw new Error(`File too large to preview (${(stat.size / 1024 / 1024).toFixed(1)}MB, max ${MAX_PREVIEW_SIZE / 1024 / 1024}MB)`)
-    }
-
-    // Images: read as binary → base64 data URL
-    if (IMAGE_EXTS.has(ext)) {
-      const buffer = await fsp.readFile(realResolved)
-      const dataUrl = `data:${getImageMime(ext)};base64,${buffer.toString('base64')}`
-      return { content: dataUrl, language: 'image' as const }
-    }
-
-    // Binary 3D model files: read as binary → base64
-    if (BINARY_MODEL_EXTS.has(ext)) {
-      const buffer = await fsp.readFile(realResolved)
-      return { content: buffer.toString('base64'), language: 'model' as const }
-    }
-
-    // Text files
-    const content = await fsp.readFile(realResolved, 'utf-8')
-    const language = classifyFileExt(ext)
-
-    return { content, language }
-  })
+  // files:listTree, files:listDir, files:readFile, files:rename, files:duplicate,
+  // files:writeFile, files:move, files:createFile, files:createFolder,
+  // files:savePastedFile, files:prepareSession, files:openTerminalHere
+  // are all registered via core/handlers/files.ts (engine.dispatch).
+  // main's ipc.ts withSanitizedErrors skips ipcMain.handle for channels already
+  // in engine.dispatch, so registering them here would be dead at runtime.
 
   ipcMain.handle('files:revealInFileManager', async (_event, filePath: string) => {
     validateString(filePath, 'filePath')
@@ -265,27 +88,6 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
       throw new Error(`Refused to reveal: .${ext} files are blocked for security`)
     }
     shell.showItemInFolder(realResolved)
-  })
-
-  ipcMain.handle('files:openTerminalHere', async (_event, filePath: string) => {
-    // Audit S5-3 (2026-04-28): path gated via validatePathSafe + validatePathSafeAsync
-    // (symlink resolution), checkReadAllowed for whitelist parity with other read handlers.
-    // spawn uses argv array (no shell interpolation). TERMINAL env validated against
-    // KNOWN_TERMINALS by basename; falls back to 'xterm' if unset or not in allowlist.
-    validateString(filePath, 'filePath')
-    const resolved = expandTilde(filePath)
-    validatePathSafe(resolved)
-    const realResolved = await validatePathSafeAsync(resolved)
-    const stats = await fsp.stat(realResolved)
-    const dir = stats.isDirectory() ? realResolved : dirname(realResolved)
-    const whitelist = getGlobalWhitelist(db)
-    const outside = checkReadAllowed(dir, whitelist)
-    if (outside) throw new Error(`Access denied: ${outside} is outside the allowed read directories`)
-    const envTerm = process.env.TERMINAL ?? ''
-    const termBasename = basename(envTerm)
-    const term = envTerm && KNOWN_TERMINALS.has(termBasename) ? envTerm : 'xterm'
-    const args = termBasename === 'xdg-terminal-exec' ? [`--dir=${dir}`] : []
-    spawn(term, args, { cwd: dir, detached: true, stdio: 'ignore' }).unref()
   })
 
   ipcMain.handle('files:openWithDefault', async (_event, filePath: string) => {
@@ -316,264 +118,5 @@ export function registerHandlers(ipcMain: IpcMain, db: Database.Database): void 
     const outsideWrite = checkWriteAllowed(realResolved, whitelist)
     if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
     await shell.trashItem(realResolved)
-  })
-
-  ipcMain.handle('files:rename', async (_event, filePath: string, newName: string) => {
-    validateString(filePath, 'filePath')
-    validateString(newName, 'newName')
-    const resolved = expandTilde(filePath)
-    validatePathSafe(resolved)
-    if (newName.includes('/') || newName.includes('\\') || newName.includes('\0')) {
-      throw new Error('Invalid file name')
-    }
-    const newPath = join(dirname(resolved), newName)
-    validatePathSafe(newPath)
-    const realResolved = await validatePathSafeAsync(resolved)
-    const realNewPath = await validatePathSafeAsync(newPath)
-    const whitelist = getGlobalWhitelist(db)
-    const outsideSource = checkWriteAllowed(realResolved, whitelist)
-    if (outsideSource) throw new Error(`Write access denied: ${outsideSource} is outside the allowed readwrite directories`)
-    const outsideDest = checkWriteAllowed(realNewPath, whitelist)
-    if (outsideDest) throw new Error(`Write access denied: ${outsideDest} is outside the allowed readwrite directories`)
-    await fsp.rename(resolved, newPath)
-    return newPath
-  })
-
-  ipcMain.handle('files:duplicate', async (_event, filePath: string) => {
-    validateString(filePath, 'filePath')
-    const resolved = expandTilde(filePath)
-    validatePathSafe(resolved)
-    const realResolved = await validatePathSafeAsync(resolved)
-    const whitelist = getGlobalWhitelist(db)
-    const outsideWrite = checkWriteAllowed(realResolved, whitelist)
-    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
-    const copyPath = await generateCopyPath(realResolved)
-    await fsp.cp(realResolved, copyPath, { recursive: true })
-    return copyPath
-  })
-
-  ipcMain.handle('files:writeFile', async (_event, filePath: string, content: string) => {
-    validateString(filePath, 'filePath')
-    validateString(content, 'content', 2_000_000)
-    const resolved = expandTilde(filePath)
-    validatePathSafe(resolved)
-    const realResolved = await validatePathSafeAsync(resolved)
-    const whitelist = getGlobalWhitelist(db)
-    const outsideWrite = checkWriteAllowed(realResolved, whitelist)
-    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
-    const stat = await fsp.stat(realResolved)
-    if (stat.isDirectory()) throw new Error('Cannot write to a directory')
-    await fsp.writeFile(realResolved, content, 'utf-8')
-  })
-
-  ipcMain.handle('files:move', async (_event, sourcePath: string, destDir: string) => {
-    validateString(sourcePath, 'sourcePath')
-    validateString(destDir, 'destDir')
-    const resolvedSource = expandTilde(sourcePath)
-    const resolvedDest = expandTilde(destDir)
-    validatePathSafe(resolvedSource)
-    validatePathSafe(resolvedDest)
-    const realSource = await validatePathSafeAsync(resolvedSource)
-    const realDest = await validatePathSafeAsync(resolvedDest)
-    const whitelist = getGlobalWhitelist(db)
-    const outsideSource = checkWriteAllowed(realSource, whitelist)
-    if (outsideSource) throw new Error(`Write access denied: ${outsideSource} is outside the allowed readwrite directories`)
-    const outsideDest = checkWriteAllowed(realDest, whitelist)
-    if (outsideDest) throw new Error(`Write access denied: ${outsideDest} is outside the allowed readwrite directories`)
-
-    // Dest must be an existing directory
-    const destStat = await fsp.stat(resolvedDest)
-    if (!destStat.isDirectory()) throw new Error('Destination is not a directory')
-
-    // No-op if already in that directory
-    if (dirname(resolvedSource) === resolvedDest) throw new Error('Source is already in the destination directory')
-
-    // Prevent moving a folder into itself or its own children
-    const sourceStat = await fsp.stat(resolvedSource)
-    if (sourceStat.isDirectory() && (resolvedDest === resolvedSource || isChildPath(resolvedSource, resolvedDest))) {
-      throw new Error('Cannot move a folder into itself or its own children')
-    }
-
-    // Compute target path, auto-rename on conflict
-    const name = basename(resolvedSource)
-    const ext = sourceStat.isDirectory() ? '' : extname(name)
-    const base = sourceStat.isDirectory() ? name : basename(name, ext)
-    let target = join(resolvedDest, name)
-
-    try {
-      await fsp.access(target)
-      // Conflict — find unique name
-      for (let i = 1; i <= 100; i++) {
-        const candidate = join(resolvedDest, `${base} (${i})${ext}`)
-        try {
-          await fsp.access(candidate)
-        } catch {
-          target = candidate
-          break
-        }
-        if (i === 100) throw new Error('Could not generate unique name for move')
-      }
-    } catch (err: any) {
-      if (err.message?.includes('Could not generate')) throw err
-      // target doesn't exist — good, use it as-is
-    }
-
-    // Try rename (same filesystem), fall back to cp+rm (cross-filesystem)
-    try {
-      await fsp.rename(resolvedSource, target)
-    } catch (renameErr: any) {
-      if (renameErr.code === 'EXDEV') {
-        await fsp.cp(resolvedSource, target, { recursive: true })
-        await fsp.rm(resolvedSource, { recursive: true, force: true })
-      } else {
-        throw renameErr
-      }
-    }
-
-    return target
-  })
-
-  ipcMain.handle('files:createFile', async (_event, dirPath: string, name: string) => {
-    validateString(dirPath, 'dirPath')
-    validateString(name, 'name')
-    const resolvedDir = expandTilde(dirPath)
-    validatePathSafe(resolvedDir)
-    if (name.includes('/') || name.includes('\\') || name.includes('\0')) {
-      throw new Error('Invalid file name')
-    }
-    const target = join(resolvedDir, name)
-    validatePathSafe(target)
-    const realTarget = await validatePathSafeAsync(target)
-    const whitelist = getGlobalWhitelist(db)
-    const outsideWrite = checkWriteAllowed(realTarget, whitelist)
-    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
-    try {
-      const handle = await fsp.open(target, 'wx') // O_CREAT | O_EXCL — atomic
-      await handle.close()
-    } catch (err: any) {
-      if (err.code === 'EEXIST') throw new Error('A file or folder with that name already exists')
-      throw err
-    }
-    return target
-  })
-
-  ipcMain.handle('files:createFolder', async (_event, dirPath: string, name: string) => {
-    validateString(dirPath, 'dirPath')
-    validateString(name, 'name')
-    const resolvedDir = expandTilde(dirPath)
-    validatePathSafe(resolvedDir)
-    if (name.includes('/') || name.includes('\\') || name.includes('\0')) {
-      throw new Error('Invalid folder name')
-    }
-    const target = join(resolvedDir, name)
-    validatePathSafe(target)
-    const realTarget = await validatePathSafeAsync(target)
-    const whitelist = getGlobalWhitelist(db)
-    const outsideWrite = checkWriteAllowed(realTarget, whitelist)
-    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
-    try {
-      await fsp.mkdir(target) // throws EEXIST if exists
-    } catch (err: any) {
-      if (err.code === 'EEXIST') throw new Error('A file or folder with that name already exists')
-      throw err
-    }
-    return target
-  })
-
-  ipcMain.handle('files:savePastedFile', async (_event, data: Uint8Array, mimeType: string) => {
-    if (!(data instanceof Uint8Array) || data.length === 0) throw new Error('Invalid file data')
-    if (typeof mimeType !== 'string') throw new Error('Invalid MIME type')
-    if (data.length > MAX_PASTE_SIZE) throw new Error('Pasted file too large')
-
-    const ext = mimeToExt(mimeType) || 'bin'
-    const filename = `pasted-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-    const tmpDir = join(os.tmpdir(), 'agent-paste')
-    await fsp.mkdir(tmpDir, { recursive: true })
-    const tmpPath = join(tmpDir, filename)
-    await fsp.writeFile(tmpPath, Buffer.from(data))
-    return tmpPath
-  })
-
-  ipcMain.handle('files:prepareSession', async (
-    _event,
-    conversationId: number,
-    sourcePaths: string[],
-    method: 'copy' | 'symlink',
-    renames?: Record<string, string>
-  ) => {
-    validatePositiveInt(conversationId, 'conversationId')
-    if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) throw new Error('sourcePaths required')
-    if (sourcePaths.length > 200) throw new Error('Too many files (max 200)')
-    if (method !== 'copy' && method !== 'symlink') throw new Error('method must be copy or symlink')
-
-    // Validate renames map if provided
-    if (renames != null) {
-      if (typeof renames !== 'object' || Array.isArray(renames)) throw new Error('renames must be a plain object')
-      for (const [, newName] of Object.entries(renames)) {
-        if (typeof newName !== 'string' || newName.trim() === '') throw new Error('Rename value must be a non-empty string')
-        if (newName.includes('/') || newName.includes('\\') || newName.includes('\0')) throw new Error('Rename value contains invalid characters')
-      }
-    }
-
-    const sessionsBase = join(app.getPath('home'), '.agent-desktop', 'sessions-folder')
-    const destDir = join(sessionsBase, String(conversationId))
-    await fsp.mkdir(destDir, { recursive: true })
-    // Gate the session destination directory for write access
-    const realDestDir = await validatePathSafeAsync(destDir)
-    const whitelist = getGlobalWhitelist(db)
-    const outsideWrite = checkWriteAllowed(realDestDir, whitelist)
-    if (outsideWrite) throw new Error(`Write access denied: ${outsideWrite} is outside the allowed readwrite directories`)
-
-    // Validate all source paths and resolve names upfront (must be sequential for dedup)
-    const items: { resolvedSrc: string; dest: string }[] = []
-    const assignedDests = new Set<string>()
-    for (const src of sourcePaths) {
-      validateString(src, 'sourcePath', 2000)
-      const resolvedSrc = expandTilde(src)
-      validatePathSafe(resolvedSrc)
-      // Defeat symlink bypass on source paths (reading from them)
-      await validatePathSafeAsync(resolvedSrc)
-
-      const name = (renames && renames[src]) ? renames[src].trim() : basename(resolvedSrc)
-      let dest = join(destDir, name)
-
-      // Inline dedup: check both filesystem and already-assigned names
-      const existsOnDiskOrAssigned = async (p: string) =>
-        assignedDests.has(p) || await fsp.access(p).then(() => true, () => false)
-
-      if (await existsOnDiskOrAssigned(dest)) {
-        const ext = extname(name)
-        const base = basename(name, ext)
-        for (let i = 1; i < 1000; i++) {
-          dest = join(destDir, `${base}_${i}${ext}`)
-          if (!await existsOnDiskOrAssigned(dest)) break
-        }
-      }
-
-      assignedDests.add(dest)
-      items.push({ resolvedSrc, dest })
-    }
-
-    // Process file copy/symlink operations in batches for concurrency
-    const BATCH_SIZE = 16
-    let count = 0
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      const batch = items.slice(i, i + BATCH_SIZE)
-      await Promise.all(batch.map(async ({ resolvedSrc, dest }) => {
-        if (method === 'copy') {
-          const stat = await fsp.stat(resolvedSrc)
-          if (stat.isDirectory()) {
-            await fsp.cp(resolvedSrc, dest, { recursive: true })
-          } else {
-            await fsp.copyFile(resolvedSrc, dest)
-          }
-        } else {
-          await fsp.symlink(resolvedSrc, dest)
-        }
-        count++
-      }))
-    }
-
-    return { cwd: destDir, count }
   })
 }
