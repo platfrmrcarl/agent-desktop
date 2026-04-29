@@ -6,7 +6,6 @@ import type { SqlJsAdapter } from './db/sqljs-adapter'
 import { SettingsService } from './services/settings'
 import { FolderService } from './services/folders'
 import { ConversationService } from './services/conversations'
-import { MessageService } from './services/messages'
 import { ToolsService } from './services/tools'
 import { ShortcutsService } from './services/shortcuts'
 import { ThemesService } from './services/themes'
@@ -75,7 +74,6 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   private _settings!: SettingsService
   private _folders!: FolderService
   private _conversations!: ConversationService
-  private _messages!: MessageService
   private _tools!: ToolsService
   private _shortcuts!: ShortcutsService
   private _themes!: ThemesService
@@ -109,7 +107,6 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   get settings(): SettingsService { return this._settings }
   get folders(): FolderService { return this._folders }
   get conversations(): ConversationService { return this._conversations }
-  get messages(): MessageService { return this._messages }
   get tools(): ToolsService { return this._tools }
   get shortcuts(): ShortcutsService { return this._shortcuts }
   get themes(): ThemesService { return this._themes }
@@ -123,7 +120,6 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
     this._settings = new SettingsService(db)
     this._folders = new FolderService(db)
     this._conversations = new ConversationService(db)
-    this._messages = new MessageService(db)
     this._tools = new ToolsService(db)
     this._shortcuts = new ShortcutsService(db)
     this._themes = new ThemesService(this.themesDir)
