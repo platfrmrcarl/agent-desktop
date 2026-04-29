@@ -58,7 +58,7 @@ describe('runUserPromptSubmitHooks', () => {
     const hookOutput = JSON.stringify({ systemMessage: 'Reformulated prompt here' })
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: null, stdout: string) => void) => {
       cb(null, hookOutput)
-      return { stdin: { write: vi.fn(), end: vi.fn() } }
+      return { stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() } }
     })
 
     const result = await runUserPromptSubmitHooks('test prompt', '/cwd', 'bypassPermissions')
@@ -81,7 +81,7 @@ describe('runUserPromptSubmitHooks', () => {
     const stdinEnd = vi.fn()
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: null, stdout: string) => void) => {
       cb(null, '')
-      return { stdin: { write: stdinWrite, end: stdinEnd } }
+      return { stdin: { write: stdinWrite, end: stdinEnd, on: vi.fn() } }
     })
 
     await runUserPromptSubmitHooks('hello world', '/my/cwd', 'default')
@@ -106,7 +106,7 @@ describe('runUserPromptSubmitHooks', () => {
 
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: null, stdout: string) => void) => {
       cb(null, 'not json')
-      return { stdin: { write: vi.fn(), end: vi.fn() } }
+      return { stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() } }
     })
 
     const result = await runUserPromptSubmitHooks('test', '/cwd', 'bypass')
@@ -124,7 +124,7 @@ describe('runUserPromptSubmitHooks', () => {
 
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: null, stdout: string) => void) => {
       cb(null, JSON.stringify({ hookSpecificOutput: { additionalContext: 'stuff' } }))
-      return { stdin: { write: vi.fn(), end: vi.fn() } }
+      return { stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() } }
     })
 
     const result = await runUserPromptSubmitHooks('test', '/cwd', 'bypass')
@@ -142,7 +142,7 @@ describe('runUserPromptSubmitHooks', () => {
 
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: Error) => void) => {
       cb(new Error('exit code 1'))
-      return { stdin: { write: vi.fn(), end: vi.fn() } }
+      return { stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() } }
     })
 
     const result = await runUserPromptSubmitHooks('test', '/cwd', 'bypass')
@@ -160,7 +160,7 @@ describe('runUserPromptSubmitHooks', () => {
 
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: null, stdout: string) => void) => {
       cb(null, '')
-      return { stdin: { write: vi.fn(), end: vi.fn() } }
+      return { stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() } }
     })
 
     const result = await runUserPromptSubmitHooks('test', '/cwd', 'bypass')
@@ -179,7 +179,7 @@ describe('runUserPromptSubmitHooks', () => {
     mockExec.mockImplementation((_cmd: string, opts: { timeout: number }, cb: (err: null, stdout: string) => void) => {
       expect(opts.timeout).toBe(30_000)
       cb(null, '')
-      return { stdin: { write: vi.fn(), end: vi.fn() } }
+      return { stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() } }
     })
 
     await runUserPromptSubmitHooks('test', '/cwd', 'bypass')
@@ -197,7 +197,7 @@ describe('runUserPromptSubmitHooks', () => {
     mockExec.mockImplementation((_cmd: string, opts: { timeout: number }, cb: (err: null, stdout: string) => void) => {
       expect(opts.timeout).toBe(60_000)
       cb(null, '')
-      return { stdin: { write: vi.fn(), end: vi.fn() } }
+      return { stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() } }
     })
 
     await runUserPromptSubmitHooks('test', '/cwd', 'bypass')
@@ -230,7 +230,7 @@ describe('runUserPromptSubmitHooks', () => {
     mockExec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: null, stdout: string) => void) => {
       callCount++
       cb(null, JSON.stringify({ systemMessage: `msg${callCount}` }))
-      return { stdin: { write: vi.fn(), end: vi.fn() } }
+      return { stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() } }
     })
 
     const result = await runUserPromptSubmitHooks('test', '/cwd', 'bypass')
