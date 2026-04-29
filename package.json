@@ -27,7 +27,12 @@
     "start:server": "node out/headless/index.js --server",
     "start:discord": "node out/headless/index.js --discord",
     "start:headless": "node out/headless/index.js --server --discord",
-    "dist:headless": "bash scripts/package-headless.sh"
+    "dist:headless": "bash scripts/package-headless.sh",
+    "audit:dedup": "node scripts/dedup-analyzer.cjs",
+    "audit:stems": "node scripts/stem-collision-audit.cjs",
+    "audit:fanout": "python3 scripts/cross-community-fanout.py",
+    "audit:check": "node scripts/check-dedup-drift.cjs",
+    "audit:baseline": "node scripts/check-dedup-drift.cjs --update"
   },
   "author": "Agent Desktop Contributors",
   "license": "AGPL-3.0-only",

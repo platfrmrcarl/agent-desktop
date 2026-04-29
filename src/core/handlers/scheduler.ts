@@ -2,6 +2,7 @@ import type { HandleRegistrar } from '../dispatch'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import { SchedulerService } from '../services/scheduler'
 import { listVariables } from '../services/variableResolver'
+import { getBackgroundSchedulerEnabled } from '../db/queries'
 
 export function registerSchedulerHandlers(registrar: HandleRegistrar, db: SqlJsAdapter): void {
   let service: SchedulerService | null = null
@@ -46,9 +47,7 @@ export function registerSchedulerHandlers(registrar: HandleRegistrar, db: SqlJsA
   registrar.handle('scheduler:listVariables', async () => listVariables({}))
 
   registrar.handle('scheduler:backgroundStatus', async () => {
-    const setting = (db as any).prepare("SELECT value FROM settings WHERE key = 'scheduler_background_enabled'")
-      .get() as { value: string } | undefined
-    const enabled = setting?.value === 'true'
+    const enabled = getBackgroundSchedulerEnabled(db)
     // Platform scheduler status check is Electron-only — report not installed in headless
     return { enabled, installed: false }
   })

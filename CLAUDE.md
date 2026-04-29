@@ -12,8 +12,12 @@
 - `npm run start:server` — headless web server on default port
 - `npm run start:discord` — headless Discord bot
 - `npm run start:headless` — headless web server + Discord bot
+- `npm run audit:dedup` — list function/SQL clone clusters (TS AST)
+- `npm run audit:check` — fail if dedup metrics regressed vs `scripts/.dedup-baseline.json`
+- `npm run audit:baseline` — refresh the baseline after intentional improvement
 
 ## Architecture Decisions
+- **`core/` vs `main/services/` boundary** — `core/` holds shared logic that runs in BOTH Electron and headless (CLI/web/Discord); `core/` MUST NOT import `'electron'`. `main/services/` holds Electron-only wiring: `ipcMain.handle` registrations, `BrowserWindow`, native `Notification`, `app.getPath`, `dialog`, `shell`. When in doubt, ask "would the headless runtime need this?" — if yes → `core/`. Cross-boundary callbacks (e.g. `MessagesHandlerOptions.broadcaster`, `setSpeakingStateListener`) are the seam: core exposes a hook, main fills it. Don't reimplement in main what core already exports.
 - Electron + React + Zustand + Tailwind + sql.js (WASM SQLite)
 - **Dual SDK backend** — `ai_sdkBackend` selects Claude Agent SDK (default) or PI Coding Agent; 4-line branch in `streamMessage()` delegates to `streamMessagePI()`; no abstraction layer (only 2 backends)
 - **electron-vite** outputs to `out/`, not `dist-electron/`
@@ -33,6 +37,8 @@
 
 ## Conventions & Cascade
 - **New IPC handlers**: register in `src/core/handlers/`, not `src/main/services/` — unless Electron-only (Category C: updater, quickChat, globalShortcuts, system, openscad, jupyter, tray, deeplink, protocol, waylandShortcuts, schedulerBridge, webhook)
+- **DB query helpers**: use `getSetting(db, key)` from `src/core/utils/db.ts` and the named helpers in `src/core/db/queries.ts` (`getDefaultFolderId`, `countConversations`, `getBackgroundSchedulerEnabled`, `getDefaultModel`, `conversationExists`); inline `db.prepare("SELECT...").get()` is OK only for one-off queries with no callers elsewhere
+- **Dedup baseline**: `npm run audit:check` after refactors; the committed baseline in `scripts/.dedup-baseline.json` is the floor — running `npm run audit:baseline` after an intentional improvement is encouraged, but PRs that increase clone counts should fix the cause or document why
 - **CSS**: `@import` before `@tailwind` directives
 - **Auth**: OAuth from `claude login`, NOT api_key
 - **Themes**: CSS custom properties only — no hardcoded hex in renderer
