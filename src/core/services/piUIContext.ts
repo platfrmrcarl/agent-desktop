@@ -1,3 +1,18 @@
+// fallow-ignore-file unused-class-member
+//
+// This file defines the runtime UI surface API consumed by user-loaded
+// PI extensions (extensions that ship as separate npm packages and are
+// loaded dynamically by the user, not by the main app). Methods like
+// setHeader/setFooter/onTerminalInput/setEditorText/getAllThemes/...
+// are not statically referenced by anything in this repo, but they ARE
+// invoked at runtime by the loaded extensions through the PI agent
+// runtime. Static analysis cannot see those call sites, so fallow
+// flags them as unused — false positive by design.
+//
+// Do NOT remove these methods even if they appear unused: removing one
+// would break any user extension that relies on it. Treat this file as
+// a public API contract.
+
 import { randomUUID } from 'crypto'
 import type { PiUIResponse } from '../../shared/piUITypes'
 import { ansiLinesToHtml } from '../utils/ansiToHtml'

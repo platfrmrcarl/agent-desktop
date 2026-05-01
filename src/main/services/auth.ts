@@ -1,66 +1,12 @@
-import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { execSync } from 'child_process'
 import type { IpcMain } from 'electron'
 import type Database from 'better-sqlite3'
 import type { AuthStatus, AuthDiagnostics } from '../../shared/types'
 import { loadAgentSDK } from './anthropic'
 import { findBinaryInPath, isAppImage } from '../utils/env'
 import { getSetting } from '../../core/utils/db'
-
-/**
- * Check whether Claude credentials are available.
- * On macOS (darwin), newer Claude Code versions (v2+) store credentials in the
- * system Keychain rather than a plaintext file — check both.
- * On Linux/Windows, only the file is used.
- */
-async function credentialsAvailable(credentialsPath: string): Promise<boolean> {
-  const fileExists = await fs.promises.access(credentialsPath, fs.constants.F_OK).then(() => true).catch(() => false)
-  if (fileExists) return true
-
-  if (process.platform === 'darwin') {
-    try {
-      // Claude Code v2+ stores credentials in the macOS Keychain.
-      // Service name: "Claude Code-credentials", account: current OS username.
-      const username = process.env.USER || os.userInfo().username
-      execSync(`security find-generic-password -a "${username}" -s "Claude Code-credentials"`, {
-        stdio: 'ignore',
-      })
-      return true
-    } catch {
-      // Not in keychain either — fall through to false
-    }
-  }
-
-  return false
-}
-
-/**
- * Extract user email and display name from ~/.claude/.claude.json (oauthAccount).
- */
-async function getUserInfoFromCredentials(credentialsPath: string): Promise<{ email: string; name: string }> {
-  const fallback = { email: 'Claude User', name: 'Claude User' }
-  try {
-    const configDir = path.dirname(credentialsPath)
-    const claudeJsonPath = path.join(configDir, '.claude.json')
-    try {
-      const data = JSON.parse(await fs.promises.readFile(claudeJsonPath, 'utf8'))
-      const account = data?.oauthAccount
-      if (account?.emailAddress) {
-        return {
-          email: account.emailAddress,
-          name: account.displayName || account.emailAddress,
-        }
-      }
-    } catch {
-      // file not found or not valid JSON — return fallback
-    }
-  } catch {
-    // ignore
-  }
-  return fallback
-}
+import { credentialsAvailable, getUserInfoFromCredentials } from '../../core/auth/credentials'
 
 async function runDiagnostics(sdkError?: string): Promise<AuthDiagnostics> {
   const home = os.homedir()

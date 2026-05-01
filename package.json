@@ -39,6 +39,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.118",
     "@fontsource/jetbrains-mono": "^5.2.8",
+    "@mariozechner/pi-agent-core": "^0.55.4",
     "@mariozechner/pi-ai": "^0.55.1",
     "@mariozechner/pi-coding-agent": "^0.55.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -47,7 +48,6 @@
     "@react-three/fiber": "^8.18.0",
     "@sinclair/typebox": "^0.34.0",
     "@types/dompurify": "^3.0.5",
-    "ajv": "^8.18.0",
     "dbus-next": "^0.10.2",
     "diff": "^8.0.3",
     "discord.js": "^14.25.1",
@@ -64,7 +64,6 @@
     "sql.js": "^1.14.0",
     "three": "^0.183.0",
     "typescript": "^5.7.3",
-    "without": "^1.2.3",
     "ws": "^8.19.0",
     "zustand": "^5.0.3"
   },

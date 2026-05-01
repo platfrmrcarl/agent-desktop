@@ -4,12 +4,7 @@ import { TypedEventEmitter } from './events'
 import { initDatabase, getDatabase, closeDatabase } from './db/database'
 import type { SqlJsAdapter } from './db/sqljs-adapter'
 import { SettingsService } from './services/settings'
-import { FolderService } from './services/folders'
 import { ConversationService } from './services/conversations'
-import { ToolsService } from './services/tools'
-import { ShortcutsService } from './services/shortcuts'
-import { ThemesService } from './services/themes'
-import { McpService } from './services/mcp'
 import { SchedulerService } from './services/scheduler'
 import { createWebPasswordService, type WebPasswordService } from './auth'
 import { DispatchRegistry } from './dispatch'
@@ -33,7 +28,7 @@ import type {
 // These replace the 12 one-way webContents.send() broadcast channels.
 // Adapters subscribe and forward to their transport.
 
-export interface EngineEvents {
+interface EngineEvents {
   'stream:chunk':              [conversationId: number, chunk: StreamChunk]
   'conversation:updated':      [conversationId: number]
   'conversation:titleUpdated': [id: number, title: string]
@@ -50,7 +45,7 @@ export interface EngineEvents {
 
 // ─── Engine Options ────────────────────────────────────────
 
-export interface EngineOptions {
+interface EngineOptions {
   dbPath: string
   wasmPath?: string
   themesDir: string
@@ -72,12 +67,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
 
   // Services (initialized after DB is ready)
   private _settings!: SettingsService
-  private _folders!: FolderService
   private _conversations!: ConversationService
-  private _tools!: ToolsService
-  private _shortcuts!: ShortcutsService
-  private _themes!: ThemesService
-  private _mcp!: McpService
   private _scheduler!: SchedulerService
   private _webPassword!: WebPasswordService
 
@@ -105,12 +95,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
   }
 
   get settings(): SettingsService { return this._settings }
-  get folders(): FolderService { return this._folders }
   get conversations(): ConversationService { return this._conversations }
-  get tools(): ToolsService { return this._tools }
-  get shortcuts(): ShortcutsService { return this._shortcuts }
-  get themes(): ThemesService { return this._themes }
-  get mcp(): McpService { return this._mcp }
   get scheduler(): SchedulerService { return this._scheduler }
   get webPassword(): WebPasswordService { return this._webPassword }
 
@@ -118,12 +103,7 @@ export class AgentEngine extends TypedEventEmitter<EngineEvents> {
     await initDatabase(this.dbPath, this.wasmPath)
     const db = getDatabase() as any
     this._settings = new SettingsService(db)
-    this._folders = new FolderService(db)
     this._conversations = new ConversationService(db)
-    this._tools = new ToolsService(db)
-    this._shortcuts = new ShortcutsService(db)
-    this._themes = new ThemesService(this.themesDir)
-    this._mcp = new McpService(db)
     this._scheduler = new SchedulerService(db)
     this._webPassword = createWebPasswordService({
       get: (k) => {

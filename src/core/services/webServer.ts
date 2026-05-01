@@ -1247,7 +1247,7 @@ export interface WebServerHandlerOptions {
   dispatch?: DispatchRegistry
 }
 
-export function registerHandlers(
+export function registerWebServerHandlers(
   registrar: HandleRegistrar,
   options?: WebServerHandlerOptions,
 ): void {

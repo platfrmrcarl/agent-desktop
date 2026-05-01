@@ -21,3 +21,8 @@ package-lock.json
 plans/
 ssl/
 wiki/
+.fallow/
+graphify-out/
+.cache/
+attachments/
+/.crap-baseline.json

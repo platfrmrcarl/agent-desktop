@@ -8,6 +8,7 @@ import { SystemPromptEditorModal } from './SystemPromptEditorModal'
 import { CwdWhitelistEditor } from './CwdWhitelistEditor'
 import type { CwdWhitelistEntry } from '../../../shared/types'
 import { tint } from '../../utils/colorMix'
+import { SettingRow } from '../shared/SettingRow'
 
 export function AISettings() {
   const { settings, loadSettings, setSetting } = useSettingsStore()
@@ -130,18 +131,7 @@ export function AISettings() {
   return (
     <div className="flex flex-col gap-1">
       {/* ─── Agent Identity ─────────────────────────────── */}
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Agent Name
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Display name shown in chat bubbles.
-          </span>
-        </div>
+      <SettingRow label="Agent Name" description="Display name shown in chat bubbles.">
         <input
           type="text"
           value={agentName}
@@ -155,20 +145,9 @@ export function AISettings() {
           }}
           aria-label="Agent name"
         />
-      </div>
+      </SettingRow>
 
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Language
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Response language injected into the system prompt.
-          </span>
-        </div>
+      <SettingRow label="Language" description="Response language injected into the system prompt.">
         <input
           type="text"
           value={agentLanguage}
@@ -182,7 +161,7 @@ export function AISettings() {
           }}
           aria-label="Agent language"
         />
-      </div>
+      </SettingRow>
 
       <div
         className="flex flex-col gap-2 py-3 border-b"
@@ -212,18 +191,7 @@ export function AISettings() {
       </div>
 
       {/* Backend */}
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Backend
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Claude Agent SDK has more built-in features. PI is extensible via TypeScript extensions.
-          </span>
-        </div>
+      <SettingRow label="Backend" description="Claude Agent SDK has more built-in features. PI is extensible via TypeScript extensions.">
         <select
           value={sdkBackend}
           onChange={(e) => setSetting('ai_sdkBackend', e.target.value)}
@@ -241,22 +209,11 @@ export function AISettings() {
             </option>
           ))}
         </select>
-      </div>
+      </SettingRow>
 
       {/* PI Extensions Directory (PI only) */}
       {!isClaudeBackend && (
-        <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-          <div className="flex flex-col gap-0.5 pr-4">
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              Extensions Directory
-            </span>
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Additional directory for PI extensions (.ts files). Added to default paths.
-            </span>
-          </div>
+        <SettingRow label="Extensions Directory" description="Additional directory for PI extensions (.ts files). Added to default paths.">
           <div className="flex items-center gap-1">
             <input
               type="text"
@@ -283,7 +240,7 @@ export function AISettings() {
               Browse
             </button>
           </div>
-        </div>
+        </SettingRow>
       )}
 
       {/* Discovered PI Extensions (PI only) */}
@@ -328,18 +285,7 @@ export function AISettings() {
 
       {/* API Key (Claude only) */}
       {isClaudeBackend && (
-        <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-          <div className="flex flex-col gap-0.5 pr-4">
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              API Key
-            </span>
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Anthropic API key. Bypasses OAuth when set.
-            </span>
-          </div>
+        <SettingRow label="API Key" description="Anthropic API key. Bypasses OAuth when set.">
           <div className="flex items-center gap-1">
             <input
               type={showApiKey ? 'text' : 'password'}
@@ -364,23 +310,12 @@ export function AISettings() {
               {showApiKey ? 'Hide' : 'Show'}
             </button>
           </div>
-        </div>
+        </SettingRow>
       )}
 
       {/* Base URL (only when API key is set, Claude only) */}
       {isClaudeBackend && apiKey && (
-        <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-          <div className="flex flex-col gap-0.5 pr-4">
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              Base URL
-            </span>
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Custom API endpoint (OpenRouter, proxy, etc).
-            </span>
-          </div>
+        <SettingRow label="Base URL" description="Custom API endpoint (OpenRouter, proxy, etc).">
           <input
             type="text"
             value={baseUrl}
@@ -394,22 +329,11 @@ export function AISettings() {
             }}
             aria-label="Base URL"
           />
-        </div>
+        </SettingRow>
       )}
 
       {/* Model */}
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Model
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Claude model used for responses.
-          </span>
-        </div>
+      <SettingRow label="Model" description="Claude model used for responses.">
         <div className="flex flex-col items-end gap-1">
           <SearchableModelPicker
             value={(isCustomModel || model === 'custom') ? 'custom' : model}
@@ -497,21 +421,10 @@ export function AISettings() {
             </div>
           )}
         </div>
-      </div>
+      </SettingRow>
 
       {/* Context token counter mode */}
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Context counter
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            How <code>/context</code> estimates token usage. PI backend is always local.
-          </span>
-        </div>
+      <SettingRow label="Context counter" description="How <code>/context</code> estimates token usage. PI backend is always local.">
         <select
           value={settings['ai_contextTokenCounter'] ?? 'local'}
           onChange={(e) => setSetting('ai_contextTokenCounter', e.target.value)}
@@ -528,21 +441,10 @@ export function AISettings() {
           <option value="local">Local (gpt-tokenizer, fast)</option>
           <option value="anthropic">Anthropic API (exact, slower)</option>
         </select>
-      </div>
+      </SettingRow>
 
       {/* Max Turns */}
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Max Turns
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Maximum agentic turns per request. 0 = unlimited.
-          </span>
-        </div>
+      <SettingRow label="Max Turns" description="Maximum agentic turns per request. 0 = unlimited.">
         <input
           type="number"
           min={0}
@@ -559,21 +461,10 @@ export function AISettings() {
           }}
           aria-label="Maximum agentic turns"
         />
-      </div>
+      </SettingRow>
 
       {/* Max Thinking Tokens */}
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Max Thinking Tokens
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Extended thinking budget. 0 = disabled (0-100000).
-          </span>
-        </div>
+      <SettingRow label="Max Thinking Tokens" description="Extended thinking budget. 0 = disabled (0-100000).">
         <input
           type="number"
           min={0}
@@ -592,22 +483,11 @@ export function AISettings() {
           }}
           aria-label="Maximum thinking tokens"
         />
-      </div>
+      </SettingRow>
 
       {/* Max Budget USD — both backends (PI via budgetTracker module, Phase 5) */}
       {(
-        <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-          <div className="flex flex-col gap-0.5 pr-4">
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              Max Budget (USD)
-            </span>
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Cost limit per request. 0 = unlimited (0-10).
-            </span>
-          </div>
+        <SettingRow label="Max Budget (USD)" description="Cost limit per request. 0 = unlimited (0-10).">
           <input
             type="number"
             min={0}
@@ -626,23 +506,12 @@ export function AISettings() {
             }}
             aria-label="Maximum budget in USD"
           />
-        </div>
+        </SettingRow>
       )}
 
       {/* Permission Mode — both backends (PI via permissionModes module) */}
       {(
-        <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-          <div className="flex flex-col gap-0.5 pr-4">
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              Permission Mode
-            </span>
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Controls how the SDK handles tool permission prompts.
-            </span>
-          </div>
+        <SettingRow label="Permission Mode" description="Controls how the SDK handles tool permission prompts.">
           <select
             value={permissionMode}
             onChange={(e) => setSetting('ai_permissionMode', e.target.value)}
@@ -660,7 +529,7 @@ export function AISettings() {
             <option value="dontAsk">Don't Ask</option>
             <option value="plan">Plan Only</option>
           </select>
-        </div>
+        </SettingRow>
       )}
 
       {/* Require Plan Approval — both backends */}
@@ -881,18 +750,7 @@ export function AISettings() {
 
       {/* CWD Restriction — both backends (PI via cwdGuard module) */}
       {(
-        <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-          <div className="flex flex-col gap-0.5 pr-4">
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              CWD Write Restriction
-            </span>
-            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Prompt before writing files outside the conversation working directory.
-            </span>
-          </div>
+        <SettingRow label="CWD Write Restriction" description="Prompt before writing files outside the conversation working directory.">
           <div className="flex items-center gap-2">
             {confirmDisable && (
               <div className="flex items-center gap-1.5">
@@ -945,7 +803,7 @@ export function AISettings() {
               />
             </button>
           </div>
-        </div>
+        </SettingRow>
       )}
 
       {/* CWD Whitelist — both backends */}
@@ -970,18 +828,7 @@ export function AISettings() {
       )}
 
       {/* Share Claude Config */}
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Share Claude Config
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Apply Claude Code config (~/.claude/settings.json hooks) to all backends. Skills, CLAUDE.md, and commands are always backend-specific.
-          </span>
-        </div>
+      <SettingRow label="Share Claude Config" description="Apply Claude Code config (~/.claude/settings.json hooks) to all backends. Skills, CLAUDE.md, and commands are always backend-specific.">
         <select
           value={sharedHooks}
           onChange={(e) => setSetting('settings_sharedAcrossBackends', e.target.value)}
@@ -999,7 +846,7 @@ export function AISettings() {
             </option>
           ))}
         </select>
-      </div>
+      </SettingRow>
 
       {/* Default System Prompt */}
       <div className="flex flex-col gap-2 py-3">

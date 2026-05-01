@@ -9,7 +9,7 @@ interface IpRecord {
   bannedUntil: number
 }
 
-export interface RateLimitResult {
+interface RateLimitResult {
   allowed: boolean
   retryAfterSeconds?: number
 }
@@ -19,7 +19,7 @@ export interface RateLimiter {
   recordAttempt(ip: string, success: boolean): void
 }
 
-export function normalizeIp(ip: string): string {
+function normalizeIp(ip: string): string {
   return ip.startsWith('::ffff:') ? ip.slice(7) : ip
 }
 

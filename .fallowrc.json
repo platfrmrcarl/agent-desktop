@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/main/index.ts",
+    "src/preload/index.ts",
+    "src/renderer/main.tsx",
+    "src/headless/index.ts",
+    "src/extensions/agent-desktop-parity/index.ts"
+  ],
+  "ignorePatterns": [
+    "out/**",
+    "release/**",
+    "graphify-out/**",
+    "**/*.test.{ts,tsx,js,jsx,mts,cts}",
+    "**/*.spec.{ts,tsx,js,jsx,mts,cts}",
+    "**/__tests__/**",
+    "**/__mocks__/**",
+    "**/test-utils/**",
+    "**/testUtils/**",
+    "**/*.bench.{ts,tsx}",
+    "**/vitest.setup.{ts,js}",
+    "**/vitest.config.{ts,js,mts}",
+    "**/playwright.config.{ts,js}",
+    "scripts/**"
+  ],
+  "dynamicallyLoaded": [
+    "resources/mcp/*.mjs"
+  ],
+  "ignoreDependencies": [
+    "@anthropic-ai/claude-agent-sdk"
+  ],
+  "rules": {
+    "unused-dependencies": "warn"
+  }
+}

@@ -1,4 +1,4 @@
-export interface HookSystemMessage {
+interface HookSystemMessage {
   content: string
   hookEvent: string
 }
