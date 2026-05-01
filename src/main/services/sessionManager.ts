@@ -259,397 +259,405 @@ function denyPendingForSession(session: ActiveSession): void {
   }
 }
 
-// ─── Stream consumer ──────────────────────────────────────────
+// ─── Stream consumer helpers ──────────────────────────────────
 
-async function consumeStream(session: ActiveSession): Promise<void> {
-  const convExtra: Record<string, number> = { conversationId: session.conversationId }
-  let consecutiveEmptyExits = 0
-  const MAX_EMPTY_EXITS = 3
+const MAX_EMPTY_EXITS = 3
 
-  while (!session.closing) {
-  let receivedAnyMessage = false
+/** Decide what to do after the SDK for-await loop exits cleanly. Returns shouldBreak=true when the consumer should stop (closing, no sessionId yet, deferred-with-pending-tasks orphan guard, or repeated empty exits). Otherwise mutates session.query with a new SDK query (resume = session.sessionId) and returns the updated empty-exit counter. The orphan guard exists because reconnect spawns a NEW SDK subprocess which won't see the old subprocess's still-running background agents — the safety-net timeout handles that case instead. */
+async function reconnectOrBreak(
+  session: ActiveSession,
+  receivedAnyMessage: boolean,
+  consecutiveEmptyExits: number,
+): Promise<{ shouldBreak: boolean; consecutiveEmptyExits: number }> {
+  if (session.closing) return { shouldBreak: true, consecutiveEmptyExits }
+  if (!session.sessionId) return { shouldBreak: true, consecutiveEmptyExits }
 
-  try {
-    for await (const message of session.query) {
-      receivedAnyMessage = true
-      consecutiveEmptyExits = 0
-      session.lastMessageReceivedAt = Date.now()
-      const msg = message as SDKMsg
-
-      // Capture session_id from any message
-      if (!session.sessionId && typeof (msg as Record<string, unknown>).session_id === 'string') {
-        session.sessionId = (msg as Record<string, unknown>).session_id as string
-      }
-
-      const turn = session.currentTurn
-      if (!turn) {
-        // Between turns — only handle task_notification
-        if (msg.type === 'system') {
-          const sysMsg = msg as SystemMsg
-          if (sysMsg.subtype === 'task_notification') {
-            sendChunk('task_notification', sysMsg.summary, {
-              ...convExtra,
-              ...(sysMsg.task_id ? { taskId: sysMsg.task_id } : {}),
-              ...(sysMsg.status ? { taskStatus: sysMsg.status } : {}),
-              ...(sysMsg.output_file ? { outputFile: sysMsg.output_file } : {}),
-            })
-          }
-        }
-        continue
-      }
-
-      // ── Within a turn: process messages ──
-
-      if (msg.type === 'stream_event') {
-        const event = (msg as StreamEventMsg).event
-        if (
-          event?.type === 'content_block_start' &&
-          event.content_block?.type === 'tool_use'
-        ) {
-          const toolId = event.content_block.id || `tool_${Date.now()}`
-          const toolName = event.content_block.name || 'tool'
-
-          if (toolName === 'AskUserQuestion') {
-            turn.askUserToolIds.add(toolId)
-            turn.currentToolBlockId = toolId
-            turn.toolInputAccum.set(toolId, '')
-          } else {
-            sendOrBuffer(session, 'tool_start', toolName, {
-              toolName,
-              toolId,
-              ...convExtra,
-            })
-            turn.currentToolBlockId = toolId
-            turn.toolInputAccum.set(toolId, '')
-            turn.toolCallsMap.set(toolId, { id: toolId, name: toolName, input: '{}', output: '', status: 'done' })
-          }
-        } else if (
-          event?.type === 'content_block_delta' &&
-          event.delta?.type === 'text_delta' &&
-          event.delta.text
-        ) {
-          turn.content += event.delta.text
-          sendOrBuffer(session, 'text', event.delta.text, convExtra)
-        }
-
-        if (
-          event?.type === 'content_block_delta' &&
-          event.delta?.type === 'input_json_delta'
-        ) {
-          if (turn.currentToolBlockId) {
-            const existing = turn.toolInputAccum.get(turn.currentToolBlockId) || ''
-            turn.toolInputAccum.set(turn.currentToolBlockId, existing + (event.delta.partial_json || ''))
-          }
-        }
-
-        if (event?.type === 'content_block_stop' && turn.currentToolBlockId && turn.toolInputAccum.has(turn.currentToolBlockId)) {
-          if (turn.askUserToolIds.has(turn.currentToolBlockId)) {
-            turn.currentToolBlockId = null
-          } else {
-            const inputJson = turn.toolInputAccum.get(turn.currentToolBlockId) || '{}'
-            const existing = turn.toolCallsMap.get(turn.currentToolBlockId)
-            if (existing) {
-              turn.toolCallsMap.set(turn.currentToolBlockId, { ...existing, input: inputJson })
-              // Early detection of background Task — task_started arrives AFTER turn end,
-              // so we must count here (before result/success) using tool_use_id as key
-              if (existing.name === 'Task') {
-                try {
-                  const parsed = JSON.parse(inputJson)
-                  if (parsed.run_in_background) {
-                    turn.pendingTaskCount++
-                    console.log(`[sessionManager] ⏳ Background Task detected via tool input: ${turn.currentToolBlockId} — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
-                  }
-                } catch { /* ignore parse errors */ }
-              }
-            }
-            sendOrBuffer(session, 'tool_input', undefined, {
-              toolId: turn.currentToolBlockId,
-              toolInput: inputJson,
-              ...convExtra,
-            })
-            turn.currentToolBlockId = null
-          }
-        }
-      } else if (msg.type === 'result') {
-        const result = msg as ResultMsg
-        if (result.stop_reason) turn.lastStopReason = result.stop_reason
-        if (result.subtype) turn.lastResultSubtype = result.subtype
-        if (result.usage) {
-          turn.lastUsage = { ...result.usage }
-          // Pull the authoritative context window size from modelUsage — the SDK
-          // knows per-model limits (200k / 1M / whatever Anthropic ships next).
-          if (result.modelUsage) {
-            const entries = Object.values(result.modelUsage)
-            const maxWindow = entries.reduce((m, e) => Math.max(m, e?.contextWindow ?? 0), 0)
-            if (maxWindow > 0) turn.lastUsage.context_window = maxWindow
-          }
-        }
-
-        if (result.subtype === 'tool_result' || result.tool_name) {
-          // Tool result — NOT end of turn
-          const toolName = result.tool_name || 'tool'
-          const toolId = result.tool_use_id || `tool_${Date.now()}`
-
-          if (turn.askUserToolIds.has(toolId)) {
-            turn.askUserToolIds.delete(toolId)
-          } else {
-            const summary = result.summary || ''
-            const fullOutput = result.content || summary
-            const inputJson = turn.toolInputAccum.get(toolId) || '{}'
-            const existing = turn.toolCallsMap.get(toolId)
-            turn.toolCallsMap.set(toolId, {
-              id: toolId,
-              name: existing?.name || toolName,
-              input: existing?.input || inputJson,
-              output: fullOutput.slice(0, 50_000),
-              status: 'done',
-            })
-            sendOrBuffer(session, 'tool_result', summary, {
-              toolName,
-              toolId,
-              toolOutput: fullOutput.slice(0, 50_000),
-              toolInput: inputJson,
-              ...convExtra,
-            })
-          }
-        }
-
-        // Check for turn end
-        if (result.subtype && TURN_END_SUBTYPES.has(result.subtype)) {
-          console.log(`[sessionManager] Turn end: subtype=${result.subtype} pendingTasks=${turn.pendingTaskCount} pendingApprovalCount=${session.pendingApprovalCount} bufferSize=${session.chunkBuffer.length} contentLen=${turn.content.length} conv=${session.conversationId}`)
-          if (turn.pendingTaskCount > 0) {
-            // Background tasks still running — defer done
-            if (!turn.turnEndDeferred) {
-              // First deferral: start polling every 30s
-              turn.turnEndDeferred = true
-              let pollCount = 0
-              turn.pollInterval = setInterval(() => {
-                pollCount++
-                console.log(`[sessionManager] 🔄 Poll #${pollCount}: ${turn.pendingTaskCount} tasks pending, pushing status check prompt, conv ${session.conversationId}`)
-                turn.pollContentOffset = turn.content.length
-                session.promptController.push({
-                  type: 'user',
-                  message: { role: 'user', content: 'Use the TaskOutput tool to check if ALL your background agents have finished. If every agent is done, reply with ONLY the single word: fini — nothing else, no explanation. If any agent is still running, reply with ONLY: still running.' },
-                  parent_tool_use_id: null,
-                  session_id: session.sessionId || '',
-                })
-              }, 30_000)
-              console.log(`[sessionManager] Turn end deferred: ${turn.pendingTaskCount} background tasks pending, polling every 30s, conv ${session.conversationId}`)
-            } else {
-              // Already deferred — poll prompt triggered this result/success
-              const pollResponse = turn.content.slice(turn.pollContentOffset).trim().toLowerCase()
-              if (pollResponse === 'fini') {
-                // Claude confirmed all agents are done — force completion even if task_notification was missed
-                console.log(`[sessionManager] 🏁 Poll response "fini" — forcing turn completion (pendingTasks=${turn.pendingTaskCount} may be stale), conv ${session.conversationId}`)
-                if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
-                sendChunk('done', undefined, {
-                  ...convExtra,
-                  ...(turn.lastStopReason ? { stopReason: turn.lastStopReason } : {}),
-                  ...(turn.lastResultSubtype ? { resultSubtype: turn.lastResultSubtype } : {}),
-                })
-                turn.resolve({
-                  content: turn.content,
-                  toolCalls: Array.from(turn.toolCallsMap.values()),
-                  aborted: false,
-                  sessionId: session.sessionId,
-                  stopReason: turn.lastStopReason,
-                  usage: turn.lastUsage,
-                })
-                session.currentTurn = null
-                session.lastActivity = Date.now()
-              } else {
-                console.log(`[sessionManager] Turn end (poll response): pendingTasks=${turn.pendingTaskCount}, still waiting, conv ${session.conversationId}`)
-              }
-            }
-          } else {
-            // No pending tasks — send done (also cleans up any leftover poll from prior deferral)
-            if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
-            sendChunk('done', undefined, {
-              ...convExtra,
-              ...(turn.lastStopReason ? { stopReason: turn.lastStopReason } : {}),
-              ...(turn.lastResultSubtype ? { resultSubtype: turn.lastResultSubtype } : {}),
-            })
-            turn.resolve({
-              content: turn.content,
-              toolCalls: Array.from(turn.toolCallsMap.values()),
-              aborted: false,
-              sessionId: session.sessionId,
-              stopReason: turn.lastStopReason,
-              usage: turn.lastUsage,
-            })
-            session.currentTurn = null
-            session.lastActivity = Date.now()
-          }
-        }
-      } else if (msg.type === 'user') {
-        // Tool results arrive as synthetic user messages between tool_use and the
-        // next assistant chunk. The SDK delivers them as:
-        //   { type: 'user', message: { role: 'user', content: [{type: 'tool_result', tool_use_id, content}, ...] } }
-        // Without capturing `content` here, our DB's tool_calls column only ever
-        // records tool INPUTS — outputs stay empty, which makes the /context
-        // breakdown miss 10–100k of real context per tool-heavy turn and
-        // inflates the derived "Tools & SDK overhead" bucket proportionally.
-        const userMsg = msg as { type: 'user'; message?: { content?: unknown }; tool_use_result?: unknown }
-        const blocks = Array.isArray(userMsg.message?.content) ? userMsg.message!.content as Array<Record<string, unknown>> : []
-        for (const block of blocks) {
-          if (block?.type !== 'tool_result') continue
-          const toolUseId = block.tool_use_id as string | undefined
-          if (!toolUseId) continue
-          // content can be a string, an array of blocks, or missing — normalise to string
-          let outputText = ''
-          const c = block.content
-          if (typeof c === 'string') outputText = c
-          else if (Array.isArray(c)) {
-            outputText = c.map((part) => {
-              if (typeof part === 'string') return part
-              if (part && typeof part === 'object' && 'text' in part && typeof (part as { text?: unknown }).text === 'string') {
-                return (part as { text: string }).text
-              }
-              return JSON.stringify(part)
-            }).join('\n')
-          }
-          const existing = turn.toolCallsMap.get(toolUseId)
-          if (existing) {
-            // Preserve anything already set, only fill output (cap 50k to match prior convention).
-            turn.toolCallsMap.set(toolUseId, { ...existing, output: outputText.slice(0, 50_000) })
-          } else {
-            // Tool result arriving for an id we never saw a tool_use for — unusual; record for completeness.
-            turn.toolCallsMap.set(toolUseId, {
-              id: toolUseId,
-              name: 'tool',
-              input: '{}',
-              output: outputText.slice(0, 50_000),
-              status: 'done',
-            })
-          }
-        }
-      } else if (msg.type === 'system') {
-        const sysMsg = msg as SystemMsg
-        if (sysMsg.subtype === 'init' && sysMsg.mcp_servers) {
-          sendOrBuffer(session, 'mcp_status', undefined, {
-            mcpServers: JSON.stringify(sysMsg.mcp_servers),
-            ...convExtra,
-          })
-          for (const s of sysMsg.mcp_servers) {
-            if (s.status !== 'connected') {
-              console.error(`[sessionManager] MCP "${s.name}" status=${s.status} error=${JSON.stringify(s.error || null)}`)
-            }
-          }
-        } else if (sysMsg.subtype === 'hook_response') {
-          let systemMessage: string | undefined
-          const raw = sysMsg.output || sysMsg.stdout || ''
-          if (raw) {
-            try {
-              const parsed = JSON.parse(raw) as { systemMessage?: string }
-              systemMessage = parsed.systemMessage
-            } catch { /* not JSON */ }
-          }
-          if (systemMessage) {
-            sendOrBuffer(session, 'system_message', systemMessage, {
-              ...convExtra,
-              ...(sysMsg.hook_name ? { hookName: sysMsg.hook_name } : {}),
-              ...(sysMsg.hook_event ? { hookEvent: sysMsg.hook_event } : {}),
-            })
-          }
-        } else if (sysMsg.subtype === 'task_started' && sysMsg.task_id) {
-          console.log(`[sessionManager] ▶ task_started: ${sysMsg.task_id} (${sysMsg.description || '?'}) — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
-        } else if (sysMsg.subtype === 'task_progress' && sysMsg.task_id) {
-          console.log(`[sessionManager] ♥ task_progress: ${sysMsg.task_id} (${sysMsg.last_tool_name || '?'}) — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
-        } else if (sysMsg.subtype === 'task_notification') {
-          // Background task completed/failed/stopped
-          sendChunk('task_notification', sysMsg.summary, {
-            ...convExtra,
-            ...(sysMsg.task_id ? { taskId: sysMsg.task_id } : {}),
-            ...(sysMsg.status ? { taskStatus: sysMsg.status } : {}),
-            ...(sysMsg.output_file ? { outputFile: sysMsg.output_file } : {}),
-          })
-
-          // Simple decrement — no ID matching needed
-          if (turn.pendingTaskCount > 0) turn.pendingTaskCount--
-          console.log(`[sessionManager] ■ task_notification: ${sysMsg.task_id} status=${sysMsg.status} — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
-
-          if (turn.pendingTaskCount === 0 && turn.turnEndDeferred) {
-            if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
-            turn.turnEndDeferred = false
-            console.log(`[sessionManager] All background tasks done — prompting agent to aggregate results, conv ${session.conversationId}`)
-            // Push a prompt so the main agent can aggregate sub-agent results.
-            // The turn stays open — the next result/success (with pendingTaskCount=0)
-            // will send done via the normal path (line ~433).
-            session.promptController.push({
-              type: 'user',
-              message: { role: 'user', content: 'All your background agents have completed. Process their results and provide your final response.' },
-              parent_tool_use_id: null,
-              session_id: session.sessionId || '',
-            })
-          }
-        }
-      }
-    }
-
-    // for-await exited normally → decide: reconnect or stop
-    if (session.closing) break
-    if (!session.sessionId) break
-
-    // If tasks are still pending, DON'T reconnect — the old subprocess had the agents.
-    // A new subprocess (via reconnect) won't have them. The safety-net timeout will handle it.
-    const pendingTurn = session.currentTurn
-    if (pendingTurn && pendingTurn.pendingTaskCount > 0 && pendingTurn.turnEndDeferred) {
-      console.log(`[sessionManager] SDK iterable ended with ${pendingTurn.pendingTaskCount} pending tasks — NOT reconnecting (would orphan agents), conv ${session.conversationId}`)
-      break
-    }
-
-    if (!receivedAnyMessage) {
-      consecutiveEmptyExits++
-      if (consecutiveEmptyExits >= MAX_EMPTY_EXITS) break
-    }
-
-    // Reconnect with resume (only when no pending background tasks)
-    console.log(`[sessionManager] SDK iterable ended, reconnecting for conv ${session.conversationId}`)
-    const sdk = await loadAgentSDK()
-    const abortController = new AbortController()
-    abortControllers.set(session.conversationId, abortController)
-    const newQuery = sdk.query({
-      prompt: session.promptController,
-      options: { ...session.queryOptions, resume: session.sessionId, abortController },
-    })
-    session.query = newQuery as unknown as ActiveSession['query']
-    session.lastActivity = Date.now()
-    session.lastMessageReceivedAt = Date.now()
-
-  } catch (err: unknown) {
-    // Query threw (subprocess crash, abort, etc.)
-    const turn = session.currentTurn
-    if (turn) {
-      if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
-      if (
-        err instanceof Error &&
-        (err.name === 'AbortError' || err.message.includes('abort'))
-      ) {
-        sendChunk('done', undefined, { conversationId: session.conversationId, stopReason: 'aborted' })
-        turn.resolve({ content: turn.content, toolCalls: Array.from(turn.toolCallsMap.values()), aborted: true, sessionId: session.sessionId, stopReason: 'aborted', usage: turn.lastUsage })
-      } else {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown streaming error'
-        console.error('[sessionManager] Stream error:', err)
-        sendChunk('error', errorMsg, { conversationId: session.conversationId })
-        // Resolve with partial content + error instead of rejecting — allows
-        // streamAndSave to save whatever the AI already generated
-        turn.resolve({
-          content: turn.content,
-          toolCalls: Array.from(turn.toolCallsMap.values()),
-          aborted: false,
-          sessionId: session.sessionId,
-          error: errorMsg,
-          stopReason: turn.lastStopReason,
-          usage: turn.lastUsage,
-        })
-      }
-      session.currentTurn = null
-    }
-    break
+  // If tasks are still pending, DON'T reconnect — the old subprocess had the agents.
+  // A new subprocess (via reconnect) won't have them. The safety-net timeout will handle it.
+  const pendingTurn = session.currentTurn
+  if (pendingTurn && pendingTurn.pendingTaskCount > 0 && pendingTurn.turnEndDeferred) {
+    console.log(`[sessionManager] SDK iterable ended with ${pendingTurn.pendingTaskCount} pending tasks — NOT reconnecting (would orphan agents), conv ${session.conversationId}`)
+    return { shouldBreak: true, consecutiveEmptyExits }
   }
-  } // end while
 
-  // Cleanup (only if not already cleaned by invalidateSession)
+  let nextEmptyExits = consecutiveEmptyExits
+  if (!receivedAnyMessage) {
+    nextEmptyExits++
+    if (nextEmptyExits >= MAX_EMPTY_EXITS) return { shouldBreak: true, consecutiveEmptyExits: nextEmptyExits }
+  }
+
+  // Reconnect with resume (only when no pending background tasks)
+  console.log(`[sessionManager] SDK iterable ended, reconnecting for conv ${session.conversationId}`)
+  const sdk = await loadAgentSDK()
+  const abortController = new AbortController()
+  abortControllers.set(session.conversationId, abortController)
+  const newQuery = sdk.query({
+    prompt: session.promptController,
+    options: { ...session.queryOptions, resume: session.sessionId, abortController },
+  })
+  session.query = newQuery as unknown as ActiveSession['query']
+  session.lastActivity = Date.now()
+  session.lastMessageReceivedAt = Date.now()
+  return { shouldBreak: false, consecutiveEmptyExits: nextEmptyExits }
+}
+
+/** Within-turn result dispatch: capture stop_reason/subtype/usage, handle tool_result (record output + emit tool_result chunk; AskUserQuestion id is consumed silently), and detect turn end. Turn end forks: pendingTaskCount > 0 + first time → defer + start 30s polling; deferred + poll response "fini" → force completion (resolve + currentTurn=null); else → emit done + resolve + currentTurn=null. */
+function handleResultMessage(
+  session: ActiveSession,
+  turn: TurnState,
+  result: ResultMsg,
+  convExtra: Record<string, number>,
+): void {
+  if (result.stop_reason) turn.lastStopReason = result.stop_reason
+  if (result.subtype) turn.lastResultSubtype = result.subtype
+  if (result.usage) {
+    turn.lastUsage = { ...result.usage }
+    // Pull the authoritative context window size from modelUsage — the SDK
+    // knows per-model limits (200k / 1M / whatever Anthropic ships next).
+    if (result.modelUsage) {
+      const entries = Object.values(result.modelUsage)
+      const maxWindow = entries.reduce((m, e) => Math.max(m, e?.contextWindow ?? 0), 0)
+      if (maxWindow > 0) turn.lastUsage.context_window = maxWindow
+    }
+  }
+
+  if (result.subtype === 'tool_result' || result.tool_name) {
+    // Tool result — NOT end of turn
+    const toolName = result.tool_name || 'tool'
+    const toolId = result.tool_use_id || `tool_${Date.now()}`
+
+    if (turn.askUserToolIds.has(toolId)) {
+      turn.askUserToolIds.delete(toolId)
+    } else {
+      const summary = result.summary || ''
+      const fullOutput = result.content || summary
+      const inputJson = turn.toolInputAccum.get(toolId) || '{}'
+      const existing = turn.toolCallsMap.get(toolId)
+      turn.toolCallsMap.set(toolId, {
+        id: toolId,
+        name: existing?.name || toolName,
+        input: existing?.input || inputJson,
+        output: fullOutput.slice(0, 50_000),
+        status: 'done',
+      })
+      sendOrBuffer(session, 'tool_result', summary, {
+        toolName,
+        toolId,
+        toolOutput: fullOutput.slice(0, 50_000),
+        toolInput: inputJson,
+        ...convExtra,
+      })
+    }
+  }
+
+  // Check for turn end
+  if (result.subtype && TURN_END_SUBTYPES.has(result.subtype)) {
+    console.log(`[sessionManager] Turn end: subtype=${result.subtype} pendingTasks=${turn.pendingTaskCount} pendingApprovalCount=${session.pendingApprovalCount} bufferSize=${session.chunkBuffer.length} contentLen=${turn.content.length} conv=${session.conversationId}`)
+    if (turn.pendingTaskCount > 0) {
+      // Background tasks still running — defer done
+      if (!turn.turnEndDeferred) {
+        // First deferral: start polling every 30s
+        turn.turnEndDeferred = true
+        let pollCount = 0
+        turn.pollInterval = setInterval(() => {
+          pollCount++
+          console.log(`[sessionManager] 🔄 Poll #${pollCount}: ${turn.pendingTaskCount} tasks pending, pushing status check prompt, conv ${session.conversationId}`)
+          turn.pollContentOffset = turn.content.length
+          session.promptController.push({
+            type: 'user',
+            message: { role: 'user', content: 'Use the TaskOutput tool to check if ALL your background agents have finished. If every agent is done, reply with ONLY the single word: fini — nothing else, no explanation. If any agent is still running, reply with ONLY: still running.' },
+            parent_tool_use_id: null,
+            session_id: session.sessionId || '',
+          })
+        }, 30_000)
+        console.log(`[sessionManager] Turn end deferred: ${turn.pendingTaskCount} background tasks pending, polling every 30s, conv ${session.conversationId}`)
+      } else {
+        // Already deferred — poll prompt triggered this result/success
+        const pollResponse = turn.content.slice(turn.pollContentOffset).trim().toLowerCase()
+        if (pollResponse === 'fini') {
+          // Claude confirmed all agents are done — force completion even if task_notification was missed
+          console.log(`[sessionManager] 🏁 Poll response "fini" — forcing turn completion (pendingTasks=${turn.pendingTaskCount} may be stale), conv ${session.conversationId}`)
+          if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
+          sendChunk('done', undefined, {
+            ...convExtra,
+            ...(turn.lastStopReason ? { stopReason: turn.lastStopReason } : {}),
+            ...(turn.lastResultSubtype ? { resultSubtype: turn.lastResultSubtype } : {}),
+          })
+          turn.resolve({
+            content: turn.content,
+            toolCalls: Array.from(turn.toolCallsMap.values()),
+            aborted: false,
+            sessionId: session.sessionId,
+            stopReason: turn.lastStopReason,
+            usage: turn.lastUsage,
+          })
+          session.currentTurn = null
+          session.lastActivity = Date.now()
+        } else {
+          console.log(`[sessionManager] Turn end (poll response): pendingTasks=${turn.pendingTaskCount}, still waiting, conv ${session.conversationId}`)
+        }
+      }
+    } else {
+      // No pending tasks — send done (also cleans up any leftover poll from prior deferral)
+      if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
+      sendChunk('done', undefined, {
+        ...convExtra,
+        ...(turn.lastStopReason ? { stopReason: turn.lastStopReason } : {}),
+        ...(turn.lastResultSubtype ? { resultSubtype: turn.lastResultSubtype } : {}),
+      })
+      turn.resolve({
+        content: turn.content,
+        toolCalls: Array.from(turn.toolCallsMap.values()),
+        aborted: false,
+        sessionId: session.sessionId,
+        stopReason: turn.lastStopReason,
+        usage: turn.lastUsage,
+      })
+      session.currentTurn = null
+      session.lastActivity = Date.now()
+    }
+  }
+}
+
+/** Within-turn stream_event dispatch: tool_use start (emit tool_start, track AskUserQuestion specially), text_delta (append to turn.content + emit text), input_json_delta accumulation, content_block_stop (finalize tool input — early-detect background Task via run_in_background flag, emit tool_input). */
+function handleStreamEvent(
+  session: ActiveSession,
+  turn: TurnState,
+  msg: StreamEventMsg,
+  convExtra: Record<string, number>,
+): void {
+  const event = msg.event
+  if (
+    event?.type === 'content_block_start' &&
+    event.content_block?.type === 'tool_use'
+  ) {
+    const toolId = event.content_block.id || `tool_${Date.now()}`
+    const toolName = event.content_block.name || 'tool'
+
+    if (toolName === 'AskUserQuestion') {
+      turn.askUserToolIds.add(toolId)
+      turn.currentToolBlockId = toolId
+      turn.toolInputAccum.set(toolId, '')
+    } else {
+      sendOrBuffer(session, 'tool_start', toolName, {
+        toolName,
+        toolId,
+        ...convExtra,
+      })
+      turn.currentToolBlockId = toolId
+      turn.toolInputAccum.set(toolId, '')
+      turn.toolCallsMap.set(toolId, { id: toolId, name: toolName, input: '{}', output: '', status: 'done' })
+    }
+  } else if (
+    event?.type === 'content_block_delta' &&
+    event.delta?.type === 'text_delta' &&
+    event.delta.text
+  ) {
+    turn.content += event.delta.text
+    sendOrBuffer(session, 'text', event.delta.text, convExtra)
+  }
+
+  if (
+    event?.type === 'content_block_delta' &&
+    event.delta?.type === 'input_json_delta'
+  ) {
+    if (turn.currentToolBlockId) {
+      const existing = turn.toolInputAccum.get(turn.currentToolBlockId) || ''
+      turn.toolInputAccum.set(turn.currentToolBlockId, existing + (event.delta.partial_json || ''))
+    }
+  }
+
+  if (event?.type === 'content_block_stop' && turn.currentToolBlockId && turn.toolInputAccum.has(turn.currentToolBlockId)) {
+    if (turn.askUserToolIds.has(turn.currentToolBlockId)) {
+      turn.currentToolBlockId = null
+    } else {
+      const inputJson = turn.toolInputAccum.get(turn.currentToolBlockId) || '{}'
+      const existing = turn.toolCallsMap.get(turn.currentToolBlockId)
+      if (existing) {
+        turn.toolCallsMap.set(turn.currentToolBlockId, { ...existing, input: inputJson })
+        // Early detection of background Task — task_started arrives AFTER turn end,
+        // so we must count here (before result/success) using tool_use_id as key
+        if (existing.name === 'Task') {
+          try {
+            const parsed = JSON.parse(inputJson)
+            if (parsed.run_in_background) {
+              turn.pendingTaskCount++
+              console.log(`[sessionManager] ⏳ Background Task detected via tool input: ${turn.currentToolBlockId} — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
+      sendOrBuffer(session, 'tool_input', undefined, {
+        toolId: turn.currentToolBlockId,
+        toolInput: inputJson,
+        ...convExtra,
+      })
+      turn.currentToolBlockId = null
+    }
+  }
+}
+
+/** Within-turn system message dispatch: init/mcp_status, hook_response → system_message, task_started/progress logging, task_notification → emit chunk + decrement pendingTaskCount + push aggregation prompt when last task done. */
+function handleSystemMessage(
+  session: ActiveSession,
+  turn: TurnState,
+  sysMsg: SystemMsg,
+  convExtra: Record<string, number>,
+): void {
+  if (sysMsg.subtype === 'init' && sysMsg.mcp_servers) {
+    sendOrBuffer(session, 'mcp_status', undefined, {
+      mcpServers: JSON.stringify(sysMsg.mcp_servers),
+      ...convExtra,
+    })
+    for (const s of sysMsg.mcp_servers) {
+      if (s.status !== 'connected') {
+        console.error(`[sessionManager] MCP "${s.name}" status=${s.status} error=${JSON.stringify(s.error || null)}`)
+      }
+    }
+  } else if (sysMsg.subtype === 'hook_response') {
+    let systemMessage: string | undefined
+    const raw = sysMsg.output || sysMsg.stdout || ''
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { systemMessage?: string }
+        systemMessage = parsed.systemMessage
+      } catch { /* not JSON */ }
+    }
+    if (systemMessage) {
+      sendOrBuffer(session, 'system_message', systemMessage, {
+        ...convExtra,
+        ...(sysMsg.hook_name ? { hookName: sysMsg.hook_name } : {}),
+        ...(sysMsg.hook_event ? { hookEvent: sysMsg.hook_event } : {}),
+      })
+    }
+  } else if (sysMsg.subtype === 'task_started' && sysMsg.task_id) {
+    console.log(`[sessionManager] ▶ task_started: ${sysMsg.task_id} (${sysMsg.description || '?'}) — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
+  } else if (sysMsg.subtype === 'task_progress' && sysMsg.task_id) {
+    console.log(`[sessionManager] ♥ task_progress: ${sysMsg.task_id} (${sysMsg.last_tool_name || '?'}) — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
+  } else if (sysMsg.subtype === 'task_notification') {
+    // Background task completed/failed/stopped
+    sendChunk('task_notification', sysMsg.summary, {
+      ...convExtra,
+      ...(sysMsg.task_id ? { taskId: sysMsg.task_id } : {}),
+      ...(sysMsg.status ? { taskStatus: sysMsg.status } : {}),
+      ...(sysMsg.output_file ? { outputFile: sysMsg.output_file } : {}),
+    })
+
+    // Simple decrement — no ID matching needed
+    if (turn.pendingTaskCount > 0) turn.pendingTaskCount--
+    console.log(`[sessionManager] ■ task_notification: ${sysMsg.task_id} status=${sysMsg.status} — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
+
+    if (turn.pendingTaskCount === 0 && turn.turnEndDeferred) {
+      if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
+      turn.turnEndDeferred = false
+      console.log(`[sessionManager] All background tasks done — prompting agent to aggregate results, conv ${session.conversationId}`)
+      // Push a prompt so the main agent can aggregate sub-agent results.
+      // The turn stays open — the next result/success (with pendingTaskCount=0)
+      // will send done via the normal path.
+      session.promptController.push({
+        type: 'user',
+        message: { role: 'user', content: 'All your background agents have completed. Process their results and provide your final response.' },
+        parent_tool_use_id: null,
+        session_id: session.sessionId || '',
+      })
+    }
+  }
+}
+
+/** Between-turn system message dispatch: ONLY task_notification is forwarded. All other subtypes (init, hook_response, task_started, task_progress) are silently dropped — they only make sense inside a turn. */
+function handleBetweenTurnMessage(
+  session: ActiveSession,
+  msg: SDKMsg,
+  convExtra: Record<string, number>,
+): void {
+  if (msg.type !== 'system') return
+  const sysMsg = msg as SystemMsg
+  if (sysMsg.subtype !== 'task_notification') return
+  sendChunk('task_notification', sysMsg.summary, {
+    ...convExtra,
+    ...(sysMsg.task_id ? { taskId: sysMsg.task_id } : {}),
+    ...(sysMsg.status ? { taskStatus: sysMsg.status } : {}),
+    ...(sysMsg.output_file ? { outputFile: sysMsg.output_file } : {}),
+  })
+}
+
+/** Capture tool_result outputs from synthetic SDK 'user' messages so the DB tool_calls column records OUTPUT, not just input. Without this, /context breakdown misses 10–100k of real context per tool-heavy turn. */
+function handleUserMessage(turn: TurnState, msg: SDKMsg): void {
+  // Tool results arrive as synthetic user messages between tool_use and the
+  // next assistant chunk. The SDK delivers them as:
+  //   { type: 'user', message: { role: 'user', content: [{type: 'tool_result', tool_use_id, content}, ...] } }
+  // Without capturing `content` here, our DB's tool_calls column only ever
+  // records tool INPUTS — outputs stay empty, which makes the /context
+  // breakdown miss 10–100k of real context per tool-heavy turn and
+  // inflates the derived "Tools & SDK overhead" bucket proportionally.
+  const userMsg = msg as { type: 'user'; message?: { content?: unknown }; tool_use_result?: unknown }
+  const blocks = Array.isArray(userMsg.message?.content) ? userMsg.message!.content as Array<Record<string, unknown>> : []
+  for (const block of blocks) {
+    if (block?.type !== 'tool_result') continue
+    const toolUseId = block.tool_use_id as string | undefined
+    if (!toolUseId) continue
+    // content can be a string, an array of blocks, or missing — normalise to string
+    let outputText = ''
+    const c = block.content
+    if (typeof c === 'string') outputText = c
+    else if (Array.isArray(c)) {
+      outputText = c.map((part) => {
+        if (typeof part === 'string') return part
+        if (part && typeof part === 'object' && 'text' in part && typeof (part as { text?: unknown }).text === 'string') {
+          return (part as { text: string }).text
+        }
+        return JSON.stringify(part)
+      }).join('\n')
+    }
+    const existing = turn.toolCallsMap.get(toolUseId)
+    if (existing) {
+      // Preserve anything already set, only fill output (cap 50k to match prior convention).
+      turn.toolCallsMap.set(toolUseId, { ...existing, output: outputText.slice(0, 50_000) })
+    } else {
+      // Tool result arriving for an id we never saw a tool_use for — unusual; record for completeness.
+      turn.toolCallsMap.set(toolUseId, {
+        id: toolUseId,
+        name: 'tool',
+        input: '{}',
+        output: outputText.slice(0, 50_000),
+        status: 'done',
+      })
+    }
+  }
+}
+
+/** Resolve the in-flight turn after the SDK iterable threw. Splits abort vs generic-error: both resolve (never reject) with partial content so callers can save what was already streamed. Clears poll interval and currentTurn. Caller must `break` afterwards. */
+function finalizeStreamError(session: ActiveSession, err: unknown): void {
+  const turn = session.currentTurn
+  if (!turn) return
+  if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
+  if (
+    err instanceof Error &&
+    (err.name === 'AbortError' || err.message.includes('abort'))
+  ) {
+    sendChunk('done', undefined, { conversationId: session.conversationId, stopReason: 'aborted' })
+    turn.resolve({ content: turn.content, toolCalls: Array.from(turn.toolCallsMap.values()), aborted: true, sessionId: session.sessionId, stopReason: 'aborted', usage: turn.lastUsage })
+  } else {
+    const errorMsg = err instanceof Error ? err.message : 'Unknown streaming error'
+    console.error('[sessionManager] Stream error:', err)
+    sendChunk('error', errorMsg, { conversationId: session.conversationId })
+    // Resolve with partial content + error instead of rejecting — allows
+    // streamAndSave to save whatever the AI already generated
+    turn.resolve({
+      content: turn.content,
+      toolCalls: Array.from(turn.toolCallsMap.values()),
+      aborted: false,
+      sessionId: session.sessionId,
+      error: errorMsg,
+      stopReason: turn.lastStopReason,
+      usage: turn.lastUsage,
+    })
+  }
+  session.currentTurn = null
+}
+
+/** Post-while cleanup: deny pending approvals, drop env, evict from map. No-op if already cleaned by invalidateSession. */
+function cleanupClosedSession(session: ActiveSession): void {
   if (sessions.has(session.conversationId) && session.status !== 'closed') {
     session.status = 'closed'
     denyPendingForSession(session)
@@ -661,6 +669,63 @@ async function consumeStream(session: ActiveSession): Promise<void> {
       session.turnLockRelease = null
     }
   }
+}
+
+// ─── Stream consumer ──────────────────────────────────────────
+
+/** Dispatch a single SDK message to the appropriate handler. Captures session_id lazily on first sighting; routes between-turn messages (turn === null) to the narrow filter, otherwise dispatches by msg.type to per-type handlers. */
+function dispatchMessage(
+  session: ActiveSession,
+  msg: SDKMsg,
+  convExtra: Record<string, number>,
+): void {
+  // Capture session_id from any message
+  if (!session.sessionId && typeof (msg as Record<string, unknown>).session_id === 'string') {
+    session.sessionId = (msg as Record<string, unknown>).session_id as string
+  }
+
+  const turn = session.currentTurn
+  if (!turn) {
+    handleBetweenTurnMessage(session, msg, convExtra)
+    return
+  }
+
+  // Within a turn: process messages by type
+  if (msg.type === 'stream_event') {
+    handleStreamEvent(session, turn, msg as StreamEventMsg, convExtra)
+  } else if (msg.type === 'result') {
+    handleResultMessage(session, turn, msg as ResultMsg, convExtra)
+  } else if (msg.type === 'user') {
+    handleUserMessage(turn, msg)
+  } else if (msg.type === 'system') {
+    handleSystemMessage(session, turn, msg as SystemMsg, convExtra)
+  }
+}
+
+async function consumeStream(session: ActiveSession): Promise<void> {
+  const convExtra: Record<string, number> = { conversationId: session.conversationId }
+  let consecutiveEmptyExits = 0
+
+  while (!session.closing) {
+    let receivedAnyMessage = false
+    try {
+      for await (const message of session.query) {
+        receivedAnyMessage = true
+        consecutiveEmptyExits = 0
+        session.lastMessageReceivedAt = Date.now()
+        dispatchMessage(session, message as SDKMsg, convExtra)
+      }
+      const next = await reconnectOrBreak(session, receivedAnyMessage, consecutiveEmptyExits)
+      consecutiveEmptyExits = next.consecutiveEmptyExits
+      if (next.shouldBreak) break
+    } catch (err: unknown) {
+      // Query threw (subprocess crash, abort, etc.)
+      finalizeStreamError(session, err)
+      break
+    }
+  }
+
+  cleanupClosedSession(session)
 }
 
 // ─── Session creation ─────────────────────────────────────────
