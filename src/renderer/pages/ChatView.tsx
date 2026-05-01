@@ -1,39 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MessageList } from '../components/chat/MessageList'
-import { MessageInput } from '../components/chat/MessageInput'
-import type { MessageInputHandle } from '../components/chat/MessageInput'
-import { FileDropZone } from '../components/file-attach/FileDropZone'
-import { FileUploadButton } from '../components/file-attach/FileUploadButton'
-import { VoiceInputButton } from '../components/chat/VoiceInputButton'
-import { AttachmentPreview } from '../components/file-attach/AttachmentPreview'
-import { AIOverridesPopover } from '../components/settings/AIOverridesPopover'
-import { ChatStatusLine } from '../components/chat/ChatStatusLine'
-import { QueuePanel } from '../components/chat/QueuePanel'
-import { useMobileMode, useCompactMode } from '../hooks/useMobileMode'
-import { useUiStore } from '../stores/uiStore'
 import { useChatStore } from '../stores/chatStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useSettingsStore } from '../stores/settingsStore'
-import { useAuthStore } from '../stores/authStore'
 import { useConversationsStore } from '../stores/conversationsStore'
 import { useFileExplorerStore } from '../stores/fileExplorerStore'
 import { useMcpStore } from '../stores/mcpStore'
 import { useKnowledgeStore } from '../stores/knowledgeStore'
-import { parseOverrides, resolveEffectiveSettings, getInheritanceSource } from '../utils/resolveAISettings'
-import { parseMcpDisabledList } from '../utils/mcpUtils'
+import { useUiStore } from '../stores/uiStore'
 import { useVoiceInputStore } from '../stores/voiceInputStore'
-import type { Attachment, AIOverrides, KnowledgeSelection } from '../../shared/types'
-import type { TaskNotification, QueuedMessage } from '../stores/chatStore'
-import { DEFAULT_MODEL, DEFAULT_EXCLUDE_PATTERNS, shortenModelName, parseCustomModels, parseCustomModelContextLengths } from '../../shared/constants'
-import { getEffectiveContextWindow, computeUsedTokens } from '../../shared/contextWindow'
 import { usePiExtensionUI } from '../hooks/usePiExtensionUI'
 import { usePiExtensionUIStore } from '../stores/piExtensionUIStore'
-import { ExtensionDialog } from '../components/extensions/ExtensionDialog'
-import { ExtensionToast } from '../components/extensions/ExtensionToast'
-import { ExtensionWidget } from '../components/extensions/ExtensionWidget'
-
-const EMPTY_TASK_NOTIFICATIONS: TaskNotification[] = []
-const EMPTY_QUEUE: QueuedMessage[] = []
+import { parseOverrides, resolveEffectiveSettings, getInheritanceSource } from '../utils/resolveAISettings'
+import { parseMcpDisabledList } from '../utils/mcpUtils'
+import { DEFAULT_MODEL, DEFAULT_EXCLUDE_PATTERNS, shortenModelName, parseCustomModelContextLengths } from '../../shared/constants'
+import { getEffectiveContextWindow, computeUsedTokens } from '../../shared/contextWindow'
+import type { Attachment, AIOverrides, KnowledgeSelection } from '../../shared/types'
+import { ChatAttachmentsDropZone } from './chat/ChatAttachments'
+import { ChatLayout } from './chat/ChatLayout'
+import { ChatOverridesPopover, ChatExtensionOverlays } from './chat/ChatOverlays'
 
 interface ChatViewProps {
   conversationId: number | null
@@ -42,61 +26,34 @@ interface ChatViewProps {
   conversationCwd?: string | null
 }
 
-export function ChatView({ conversationId, conversationTitle, conversationModel, conversationCwd }: ChatViewProps) {
-  const mobile = useMobileMode()
-  const compact = useCompactMode()
-
-  // Task 1.1: Granular selectors — data selectors (re-render only when specific data changes)
-  const messages = useChatStore((s) => s.messages)
-  const clearedAt = useChatStore((s) => s.clearedAt)
-  const compactSummary = useChatStore((s) => s.compactSummary)
-  const isCompacting = useChatStore((s) => s.isCompacting)
-  const contextDisplay = useChatStore((s) => s.contextDisplay)
-  const dismissContextInfo = useChatStore((s) => s.dismissContextInfo)
+/**
+ * Orchestrator for the chat page. Owns top-level effects (active conversation
+ * sync, file-tree refresh, voice consumption), the cascade resolution
+ * (global -> folder -> conversation overrides), and the attachments useState.
+ *
+ * Body sections - message list, status line, input row, queue, attachment
+ * preview, extension overlays - live in `./chat/` sub-components. Each
+ * sub-component reads the chat/extension Zustand stores directly with
+ * granular selectors so re-renders stay localised.
+ */
+export function ChatView({ conversationId, conversationTitle, conversationCwd }: ChatViewProps) {
   const isStreaming = useChatStore((s) => s.isStreaming)
-  const streamParts = useChatStore((s) => s.streamParts)
-  const streamingContent = useChatStore((s) => s.streamingContent)
-  const isLoading = useChatStore((s) => s.isLoading)
   const error = useChatStore((s) => s.error)
 
-  // Task 1.1: Action selectors — stable refs, grouped with useShallow to avoid new object on every render
-  const actions = useChatStore(useShallow((s) => ({
+  const orchestratorActions = useChatStore(useShallow((s) => ({
     loadMessages: s.loadMessages,
+    setActiveConversation: s.setActiveConversation,
+    clearChat: s.clearChat,
     sendMessage: s.sendMessage,
     stopGeneration: s.stopGeneration,
     regenerateLastResponse: s.regenerateLastResponse,
     editMessage: s.editMessage,
-    clearChat: s.clearChat,
-    setActiveConversation: s.setActiveConversation,
-    addToQueue: s.addToQueue,
-    removeFromQueue: s.removeFromQueue,
-    editQueuedMessage: s.editQueuedMessage,
-    reorderQueue: s.reorderQueue,
-    clearQueue: s.clearQueue,
-    resumeQueue: s.resumeQueue,
-    lockQueueForEdit: s.lockQueueForEdit,
-    unlockQueueForEdit: s.unlockQueueForEdit,
   })))
   const {
-    loadMessages, sendMessage, stopGeneration, regenerateLastResponse, editMessage,
-    clearChat, setActiveConversation, addToQueue, removeFromQueue, editQueuedMessage,
-    reorderQueue, clearQueue, resumeQueue, lockQueueForEdit, unlockQueueForEdit,
-  } = actions
+    loadMessages, setActiveConversation, clearChat, sendMessage,
+    stopGeneration, regenerateLastResponse, editMessage,
+  } = orchestratorActions
 
-  const taskNotificationsRaw = useChatStore((s) =>
-    conversationId != null ? s.taskNotifications[conversationId] : undefined
-  )
-  const taskNotifications = taskNotificationsRaw ?? EMPTY_TASK_NOTIFICATIONS
-
-  // Task 1.1: Select only current conversation's queue data, not entire maps
-  const currentQueue = useChatStore((s) =>
-    conversationId != null ? s.messageQueues[conversationId] ?? EMPTY_QUEUE : EMPTY_QUEUE
-  )
-  const currentQueuePaused = useChatStore((s) =>
-    conversationId != null ? !!s.queuePaused[conversationId] : false
-  )
-
-  const { isAuthenticated } = useAuthStore()
   const globalSettings = useSettingsStore((s) => s.settings)
   const { conversations, folders, updateConversation, forkConversation } = useConversationsStore()
   const { loadTree, clear: clearFiles } = useFileExplorerStore()
@@ -104,251 +61,98 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
   const loadMcpServers = useMcpStore((s) => s.loadServers)
   const kbCollections = useKnowledgeStore((s) => s.collections)
   const loadKbCollections = useKnowledgeStore((s) => s.loadCollections)
-  const mcpServerNames = useMemo(
-    () => mcpServers.filter((s) => s.enabled === 1).map((s) => ({ name: s.name })),
-    [mcpServers]
-  )
 
-  // Overrides popover state
-  const [showOverrides, setShowOverrides] = useState(false)
-
-  // Attachment state
-  const [attachments, setAttachments] = useState<Attachment[]>([])
-
-  // Voice input
   const lastTranscription = useVoiceInputStore((s) => s.lastTranscription)
   const clearTranscription = useVoiceInputStore((s) => s.clearTranscription)
   const consumedVoiceIdRef = useRef(0)
-  const messageInputRef = useRef<MessageInputHandle>(null)
-  const [canSend, setCanSend] = useState(false)
 
-  // Pi extension UI
   usePiExtensionUI()
-  const activeDialog = usePiExtensionUIStore((s) => s.activeDialog)
-  const notifications = usePiExtensionUIStore((s) => s.notifications)
-  const widgets = usePiExtensionUIStore((s) => s.widgets)
-  const statusEntries = usePiExtensionUIStore((s) => s.statusEntries)
-  const dismissDialog = usePiExtensionUIStore((s) => s.dismissDialog)
-  const removeNotification = usePiExtensionUIStore((s) => s.removeNotification)
 
-  // Consume transcription: auto-send or inject into input
-  const autoSendVoice = globalSettings.whisper_autoSend === 'true'
-  useEffect(() => {
-    if (!lastTranscription || lastTranscription.id === consumedVoiceIdRef.current) return
-    consumedVoiceIdRef.current = lastTranscription.id
+  const [showOverrides, setShowOverrides] = useState(false)
+  const [attachments, setAttachments] = useState<Attachment[]>([])
 
-    if (autoSendVoice && conversationId) {
-      sendMessage(conversationId, lastTranscription.text)
-      clearTranscription()
-    }
-    // When autoSend is off, MessageInput consumes via externalText prop
-  }, [lastTranscription, clearTranscription, autoSendVoice, conversationId, sendMessage])
-
-  // Compute effective model via cascade
   const conversation = conversations.find((c) => c.id === conversationId)
   const folder = conversation?.folder_id ? folders.find((f) => f.id === conversation.folder_id) : undefined
   const convOverrides = useMemo(() => parseOverrides(conversation?.ai_overrides), [conversation?.ai_overrides])
   const folderOverrides = useMemo(() => parseOverrides(folder?.ai_overrides), [folder?.ai_overrides])
   const effectiveSettings = useMemo(
     () => resolveEffectiveSettings(globalSettings, folderOverrides, convOverrides),
-    [globalSettings, folderOverrides, convOverrides]
+    [globalSettings, folderOverrides, convOverrides],
   )
   const effectiveModel = effectiveSettings['ai_model'] || DEFAULT_MODEL
   const effectivePermissionMode = effectiveSettings['ai_permissionMode'] || 'bypassPermissions'
 
   const customCtxOverrides = useMemo(
     () => parseCustomModelContextLengths(globalSettings['ai_customModelContextLengths']),
-    [globalSettings]
+    [globalSettings],
   )
   const contextWindow = useMemo(
     () => getEffectiveContextWindow(effectiveModel, conversation?.last_context_window ?? null, customCtxOverrides),
-    [conversation?.last_context_window, effectiveModel, customCtxOverrides]
+    [conversation?.last_context_window, effectiveModel, customCtxOverrides],
   )
-  const contextUsed = useMemo(() => {
-    if (!conversation?.last_usage_updated_at) return null
-    // Prefer the content-only total (matches /context bubble headline). Fall
-    // back to the raw SDK-reported sum for conversations whose last turn
-    // predates the migration — they'll self-heal on their next turn.
-    if (typeof conversation.last_content_tokens === 'number') {
-      return conversation.last_content_tokens
-    }
-    return computeUsedTokens({
-      input: conversation.last_input_tokens,
-      cacheRead: conversation.last_cache_read_tokens,
-      cacheCreation: conversation.last_cache_creation_tokens,
-    })
-  }, [conversation?.last_usage_updated_at, conversation?.last_content_tokens, conversation?.last_input_tokens, conversation?.last_cache_read_tokens, conversation?.last_cache_creation_tokens])
+  const contextUsed = useMemo(
+    () => resolveContextUsed(conversation),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conversation?.last_usage_updated_at, conversation?.last_content_tokens, conversation?.last_input_tokens, conversation?.last_cache_read_tokens, conversation?.last_cache_creation_tokens],
+  )
   const mcpDisabledList = useMemo(() => parseMcpDisabledList(effectiveSettings['ai_mcpDisabled']), [effectiveSettings])
   const mcpServerEntries = useMemo(() => {
     const disabledSet = new Set(mcpDisabledList)
-    return mcpServers
-      .filter((s) => s.enabled === 1)
-      .map((s) => ({ name: s.name, active: !disabledSet.has(s.name) }))
+    return mcpServers.filter((s) => s.enabled === 1).map((s) => ({ name: s.name, active: !disabledSet.has(s.name) }))
   }, [mcpServers, mcpDisabledList])
+  const mcpServerNames = useMemo(
+    () => mcpServers.filter((s) => s.enabled === 1).map((s) => ({ name: s.name })),
+    [mcpServers],
+  )
 
-  // KB collections — parse selections from ai_overrides (like mcpDisabledList pattern)
-  const kbSelections = useMemo<KnowledgeSelection[]>(() => {
-    const raw = effectiveSettings['ai_knowledgeFolders']
-    if (!raw) return []
-    try { const arr = JSON.parse(raw); return Array.isArray(arr) ? arr : [] } catch { return [] }
-  }, [effectiveSettings])
-
-  // Disabled skills — parse from effective settings
-  const disabledSkills = useMemo<string[]>(() => {
-    const raw = effectiveSettings['ai_disabledSkills']
-    if (!raw) return []
-    try { const arr = JSON.parse(raw); return Array.isArray(arr) ? arr : [] } catch { return [] }
-  }, [effectiveSettings])
-
-  // File exclude patterns — resolve from cascade
-  const excludePatterns = useMemo(() => {
-    const raw = effectiveSettings['files_excludePatterns'] || DEFAULT_EXCLUDE_PATTERNS
-    return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
-  }, [effectiveSettings])
+  const kbSelections = useMemo<KnowledgeSelection[]>(
+    () => parseJsonArray<KnowledgeSelection>(effectiveSettings['ai_knowledgeFolders']),
+    [effectiveSettings],
+  )
+  const disabledSkills = useMemo<string[]>(
+    () => parseJsonArray<string>(effectiveSettings['ai_disabledSkills']),
+    [effectiveSettings],
+  )
+  const excludePatterns = useMemo(
+    () => splitCsv(effectiveSettings['files_excludePatterns'] || DEFAULT_EXCLUDE_PATTERNS),
+    [effectiveSettings],
+  )
 
   const kbCollectionEntries = useMemo(() => {
-    const selectedMap = new Map(kbSelections.map(s => [s.folder, s.access]))
-    return kbCollections.map(c => ({
+    const selectedMap = new Map(kbSelections.map((s) => [s.folder, s.access]))
+    return kbCollections.map((c) => ({
       name: c.name,
       selected: selectedMap.has(c.name),
       access: (selectedMap.get(c.name) || 'read') as 'read' | 'readwrite',
     }))
   }, [kbCollections, kbSelections])
 
-  // Load MCP servers once on mount
-  useEffect(() => { loadMcpServers() }, [loadMcpServers])
-
-  // Load KB collections once on mount
-  useEffect(() => { loadKbCollections() }, [loadKbCollections])
-
-  // Build inheritance source info for the popover
-  const inheritedSources = useMemo(() => {
-    const keys: (keyof AIOverrides)[] = ['ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_tools', 'ai_defaultSystemPrompt', 'ai_mcpDisabled', 'ai_knowledgeFolders']
-    const sources: Record<string, string> = {}
-    for (const key of keys) {
-      sources[key] = getInheritanceSource(key, folderOverrides, convOverrides, folder?.name)
-    }
-    return sources
-  }, [folderOverrides, convOverrides, folder?.name])
-
-  // Inherited values = folder overrides merged onto global (without conv overrides)
-  const inheritedValues = useMemo(
-    () => resolveEffectiveSettings(globalSettings, folderOverrides, {}),
-    [globalSettings, folderOverrides]
+  const inheritedSources = useMemo(
+    () => buildInheritedSources(folderOverrides, convOverrides, folder?.name),
+    [folderOverrides, convOverrides, folder?.name],
   )
 
-  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items
-    if (!items) return
-
-    const fileItems: DataTransferItem[] = []
-    for (const item of Array.from(items)) {
-      if (item.kind === 'file') fileItems.push(item)
-    }
-    if (fileItems.length === 0) return
-
-    e.preventDefault()
-
-    for (const item of fileItems) {
-      const blob = item.getAsFile()
-      if (!blob) continue
-
-      try {
-        const buffer = await blob.arrayBuffer()
-        const path = await window.agent.files.savePastedFile(new Uint8Array(buffer), blob.type)
-        const ext = blob.type.split('/')[1] || 'png'
-        const name = blob.name && blob.name !== 'image.png'
-          ? blob.name
-          : `pasted-${Date.now()}.${ext}`
-
-        setAttachments((prev) => [...prev, { name, path, type: blob.type, size: blob.size }])
-      } catch (err) {
-        console.error('Failed to save pasted file:', err)
-      }
-    }
-  }, [])
-
-  const handleFilesSelected = useCallback((files: Attachment[]) => {
-    setAttachments((prev) => [...prev, ...files])
-  }, [])
-
-  const handleRemoveAttachment = useCallback((index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index))
-  }, [])
+  const inheritedValues = useMemo(
+    () => resolveEffectiveSettings(globalSettings, folderOverrides, {}),
+    [globalSettings, folderOverrides],
+  )
 
   const saveConversationOverrides = useCallback((newOverrides: AIOverrides) => {
     if (!conversationId) return
     const json = Object.keys(newOverrides).length > 0 ? JSON.stringify(newOverrides) : null
-    updateConversation(conversationId, { ai_overrides: json } as any)
+    updateConversation(conversationId, { ai_overrides: json } as Parameters<typeof updateConversation>[1])
   }, [conversationId, updateConversation])
 
-  const handleMcpServerToggle = useCallback((serverName: string) => {
-    const newOverrides = { ...convOverrides }
-    const currentDisabled = new Set(mcpDisabledList)
-    if (currentDisabled.has(serverName)) {
-      currentDisabled.delete(serverName)
-    } else {
-      currentDisabled.add(serverName)
+  const autoSendVoice = globalSettings.whisper_autoSend === 'true'
+  useEffect(() => {
+    if (!lastTranscription || lastTranscription.id === consumedVoiceIdRef.current) return
+    consumedVoiceIdRef.current = lastTranscription.id
+    if (autoSendVoice && conversationId) {
+      sendMessage(conversationId, lastTranscription.text)
+      clearTranscription()
     }
-    if (currentDisabled.size > 0) {
-      newOverrides.ai_mcpDisabled = JSON.stringify([...currentDisabled])
-    } else {
-      delete newOverrides.ai_mcpDisabled
-    }
-    saveConversationOverrides(newOverrides)
-  }, [mcpDisabledList, convOverrides, saveConversationOverrides])
+  }, [lastTranscription, clearTranscription, autoSendVoice, conversationId, sendMessage])
 
-  const handleModelChange = useCallback((newModel: string) => {
-    saveConversationOverrides({ ...convOverrides, ai_model: newModel })
-  }, [convOverrides, saveConversationOverrides])
-
-  const handlePermissionModeChange = useCallback((newMode: string) => {
-    saveConversationOverrides({ ...convOverrides, ai_permissionMode: newMode })
-  }, [convOverrides, saveConversationOverrides])
-
-  const handleKbCollectionToggle = useCallback((name: string) => {
-    const current = [...kbSelections]
-    const idx = current.findIndex(s => s.folder === name)
-    if (idx >= 0) {
-      current.splice(idx, 1)
-    } else {
-      current.push({ folder: name, access: 'read' })
-    }
-    const newOverrides = { ...convOverrides }
-    if (current.length > 0) {
-      newOverrides.ai_knowledgeFolders = JSON.stringify(current)
-    } else {
-      delete newOverrides.ai_knowledgeFolders
-    }
-    saveConversationOverrides(newOverrides)
-  }, [kbSelections, convOverrides, saveConversationOverrides])
-
-  const handleKbAccessToggle = useCallback((name: string) => {
-    const current = [...kbSelections]
-    const entry = current.find(s => s.folder === name)
-    if (entry) {
-      entry.access = entry.access === 'read' ? 'readwrite' : 'read'
-    }
-    const newOverrides = { ...convOverrides }
-    if (current.length > 0) {
-      newOverrides.ai_knowledgeFolders = JSON.stringify(current)
-    } else {
-      delete newOverrides.ai_knowledgeFolders
-    }
-    saveConversationOverrides(newOverrides)
-  }, [kbSelections, convOverrides, saveConversationOverrides])
-
-  const handleChangeCwd = async () => {
-    if (!conversationId) return
-    const folder = await window.agent.system.selectFolder()
-    if (folder) {
-      updateConversation(conversationId, { cwd: folder } as Partial<import('../../shared/types').Conversation>)
-    }
-  }
-
-  const displayCwd = conversationCwd || (conversationId ? `~/.agent-desktop/sessions-folder/${conversationId}` : '')
-
-  // Sync active conversation and load messages/files when conversation changes
   useEffect(() => {
     usePiExtensionUIStore.getState().reset()
     if (conversationId) {
@@ -362,7 +166,6 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
     }
   }, [conversationId, conversationCwd, setActiveConversation, loadMessages, clearChat, loadTree, clearFiles])
 
-  // Auto-refresh file tree when streaming finishes (not on conversation switch)
   const wasStreamingRef = useRef(isStreaming)
   useEffect(() => {
     const wasStreaming = wasStreamingRef.current
@@ -372,390 +175,265 @@ export function ChatView({ conversationId, conversationTitle, conversationModel,
     }
   }, [conversationId, isStreaming])
 
-  const handleSend = async (content: string) => {
+  useEffect(() => {
+    loadMcpServers()
+    loadKbCollections()
+  }, [loadMcpServers, loadKbCollections])
+
+  const handleChangeCwd = useCallback(async () => {
     if (!conversationId) return
-    const trimmed = content.trim()
-    if (trimmed === '/clear') {
-      await useChatStore.getState().clearContext(conversationId)
-      return
+    const next = await window.agent.system.selectFolder()
+    if (next) {
+      updateConversation(conversationId, { cwd: next } as Partial<import('../../shared/types').Conversation>)
     }
-    if (trimmed === '/compact') {
-      await useChatStore.getState().compactContext(conversationId)
-      return
-    }
-    if (trimmed === '/context') {
-      useChatStore.getState().showContextInfo(conversationId)
-      return
-    }
-    // Macro invocation: /name with no extra arguments
-    if (/^\/[\w-]+$/.test(trimmed)) {
-      const macroName = trimmed.slice(1)
-      const messages = await window.agent.macros.load(macroName)
-      if (messages) {
-        const [first, ...rest] = messages
-        for (const msg of rest) {
-          addToQueue(conversationId, msg)
-        }
-        sendMessage(conversationId, first)
-        return
-      }
-    }
-    sendMessage(conversationId, content, attachments.length > 0 ? attachments : undefined)
-    setAttachments([])
-  }
+  }, [conversationId, updateConversation])
 
-  const hasQueuedMessages = currentQueue.length > 0
-
-  const handleQueue = useCallback((content: string) => {
-    if (!conversationId) return
-    addToQueue(conversationId, content, attachments.length > 0 ? attachments : undefined)
-    setAttachments([])
-  }, [conversationId, addToQueue, attachments])
-
-  const handleQueueEdit = useCallback((messageId: string, newContent: string) => {
-    if (conversationId) editQueuedMessage(conversationId, messageId, newContent)
-  }, [conversationId, editQueuedMessage])
-
-  const handleQueueDelete = useCallback((messageId: string) => {
-    if (conversationId) removeFromQueue(conversationId, messageId)
-  }, [conversationId, removeFromQueue])
-
-  const handleQueueReorder = useCallback((from: number, to: number) => {
-    if (conversationId) reorderQueue(conversationId, from, to)
-  }, [conversationId, reorderQueue])
-
-  const handleQueueClear = useCallback(() => {
-    if (conversationId) clearQueue(conversationId)
-  }, [conversationId, clearQueue])
-
-  const handleQueueResume = useCallback(() => {
-    if (conversationId) resumeQueue(conversationId)
-  }, [conversationId, resumeQueue])
-
-  const handleQueueEditStart = useCallback(() => {
-    if (conversationId) lockQueueForEdit(conversationId)
-  }, [conversationId, lockQueueForEdit])
-
-  const handleQueueEditEnd = useCallback(() => {
-    if (conversationId) unlockQueueForEdit(conversationId)
-  }, [conversationId, unlockQueueForEdit])
-
-  const handleRegenerate = () => {
+  const handleRegenerate = useCallback(() => {
     if (!conversationId) return
     regenerateLastResponse(conversationId)
-  }
+  }, [conversationId, regenerateLastResponse])
 
   const handleFork = useCallback(async (messageId: number) => {
     if (!conversationId) return
     await forkConversation(conversationId, messageId)
   }, [conversationId, forkConversation])
 
-  // Empty state
+  const displayCwd = resolveDisplayCwd(conversationCwd, conversationId)
+
   if (!conversationId) {
-    return (
-      <div
-        className="flex-1 flex flex-col items-center justify-center"
-        style={{ color: 'var(--color-text-muted)' }}
-      >
-        <div className="text-4xl mb-4">💬</div>
-        <h2 className="text-lg font-medium mb-1" style={{ color: 'var(--color-text)' }}>
-          No conversation selected
-        </h2>
-        <p className="text-sm">Select or create a conversation to get started</p>
-      </div>
-    )
+    return <ChatEmptyState />
+  }
+
+  const layoutDeps = {
+    backend: effectiveSettings['ai_sdkBackend'] || 'claude-agent-sdk',
+    ttsResponseMode: effectiveSettings['tts_responseMode'],
+    agentName: effectiveSettings['agent_name'],
+    sdkBackend: effectiveSettings['ai_sdkBackend'],
+  }
+  const inputDeps = {
+    cwd: displayCwd,
+    excludePatterns,
+    skillsMode: effectiveSettings['ai_skills'] ?? 'off',
+    disabledSkills,
+    externalText: autoSendVoice ? undefined : (lastTranscription ?? undefined),
   }
 
   return (
-    <FileDropZone onFilesDropped={handleFilesSelected}>
+    <ChatAttachmentsDropZone onFilesDropped={(files) => setAttachments((prev) => [...prev, ...files])}>
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div
-          className="flex-shrink-0 flex items-center justify-between py-2 border-b gap-2 px-4 mobile:pl-14 mobile:pr-4"
-          style={{
-            borderColor: 'var(--color-surface)',
-            backgroundColor: 'var(--color-bg)',
-          }}
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <h2 className="text-sm font-medium min-w-0 truncate" style={{ color: 'var(--color-text)' }}>
-              {conversationTitle || 'New Conversation'}
-            </h2>
-            <button
-              onClick={handleChangeCwd}
-              title={`Working directory: ${displayCwd}\nClick to change`}
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs truncate max-w-[300px] hover:opacity-80 transition-opacity compact:hidden"
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                color: 'var(--color-text-muted)',
-              }}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="flex-shrink-0">
-                <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.56 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
-              </svg>
-              <span className="truncate">{displayCwd}</span>
-            </button>
-          </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <button
-              onClick={useUiStore.getState().togglePanel}
-              title="File explorer"
-              className="hidden compact:flex p-2.5 rounded hover:opacity-80 transition-opacity items-center justify-center"
-              style={{ color: 'var(--color-text-muted)' }}
-              aria-label="Open file explorer"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.56 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
-              </svg>
-            </button>
-            <div
-              className="text-xs px-2 py-0.5 rounded"
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                color: Object.keys(convOverrides).length > 0 ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              }}
-            >
-              {shortenModelName(effectiveModel)}
-            </div>
-            <button
-              onClick={() => setShowOverrides((v) => !v)}
-              title="AI Settings overrides"
-              className="rounded hover:opacity-80 transition-opacity p-1 mobile:p-2.5"
-              style={{ color: Object.keys(convOverrides).length > 0 ? 'var(--color-primary)' : 'var(--color-text-muted)' }}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z" />
-                <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0a1.97 1.97 0 01-2.929 1.1c-1.541-.971-3.37.858-2.4 2.4a1.97 1.97 0 01-1.1 2.93c-1.79.526-1.79 3.064 0 3.591a1.97 1.97 0 011.1 2.929c-.97 1.542.858 3.371 2.4 2.4a1.97 1.97 0 012.93 1.1c.526 1.79 3.064 1.79 3.591 0a1.97 1.97 0 012.929-1.1c1.542.97 3.371-.858 2.4-2.4a1.97 1.97 0 011.1-2.93c1.79-.526 1.79-3.064 0-3.591a1.97 1.97 0 01-1.1-2.929c.97-1.542-.858-3.371-2.4-2.4a1.97 1.97 0 01-2.93-1.1zM8 10.93a2.929 2.929 0 110-5.858 2.929 2.929 0 010 5.858z" />
-              </svg>
-            </button>
-          </div>
-        </div>
+        <ChatHeader
+          title={conversationTitle}
+          displayCwd={displayCwd}
+          effectiveModel={effectiveModel}
+          hasOverrides={Object.keys(convOverrides).length > 0}
+          onChangeCwd={handleChangeCwd}
+          onToggleOverrides={() => setShowOverrides((v) => !v)}
+        />
 
-        {/* Error banner */}
-        {error && (
-          <div
-            className="flex-shrink-0 px-4 py-2 text-sm"
-            style={{ backgroundColor: 'var(--color-error)', color: 'var(--color-text-contrast)' }}
-          >
-            {error}
-          </div>
-        )}
+        <ChatErrorBanner message={error} />
 
-        {/* Messages */}
-        <MessageList
-          messages={messages}
-          clearedAt={clearedAt}
-          compactSummary={compactSummary}
-          isCompacting={isCompacting}
-          isStreaming={isStreaming}
-          streamParts={streamParts}
-          streamingContent={streamingContent}
-          isLoading={isLoading}
-          taskNotifications={taskNotifications}
-          contextDisplay={contextDisplay}
-          onDismissContextInfo={dismissContextInfo}
-          effectiveTtsResponseMode={effectiveSettings['tts_responseMode']}
-          effectiveAgentName={effectiveSettings['agent_name']}
-          effectiveSdkBackend={effectiveSettings['ai_sdkBackend']}
+        <ChatLayout
           conversationId={conversationId}
-          onEdit={editMessage}
+          effectiveModel={effectiveModel}
+          effectivePermissionMode={effectivePermissionMode}
+          effectiveBackend={layoutDeps.backend}
+          effectiveTtsResponseMode={layoutDeps.ttsResponseMode}
+          effectiveAgentName={layoutDeps.agentName}
+          effectiveSdkBackend={layoutDeps.sdkBackend}
+          globalSettings={globalSettings}
+          mcpServerEntries={mcpServerEntries}
+          kbCollectionEntries={kbCollectionEntries}
+          contextUsed={contextUsed}
+          contextWindow={contextWindow}
+          attachments={attachments}
+          setAttachments={setAttachments}
+          inputDeps={inputDeps}
+          convOverrides={convOverrides}
+          saveConversationOverrides={saveConversationOverrides}
+          onEditMessage={editMessage}
           onRegenerate={handleRegenerate}
           onFork={handleFork}
           onStopGeneration={stopGeneration}
         />
-
-        {/* Attachment preview (between messages and input) */}
-        {attachments.length > 0 && (
-          <div
-            className="flex-shrink-0 border-t"
-            style={{ borderColor: 'var(--color-surface)' }}
-          >
-            <AttachmentPreview attachments={attachments} onRemove={handleRemoveAttachment} />
-          </div>
-        )}
-
-        {/* Queue panel (between attachments and input) */}
-        <QueuePanel
-          messages={currentQueue}
-          paused={currentQueuePaused}
-          onEdit={handleQueueEdit}
-          onDelete={handleQueueDelete}
-          onReorder={handleQueueReorder}
-          onClear={handleQueueClear}
-          onResume={handleQueueResume}
-          onEditStart={handleQueueEditStart}
-          onEditEnd={handleQueueEditEnd}
-        />
-
-        {/* Extension widgets above editor */}
-        {Object.values(widgets).filter(w => w.placement === 'aboveEditor').map(w => (
-          <div key={w.key} className="flex-shrink-0 px-4 pt-1">
-            <ExtensionWidget widget={w} />
-          </div>
-        ))}
-
-        {/* Status line above input */}
-        <div className="flex-shrink-0 px-4 pt-2">
-          <ChatStatusLine
-            model={effectiveModel}
-            backend={effectiveSettings['ai_sdkBackend'] || 'claude-agent-sdk'}
-            permissionMode={effectivePermissionMode}
-            mcpServers={mcpServerEntries}
-            onModelChange={handleModelChange}
-            onPermissionModeChange={handlePermissionModeChange}
-            onMcpServerToggle={handleMcpServerToggle}
-            kbCollections={kbCollectionEntries}
-            onKbCollectionToggle={handleKbCollectionToggle}
-            onKbAccessToggle={handleKbAccessToggle}
-            extensionStatus={statusEntries}
-            customModels={parseCustomModels(globalSettings['ai_customModels'])}
-            contextUsed={contextUsed}
-            contextWindow={contextWindow}
-          />
-        </div>
-
-        {/* Input area with file upload + @ mention + voice buttons */}
-        <div
-          className="flex-shrink-0 p-3 border-t mobile-safe-bottom"
-          style={{ borderColor: 'var(--color-surface)', backgroundColor: 'var(--color-bg)' }}
-        >
-          {compact ? (
-            <>
-              {/* Compact/mobile: two rows — action toolbar + input/send */}
-              <div className="flex items-center gap-2 mb-2">
-                <FileUploadButton onFilesSelected={handleFilesSelected} />
-                <button
-                  onClick={() => messageInputRef.current?.triggerMention()}
-                  className="flex-shrink-0 w-11 h-11 rounded-md flex items-center justify-center transition-opacity hover:opacity-80"
-                  style={{
-                    backgroundColor: 'var(--color-deep)',
-                    color: 'var(--color-text-muted)',
-                  }}
-                  title="Mention a file (@)"
-                  aria-label="Mention file"
-                >
-                  <span className="text-sm font-bold">@</span>
-                </button>
-                <VoiceInputButton disabled={!isAuthenticated || !conversationId} />
-              </div>
-              <div className="flex items-center gap-2">
-                <MessageInput
-                  ref={messageInputRef}
-                  onSend={handleSend}
-                  onQueue={handleQueue}
-                  hasQueuedMessages={hasQueuedMessages}
-                  onPaste={handlePaste}
-                  disabled={!isAuthenticated || !conversationId}
-                  isStreaming={isStreaming}
-                  externalText={autoSendVoice ? undefined : (lastTranscription ?? undefined)}
-                  cwd={displayCwd}
-                  excludePatterns={excludePatterns}
-                  skillsMode={effectiveSettings['ai_skills'] ?? 'off'}
-                  disabledSkills={disabledSkills}
-                  onCanSendChange={setCanSend}
-                />
-                <button
-                  onClick={() => messageInputRef.current?.send()}
-                  disabled={!canSend}
-                  className="flex-shrink-0 w-11 h-11 rounded-md flex items-center justify-center transition-opacity"
-                  style={{
-                    backgroundColor: 'var(--color-primary)',
-                    opacity: canSend ? 1 : 0.4,
-                  }}
-                  aria-label="Send message"
-                  title="Send message"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="22" y1="2" x2="11" y2="13" />
-                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                  </svg>
-                </button>
-              </div>
-            </>
-          ) : (
-            /* Wide desktop: single row */
-            <div className="flex items-center gap-2">
-              <FileUploadButton onFilesSelected={handleFilesSelected} />
-              <button
-                onClick={() => messageInputRef.current?.triggerMention()}
-                className="flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center transition-opacity hover:opacity-80"
-                style={{
-                  backgroundColor: 'var(--color-deep)',
-                  color: 'var(--color-text-muted)',
-                }}
-                title="Mention a file (@)"
-                aria-label="Mention file"
-              >
-                <span className="text-sm font-bold">@</span>
-              </button>
-              <VoiceInputButton disabled={!isAuthenticated || !conversationId} />
-              <MessageInput
-                ref={messageInputRef}
-                onSend={handleSend}
-                onQueue={handleQueue}
-                hasQueuedMessages={hasQueuedMessages}
-                onPaste={handlePaste}
-                disabled={!isAuthenticated || !conversationId}
-                isStreaming={isStreaming}
-                externalText={autoSendVoice ? undefined : (lastTranscription ?? undefined)}
-                cwd={displayCwd}
-                excludePatterns={excludePatterns}
-                skillsMode={effectiveSettings['ai_skills'] ?? 'off'}
-                disabledSkills={disabledSkills}
-                onCanSendChange={setCanSend}
-              />
-              <button
-                onClick={() => messageInputRef.current?.send()}
-                disabled={!canSend}
-                className="flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center transition-opacity"
-                style={{
-                  backgroundColor: 'var(--color-primary)',
-                  opacity: canSend ? 1 : 0.4,
-                }}
-                aria-label="Send message"
-                title="Send message"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </svg>
-              </button>
-            </div>
-          )}
-        </div>
-        {/* Extension widgets below editor */}
-        {Object.values(widgets).filter(w => w.placement === 'belowEditor').map(w => (
-          <div key={w.key} className="flex-shrink-0 px-4 pt-1 pb-1">
-            <ExtensionWidget widget={w} />
-          </div>
-        ))}
       </div>
-      {showOverrides && conversationId && (
-        <AIOverridesPopover
-          overrides={convOverrides}
-          inheritedValues={inheritedValues}
-          inheritedSources={inheritedSources}
-          title="Conversation AI Settings"
-          mcpServers={mcpServerNames}
-          onSave={(newOverrides) => {
-            saveConversationOverrides(newOverrides)
-            setShowOverrides(false)
+
+      <ChatOverridesPopover
+        open={showOverrides}
+        convOverrides={convOverrides}
+        inheritedValues={inheritedValues}
+        inheritedSources={inheritedSources}
+        mcpServers={mcpServerNames}
+        onSave={(newOverrides) => {
+          saveConversationOverrides(newOverrides)
+          setShowOverrides(false)
+        }}
+        onClose={() => setShowOverrides(false)}
+      />
+
+      <ChatExtensionOverlays />
+    </ChatAttachmentsDropZone>
+  )
+}
+
+// --- Pure helpers (top-level, no hooks) -----------------------------------
+
+function parseJsonArray<T>(raw: string | undefined): T[] {
+  if (!raw) return []
+  try {
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? (arr as T[]) : []
+  } catch { return [] }
+}
+
+function splitCsv(raw: string): string[] {
+  return raw.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+function resolveDisplayCwd(conversationCwd: string | null | undefined, conversationId: number | null): string {
+  if (conversationCwd) return conversationCwd
+  if (conversationId) return `~/.agent-desktop/sessions-folder/${conversationId}`
+  return ''
+}
+
+type ConversationLike = {
+  last_usage_updated_at?: string | number | null
+  last_content_tokens?: number | null
+  last_input_tokens?: number | null
+  last_cache_read_tokens?: number | null
+  last_cache_creation_tokens?: number | null
+}
+
+function resolveContextUsed(conv: ConversationLike | undefined): number | null {
+  if (!conv?.last_usage_updated_at) return null
+  if (typeof conv.last_content_tokens === 'number') return conv.last_content_tokens
+  return computeUsedTokens({
+    input: conv.last_input_tokens,
+    cacheRead: conv.last_cache_read_tokens,
+    cacheCreation: conv.last_cache_creation_tokens,
+  })
+}
+
+const INHERITED_KEYS: (keyof AIOverrides)[] = [
+  'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd',
+  'ai_permissionMode', 'ai_tools', 'ai_defaultSystemPrompt',
+  'ai_mcpDisabled', 'ai_knowledgeFolders',
+]
+
+function buildInheritedSources(
+  folderOverrides: AIOverrides,
+  convOverrides: AIOverrides,
+  folderName: string | undefined,
+): Record<string, string> {
+  const sources: Record<string, string> = {}
+  for (const key of INHERITED_KEYS) {
+    sources[key] = getInheritanceSource(key, folderOverrides, convOverrides, folderName)
+  }
+  return sources
+}
+
+// --- Sub-views (no business logic) ----------------------------------------
+
+function ChatEmptyState() {
+  return (
+    <div
+      className="flex-1 flex flex-col items-center justify-center"
+      style={{ color: 'var(--color-text-muted)' }}
+    >
+      <div className="text-4xl mb-4">💬</div>
+      <h2 className="text-lg font-medium mb-1" style={{ color: 'var(--color-text)' }}>
+        No conversation selected
+      </h2>
+      <p className="text-sm">Select or create a conversation to get started</p>
+    </div>
+  )
+}
+
+function ChatErrorBanner({ message }: { message: string | null | undefined }) {
+  if (!message) return null
+  return (
+    <div
+      className="flex-shrink-0 px-4 py-2 text-sm"
+      style={{ backgroundColor: 'var(--color-error)', color: 'var(--color-text-contrast)' }}
+    >
+      {message}
+    </div>
+  )
+}
+
+interface ChatHeaderProps {
+  title: string | undefined
+  displayCwd: string
+  effectiveModel: string
+  hasOverrides: boolean
+  onChangeCwd: () => void
+  onToggleOverrides: () => void
+}
+
+function ChatHeader({ title, displayCwd, effectiveModel, hasOverrides, onChangeCwd, onToggleOverrides }: ChatHeaderProps) {
+  return (
+    <div
+      className="flex-shrink-0 flex items-center justify-between py-2 border-b gap-2 px-4 mobile:pl-14 mobile:pr-4"
+      style={{ borderColor: 'var(--color-surface)', backgroundColor: 'var(--color-bg)' }}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <h2 className="text-sm font-medium min-w-0 truncate" style={{ color: 'var(--color-text)' }}>
+          {title || 'New Conversation'}
+        </h2>
+        <button
+          onClick={onChangeCwd}
+          title={`Working directory: ${displayCwd}\nClick to change`}
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs truncate max-w-[300px] hover:opacity-80 transition-opacity compact:hidden"
+          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-muted)' }}
+        >
+          <FolderIcon />
+          <span className="truncate">{displayCwd}</span>
+        </button>
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <button
+          onClick={useUiStore.getState().togglePanel}
+          title="File explorer"
+          className="hidden compact:flex p-2.5 rounded hover:opacity-80 transition-opacity items-center justify-center"
+          style={{ color: 'var(--color-text-muted)' }}
+          aria-label="Open file explorer"
+        >
+          <FolderIcon size={16} />
+        </button>
+        <div
+          className="text-xs px-2 py-0.5 rounded"
+          style={{
+            backgroundColor: 'var(--color-surface)',
+            color: hasOverrides ? 'var(--color-primary)' : 'var(--color-text-muted)',
           }}
-          onClose={() => setShowOverrides(false)}
-        />
-      )}
-      {activeDialog && (
-        <ExtensionDialog
-          dialog={activeDialog}
-          onRespond={(response) => {
-            window.agent.pi.respondUI(response.id, response)
-            dismissDialog()
-          }}
-        />
-      )}
-      {notifications.length > 0 && (
-        <ExtensionToast notifications={notifications} onDismiss={removeNotification} />
-      )}
-    </FileDropZone>
+        >
+          {shortenModelName(effectiveModel)}
+        </div>
+        <button
+          onClick={onToggleOverrides}
+          title="AI Settings overrides"
+          className="rounded hover:opacity-80 transition-opacity p-1 mobile:p-2.5"
+          style={{ color: hasOverrides ? 'var(--color-primary)' : 'var(--color-text-muted)' }}
+        >
+          <GearIcon />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function FolderIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" className="flex-shrink-0">
+      <path d="M1 3.5A1.5 1.5 0 012.5 2h3.879a1.5 1.5 0 011.06.44l1.122 1.12A1.5 1.5 0 009.56 4H13.5A1.5 1.5 0 0115 5.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
+    </svg>
+  )
+}
+
+function GearIcon() {
+  return (
+    <svg width={14} height={14} viewBox="0 0 16 16" fill="currentColor">
+      <path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z" />
+      <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0a1.97 1.97 0 01-2.929 1.1c-1.541-.971-3.37.858-2.4 2.4a1.97 1.97 0 01-1.1 2.93c-1.79.526-1.79 3.064 0 3.591a1.97 1.97 0 011.1 2.929c-.97 1.542.858 3.371 2.4 2.4a1.97 1.97 0 012.93 1.1c.526 1.79 3.064 1.79 3.591 0a1.97 1.97 0 012.929-1.1c1.542.97 3.371-.858 2.4-2.4a1.97 1.97 0 011.1-2.93c1.79-.526 1.79-3.064 0-3.591a1.97 1.97 0 01-1.1-2.929c.97-1.542-.858-3.371-2.4-2.4a1.97 1.97 0 01-2.93-1.1zM8 10.93a2.929 2.929 0 110-5.858 2.929 2.929 0 010 5.858z" />
+    </svg>
   )
 }

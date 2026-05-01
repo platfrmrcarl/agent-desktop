@@ -3,15 +3,29 @@ import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import type { Broadcaster } from '../ports/broadcaster'
 import type { HookRunner } from '../ports/hookRunner'
 import type { AISettings } from '../services/streaming'
-import type { Message, Attachment, ToolCall, ToolApprovalResponse, AskUserResponse, KnowledgeSelection, CwdWhitelistEntry } from '../types/types'
-import { streamMessage, abortStream, respondToApproval, sendChunk, notifyConversationUpdated, injectApiKeyEnv } from '../services/streaming'
+import type { Message, Attachment, ToolCall, ToolApprovalResponse, AskUserResponse } from '../types/types'
+import { abortStream, respondToApproval, sendChunk, notifyConversationUpdated, injectApiKeyEnv } from '../services/streaming'
 import { summarizeWithModel } from '../services/summarization'
 import { validateString, validatePositiveInt, validatePathSafe } from '../utils/validate'
-import { safeJsonParse } from '../utils/json'
 import { HAIKU_MODEL } from '../types/constants'
 import { mkdirSync } from 'fs'
 import { promises as fsp } from 'fs'
-import { join, basename, extname, resolve, relative } from 'path'
+import { join, basename, extname } from 'path'
+
+import { assembleSystemPrompt } from './messages/knowledgeBase'
+import { assembleAISettings } from './messages/modelResolver'
+import {
+  readRetrySettings,
+  sleep,
+  runUserPromptHooks,
+  runStreamAttempt,
+  persistTurnUsage,
+  composeAssistantContent,
+  emitRetryChunk,
+  fireWebhookCompletion,
+  fireTts,
+} from './messages/streamPhases'
+import type { MessageStreamContext } from './messages/types'
 
 // ─── Options ──────────────────────────────────────────────────
 
@@ -37,27 +51,6 @@ const cwdCache = new Map<number, string>()
 
 export function invalidateCwdCache(conversationId: number): void {
   cwdCache.delete(conversationId)
-}
-
-// validatePathSafe imported from ../utils/validate
-
-// ─── Retry Settings ───────────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function readRetrySettings(db: SqlJsAdapter): { enabled: boolean; maxAttempts: number; initialDelayMs: number } {
-  const rows = (db as any)
-    .prepare("SELECT key, value FROM settings WHERE key IN ('retry_enabled', 'retry_maxAttempts', 'retry_initialDelayMs')")
-    .all() as { key: string; value: string }[]
-  const map: Record<string, string> = {}
-  for (const row of rows) map[row.key] = row.value
-  return {
-    enabled: (map['retry_enabled'] ?? 'true') === 'true',
-    maxAttempts: Math.max(1, Math.min(10, Number(map['retry_maxAttempts']) || 3)),
-    initialDelayMs: Math.max(1000, Math.min(30000, Number(map['retry_initialDelayMs']) || 2000)),
-  }
 }
 
 /** Increment the generation counter for a conversation, cancelling any pending retry */
@@ -134,179 +127,21 @@ export function buildMessageHistory(db: SqlJsAdapter, conversationId: number, li
   return result
 }
 
-// ─── Folder Overrides ─────────────────────────────────────────
-
-function getFolderOverrides(db: SqlJsAdapter, folderId: number): Record<string, string> {
-  const row = (db as any)
-    .prepare('SELECT ai_overrides FROM folders WHERE id = ?')
-    .get(folderId) as { ai_overrides: string | null } | undefined
-  return row?.ai_overrides ? safeJsonParse<Record<string, string>>(row.ai_overrides, {}) : {}
-}
-
 // ─── System Prompt ────────────────────────────────────────────
 
-export async function getSystemPrompt(
+/**
+ * Public entry point for the conversation system prompt. Thin wrapper
+ * around `assembleSystemPrompt` — cascade lookups, knowledge-base
+ * ingestion, and the scheduler directive live in
+ * `messages/knowledgeBase.ts`.
+ */
+export function getSystemPrompt(
   db: SqlJsAdapter,
   conversationId: number,
   cwd: string,
   opts?: { knowledgesDir?: string; supportedKnowledgeExts?: Set<string>; getSchedulerMcpConfig?: (id: number) => Record<string, unknown> | null }
 ): Promise<string> {
-  const cwdDirective = `Your working directory is ${cwd}. Use absolute paths for all file operations.`
-
-  const row = (db as any)
-    .prepare('SELECT system_prompt, folder_id, ai_overrides FROM conversations WHERE id = ?')
-    .get(conversationId) as { system_prompt: string | null; folder_id: number | null; ai_overrides: string | null } | undefined
-
-  let prompt: string
-  if (row?.system_prompt) {
-    prompt = `${cwdDirective}\n\n${row.system_prompt}`
-  } else {
-    let cascadedPrompt: string | undefined
-
-    if (row?.ai_overrides) {
-      const convOv = safeJsonParse<Record<string, string>>(row.ai_overrides, {})
-      if (convOv.ai_defaultSystemPrompt) cascadedPrompt = convOv.ai_defaultSystemPrompt
-    }
-
-    if (!cascadedPrompt && row?.folder_id) {
-      const folderOv = getFolderOverrides(db, row.folder_id)
-      if (folderOv.ai_defaultSystemPrompt) cascadedPrompt = folderOv.ai_defaultSystemPrompt
-    }
-
-    if (!cascadedPrompt) {
-      const globalRow = (db as any)
-        .prepare("SELECT value FROM settings WHERE key = 'ai_defaultSystemPrompt'")
-        .get() as { value: string } | undefined
-      cascadedPrompt = globalRow?.value || undefined
-    }
-
-    prompt = cascadedPrompt ? `${cwdDirective}\n\n${cascadedPrompt}` : cwdDirective
-  }
-
-  // Agent personality & language injection
-  function cascadeAgentKey(key: string): string | undefined {
-    if (row?.ai_overrides) {
-      const convOv = safeJsonParse<Record<string, string>>(row.ai_overrides, {})
-      if (convOv[key]) return convOv[key]
-    }
-    if (row?.folder_id) {
-      const folderOv = getFolderOverrides(db, row.folder_id)
-      if (folderOv[key]) return folderOv[key]
-    }
-    const globalRow = (db as any)
-      .prepare('SELECT value FROM settings WHERE key = ?')
-      .get(key) as { value: string } | undefined
-    return globalRow?.value || undefined
-  }
-
-  const agentPersonality = cascadeAgentKey('agent_personality')
-  const agentLanguage = cascadeAgentKey('agent_language')
-
-  if (agentPersonality) {
-    prompt = `Personality: ${agentPersonality}\n\n${prompt}`
-  }
-  if (agentLanguage) {
-    prompt = `Always respond in ${agentLanguage}.\n\n${prompt}`
-  }
-
-  // Knowledge base injection
-  const allOverrides = row?.ai_overrides
-    ? safeJsonParse<Record<string, string>>(row.ai_overrides, {})
-    : {}
-
-  let knowledgeFoldersRaw = allOverrides['ai_knowledgeFolders']
-  if (!knowledgeFoldersRaw && row?.folder_id) {
-    knowledgeFoldersRaw = getFolderOverrides(db, row.folder_id)['ai_knowledgeFolders']
-  }
-
-  if (knowledgeFoldersRaw && opts?.knowledgesDir) {
-    const knowledgesDir = opts.knowledgesDir
-    const supportedExts = opts.supportedKnowledgeExts ?? new Set(['.txt', '.md', '.js', '.ts', '.py', '.json', '.csv', '.yaml', '.yml'])
-    const selections = safeJsonParse<KnowledgeSelection[]>(knowledgeFoldersRaw, [])
-
-    if (Array.isArray(selections) && selections.length > 0) {
-      let kbContent = ''
-      let totalSize = 0
-      const writablePaths: string[] = []
-
-      for (const sel of selections) {
-        if (!sel.folder || typeof sel.folder !== 'string') continue
-        if (sel.folder.includes('..') || sel.folder.includes('/') || sel.folder.includes('\\')) continue
-
-        const collectionPath = join(knowledgesDir, sel.folder)
-        const resolved = resolve(collectionPath)
-        if (!resolved.startsWith(knowledgesDir)) continue
-
-        const access = sel.access === 'readwrite' ? 'readwrite' : 'read'
-        if (access === 'readwrite') {
-          writablePaths.push(resolved)
-        }
-
-        const KB_BUDGET = 500_000
-        async function readCollectionFiles(dir: string): Promise<void> {
-          let entries
-          try {
-            entries = await fsp.readdir(dir, { withFileTypes: true })
-          } catch { return }
-
-          for (const entry of entries) {
-            if (entry.name.startsWith('.')) continue
-            const fullPath = join(dir, entry.name)
-            if (entry.isDirectory()) {
-              await readCollectionFiles(fullPath)
-              if (totalSize >= KB_BUDGET) return
-            } else if (supportedExts.has(extname(entry.name).toLowerCase())) {
-              try {
-                let content = await fsp.readFile(fullPath, 'utf-8')
-                // Truncate the file to fit the remaining budget rather than
-                // dropping it entirely — a single file larger than the whole
-                // budget would otherwise leave kbContent empty for that
-                // collection (silent loss of context).
-                const remaining = KB_BUDGET - totalSize
-                if (remaining <= 0) return
-                let truncated = false
-                if (content.length > remaining) {
-                  content = content.slice(0, remaining)
-                  truncated = true
-                }
-                totalSize += content.length
-                const relPath = relative(collectionPath, fullPath)
-                const suffix = truncated ? '\n[...truncated]' : ''
-                kbContent += `\n\n--- Knowledge [${access}]: ${sel.folder}/${relPath} ---\n${content}${suffix}\n---`
-                if (totalSize >= KB_BUDGET) return
-              } catch {
-                continue
-              }
-            }
-          }
-        }
-
-        await readCollectionFiles(collectionPath)
-        if (totalSize >= KB_BUDGET) break
-      }
-
-      if (kbContent) {
-        prompt += kbContent
-      }
-      if (writablePaths.length > 0) {
-        prompt += '\n\nYou have write access to the following knowledge directories:\n' +
-          writablePaths.map(p => `- ${p}`).join('\n')
-      }
-    }
-  }
-
-  // Scheduler directive
-  if (opts?.getSchedulerMcpConfig) {
-    const schedulerMcpAvailable = opts.getSchedulerMcpConfig(conversationId) !== null
-    if (schedulerMcpAvailable) {
-      prompt += '\n\nYou have access to a built-in task scheduler via MCP tools (schedule_task, list_scheduled_tasks, cancel_scheduled_task). ' +
-        'Use these tools for reminders, scheduled tasks, and recurring actions. ' +
-        'Do NOT use cron, at, systemd timers, or other system schedulers — always use the built-in schedule_task tool. ' +
-        'For one-time reminders, use the delay_minutes parameter. For recurring tasks, use interval_value + interval_unit.'
-    }
-  }
-
-  return prompt
+  return assembleSystemPrompt(db, conversationId, cwd, opts)
 }
 
 // ─── CWD Resolution ───────────────────────────────────────────
@@ -337,159 +172,25 @@ function getConversationCwd(db: SqlJsAdapter, conversationId: number, sessionsBa
   return cwd
 }
 
-// ─── MCP Server Filtering ────────────────────────────────────
-
-function filterMcpServers(
-  servers: AISettings['mcpServers'],
-  disabledJson: string | undefined
-): AISettings['mcpServers'] {
-  if (!disabledJson) return servers
-  const disabled = safeJsonParse<string[]>(disabledJson, [])
-  if (!Array.isArray(disabled) || disabled.length === 0) return servers
-  const disabledSet = new Set(disabled)
-  const filtered: AISettings['mcpServers'] = {}
-  for (const [name, config] of Object.entries(servers || {})) {
-    if (!disabledSet.has(name)) filtered[name] = config
-  }
-  return filtered
-}
-
 // ─── AI Settings ──────────────────────────────────────────────
 
-export function getAISettings(db: SqlJsAdapter, conversationId: number, opts?: { sessionsBase: string; knowledgesDir?: string; getSchedulerMcpConfig?: (id: number) => Record<string, unknown> | null }): AISettings {
-  const sessionsBase = opts?.sessionsBase ?? ''
-  const keys = ['ai_sdkBackend', 'ai_model', 'ai_maxTurns', 'ai_maxThinkingTokens', 'ai_maxBudgetUsd', 'ai_permissionMode', 'ai_requirePlanApproval', 'ai_tools', 'hooks_cwdRestriction', 'hooks_cwdWhitelist', 'settings_sharedAcrossBackends', 'ai_knowledgeFolders', 'ai_skills', 'ai_skillsEnabled', 'ai_disabledSkills', 'pi_disabledExtensions', 'pi_extensionsDir', 'ai_apiKey', 'ai_baseUrl', 'ai_customModel', 'tts_responseMode', 'tts_autoWordLimit', 'tts_summaryPrompt', 'tts_summaryModel', 'ai_compactModel', 'ai_titleModel', 'webhook_completionUrl']
-  const rows = (db as any)
-    .prepare(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`)
-    .all(...keys) as { key: string; value: string }[]
-
-  const map: Record<string, string> = {}
-  for (const row of rows) {
-    map[row.key] = row.value
-  }
-
-  const globalApiKey = map['ai_apiKey'] || undefined
-  const globalBaseUrl = map['ai_baseUrl'] || undefined
-  const globalCustomModel = map['ai_customModel'] || undefined
-  const globalModel = map['ai_model'] || undefined
-  const globalPiExtensionsDir = map['pi_extensionsDir'] || undefined
-
-  const convRow = (db as any)
-    .prepare('SELECT folder_id, ai_overrides FROM conversations WHERE id = ?')
-    .get(conversationId) as { folder_id: number | null; ai_overrides: string | null } | undefined
-
-  if (convRow?.folder_id) {
-    const folderOverrides = getFolderOverrides(db, convRow.folder_id)
-    for (const [k, v] of Object.entries(folderOverrides)) {
-      if (v !== undefined && v !== '') map[k] = v
-    }
-  }
-
-  if (convRow?.ai_overrides) {
-    const convOverrides = safeJsonParse<Record<string, string>>(convRow.ai_overrides, {})
-    for (const [k, v] of Object.entries(convOverrides)) {
-      if (v !== undefined && v !== '') map[k] = v
-    }
-  }
-
-  const cwdWhitelist = safeJsonParse<CwdWhitelistEntry[]>(map['hooks_cwdWhitelist'] || '[]', [])
-
-  const toolsValue = map['ai_tools'] || 'preset:claude_code'
-  let tools: AISettings['tools']
-  if (toolsValue === 'preset:claude_code') {
-    tools = { type: 'preset', preset: 'claude_code' }
-  } else {
-    const parsed = safeJsonParse<string[] | null>(toolsValue, null)
-    tools = parsed ?? { type: 'preset', preset: 'claude_code' }
-  }
-
-  const mcpRows = (db as any)
-    .prepare('SELECT name, type, command, args, env, url, headers FROM mcp_servers WHERE enabled = 1')
-    .all() as { name: string; type: string | null; command: string; args: string; env: string; url: string | null; headers: string | null }[]
-
-  const mcpServers: AISettings['mcpServers'] = {}
-  for (const row of mcpRows) {
-    try {
-      const transport = row.type || 'stdio'
-      if (transport === 'http' || transport === 'sse') {
-        if (!row.url) continue
-        const headers = safeJsonParse<Record<string, string>>(row.headers || '{}', {})
-        mcpServers[row.name] = {
-          type: transport,
-          url: row.url,
-          ...(Object.keys(headers).length > 0 ? { headers } : {}),
-        }
-      } else {
-        const args = safeJsonParse<string[]>(row.args, [])
-        const env = safeJsonParse<Record<string, string>>(row.env, {})
-        mcpServers[row.name] = { command: row.command, args, ...(Object.keys(env).length > 0 ? { env } : {}) }
-      }
-    } catch (err) {
-      console.error(`[messages] Invalid MCP config for ${row.name}:`, err)
-    }
-  }
-
-  // Merge knowledge folder selections into cwdWhitelist
-  if (opts?.knowledgesDir) {
-    const kfRaw = map['ai_knowledgeFolders']
-    const knowledgeFolders = kfRaw ? safeJsonParse<KnowledgeSelection[]>(kfRaw, []) : []
-    if (Array.isArray(knowledgeFolders)) {
-      const knowledgesDir = opts.knowledgesDir
-      for (const sel of knowledgeFolders) {
-        if (!sel.folder || !sel.folder.length) continue
-        if (sel.folder.includes('..') || sel.folder.includes('/') || sel.folder.includes('\\')) continue
-        const resolved = resolve(join(knowledgesDir, sel.folder))
-        if (!resolved.startsWith(knowledgesDir)) continue
-        const access = sel.access === 'readwrite' ? 'readwrite' : 'read'
-        cwdWhitelist.push({ path: resolved, access })
-      }
-    }
-  }
-
-  const cascadedModel = map['ai_model'] || undefined
-  const modelWasOverridden = cascadedModel !== globalModel
-  const rawModel = modelWasOverridden ? cascadedModel : (globalCustomModel || globalModel || undefined)
-  const finalModel = rawModel === 'custom' ? undefined : rawModel
-
-  // Inject scheduler MCP server (Claude SDK only)
-  const sdkBackend = map['ai_sdkBackend'] || 'claude-agent-sdk'
-  if (sdkBackend === 'claude-agent-sdk' && opts?.getSchedulerMcpConfig) {
-    const schedulerMcp = opts.getSchedulerMcpConfig(conversationId)
-    if (schedulerMcp) {
-      mcpServers['agent_scheduler'] = schedulerMcp as any
-    }
-  }
-
-  return {
-    sdkBackend: (map['ai_sdkBackend'] || 'claude-agent-sdk') as string,
-    model: finalModel,
-    maxTurns: map['ai_maxTurns'] ? Number(map['ai_maxTurns']) : undefined,
-    maxThinkingTokens: map['ai_maxThinkingTokens'] ? Number(map['ai_maxThinkingTokens']) : undefined,
-    maxBudgetUsd: map['ai_maxBudgetUsd'] ? Number(map['ai_maxBudgetUsd']) : undefined,
-    cwd: getConversationCwd(db, conversationId, sessionsBase),
-    tools,
-    permissionMode: map['ai_permissionMode'] || 'bypassPermissions',
-    requirePlanApproval: (map['ai_requirePlanApproval'] ?? 'true') === 'true',
-    mcpServers: filterMcpServers(mcpServers, map['ai_mcpDisabled']),
-    cwdRestrictionEnabled: (map['hooks_cwdRestriction'] ?? 'true') === 'true',
-    cwdWhitelist,
-    sharedHooks: (map['settings_sharedAcrossBackends'] ?? 'true') === 'true',
-    skills: (map['ai_skills'] as 'off' | 'user' | 'project' | 'local') || 'off',
-    skillsEnabled: (map['ai_skillsEnabled'] ?? 'true') === 'true',
-    disabledSkills: safeJsonParse<string[]>(map['ai_disabledSkills'] || '[]', []),
-    skillsIncludePlugins: (map['ai_skillsIncludePlugins'] ?? 'false') === 'true',
-    apiKey: globalApiKey,
-    baseUrl: globalBaseUrl,
-    ttsResponseMode: (map['tts_responseMode'] as 'off' | 'full' | 'summary' | 'auto') || undefined,
-    ttsAutoWordLimit: map['tts_autoWordLimit'] ? Number(map['tts_autoWordLimit']) : undefined,
-    ttsSummaryPrompt: map['tts_summaryPrompt'] || undefined,
-    ttsSummaryModel: map['tts_summaryModel'] || undefined,
-    compactModel: map['ai_compactModel'] || undefined,
-    titleModel: map['ai_titleModel'] || undefined,
-    piDisabledExtensions: safeJsonParse<string[]>(map['pi_disabledExtensions'] || '[]', []),
-    piExtensionsDir: globalPiExtensionsDir,
-    webhookCompletionUrl: map['webhook_completionUrl'] || undefined,
-  }
+/**
+ * Public entry point for per-conversation AI settings. Resolves the
+ * conversation cwd via the local cache, then delegates to
+ * `assembleAISettings` which handles the cascade, MCP server
+ * selection, and model resolution.
+ */
+export function getAISettings(
+  db: SqlJsAdapter,
+  conversationId: number,
+  opts?: { sessionsBase: string; knowledgesDir?: string; getSchedulerMcpConfig?: (id: number) => Record<string, unknown> | null },
+): AISettings {
+  const cwd = getConversationCwd(db, conversationId, opts?.sessionsBase ?? '')
+  return assembleAISettings(db, conversationId, {
+    cwd,
+    knowledgesDir: opts?.knowledgesDir,
+    getSchedulerMcpConfig: opts?.getSchedulerMcpConfig,
+  })
 }
 
 // ─── Message Persistence ──────────────────────────────────────
@@ -548,74 +249,9 @@ export function setConversationPiSessionFile(db: SqlJsAdapter, conversationId: n
   (db as any).prepare('UPDATE conversations SET pi_session_file = ? WHERE id = ?').run(filepath, conversationId)
 }
 
-function saveConversationUsage(
-  db: SqlJsAdapter,
-  conversationId: number,
-  usage: {
-    input_tokens?: number
-    output_tokens?: number
-    cache_read_input_tokens?: number
-    cache_creation_input_tokens?: number
-    context_window?: number
-  }
-): void {
-  (db as any).prepare(
-    `UPDATE conversations SET
-       last_input_tokens = ?,
-       last_output_tokens = ?,
-       last_cache_read_tokens = ?,
-       last_cache_creation_tokens = ?,
-       last_context_window = ?,
-       last_usage_updated_at = ?
-     WHERE id = ?`
-  ).run(
-    usage.input_tokens ?? null,
-    usage.output_tokens ?? null,
-    usage.cache_read_input_tokens ?? null,
-    usage.cache_creation_input_tokens ?? null,
-    usage.context_window ?? null,
-    new Date().toISOString(),
-    conversationId
-  )
-}
-
 function updateConversationTimestamp(db: SqlJsAdapter, conversationId: number): void {
   (db as any).prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(
     new Date().toISOString(),
-    conversationId
-  )
-}
-
-/**
- * Compute the content-only token total (same math as the /context bubble
- * headline) and persist it on the conversation row. The status-line bar
- * reads this column so bubble and bar stay consistent by construction.
- *
- * Runs `buildContextBreakdown` in 'local' mode — cheap (BPE tokenizer on
- * already-materialized messages; optional skills scan). Failures are
- * non-fatal: a stale `last_content_tokens` just means the bar lags by one
- * turn, which is better than aborting the whole response persistence.
- */
-async function saveConversationContentTokens(
-  db: SqlJsAdapter,
-  conversationId: number,
-  systemPrompt: string,
-  aiSettings: AISettings,
-): Promise<void> {
-  const { buildContextBreakdown } = await import('../services/contextBreakdown')
-  const skillsMode = aiSettings.skillsEnabled === false
-    ? 'off'
-    : (aiSettings.skills ?? 'off')
-  const breakdown = await buildContextBreakdown({
-    db,
-    conversationId,
-    systemPrompt,
-    mode: 'local',
-    skillsMode,
-    cwd: aiSettings.cwd,
-  })
-  ;(db as any).prepare('UPDATE conversations SET last_content_tokens = ? WHERE id = ?').run(
-    breakdown.total,
     conversationId
   )
 }
@@ -634,17 +270,24 @@ function buildLastUserMessage(
 
 // ─── Stream and Save ──────────────────────────────────────────
 
-async function streamAndSave(
+/**
+ * Build the per-stream context and run UserPromptSubmit hooks. Bumps the
+ * generation counter so any in-flight retry from a previous stream is
+ * silently abandoned (CLAUDE.md > "Stream isolation").
+ */
+async function prepareStreamContext(
   db: SqlJsAdapter,
   conversationId: number,
-  options: MessagesHandlerOptions
-): Promise<Message | null> {
+  options: MessagesHandlerOptions,
+): Promise<MessageStreamContext> {
   options.onTtsStop?.()
 
   const generation = (streamGenerations.get(conversationId) ?? 0) + 1
   streamGenerations.set(conversationId, generation)
 
   const sdkSessionId = getConversationSdkSessionId(db, conversationId)
+  // SDK session resume only needs the trailing user turn; full history is
+  // rebuilt on retry when the saved session id is rejected by the SDK.
   const messages = sdkSessionId
     ? buildLastUserMessage(db, conversationId)
     : buildMessageHistory(db, conversationId)
@@ -660,108 +303,83 @@ async function streamAndSave(
     getSchedulerMcpConfig: options.getSchedulerMcpConfig,
   })
 
-  // Run UserPromptSubmit hooks
-  const isClaudeBackend = aiSettings.sdkBackend !== 'pi'
-  const runHooks = isClaudeBackend || aiSettings.sharedHooks !== false
-  let hookSystemContents: string[] = []
-  const lastUserMsg = messages[messages.length - 1]
-  if (runHooks && lastUserMsg?.role === 'user') {
-    const hookMessages = await options.hookRunner.runUserPromptSubmitHooks(
-      lastUserMsg.content,
-      aiSettings.cwd || process.cwd(),
-      aiSettings.permissionMode || 'bypassPermissions'
-    )
-    const convExtra = { conversationId }
-    for (const msg of hookMessages) {
-      sendChunk('system_message', msg.content, {
-        hookEvent: msg.hookEvent,
-        ...convExtra,
-      })
-      hookSystemContents.push(msg.content)
-    }
+  const hookSystemContents = await runUserPromptHooks(conversationId, messages, aiSettings, options)
+
+  return {
+    db,
+    conversationId,
+    generation,
+    sdkSessionId,
+    messages: messages as Array<{ role: 'user' | 'assistant'; content: string }>,
+    aiSettings,
+    systemPrompt,
+    hookSystemContents,
+    options,
   }
+}
+
+/**
+ * Persist a successful assistant turn: token usage, session id, the
+ * assistant message itself, then fire webhook + TTS side effects.
+ * Returns null when the conversation has been deleted mid-stream.
+ */
+async function persistAssistantTurn(
+  ctx: MessageStreamContext,
+  payload: import('./messages/streamPhases').AssistantTurnPayload & { aborted: boolean },
+): Promise<Message | null> {
+  const { db, conversationId, hookSystemContents, options } = ctx
+
+  await persistTurnUsage(db, ctx, payload)
+
+  if (payload.newSessionId) {
+    saveConversationSdkSessionId(db, conversationId, payload.newSessionId)
+  }
+  const exists = (db as any).prepare('SELECT 1 FROM conversations WHERE id = ?').get(conversationId)
+  if (!exists) return null
+
+  const finalContent = composeAssistantContent(payload.responseContent, hookSystemContents)
+  const assistantMsg = saveMessage(db, conversationId, 'assistant', finalContent, [], payload.toolCalls)
+  updateConversationTimestamp(db, conversationId)
+  notifyConversationUpdated(conversationId)
+
+  fireWebhookCompletion(db, ctx, payload, assistantMsg)
+  fireTts(ctx, payload)
+  void options // referenced through ctx
+  return assistantMsg
+}
+
+async function streamAndSave(
+  db: SqlJsAdapter,
+  conversationId: number,
+  options: MessagesHandlerOptions,
+): Promise<Message | null> {
+  const ctx = await prepareStreamContext(db, conversationId, options)
 
   const retrySettings = readRetrySettings(db)
   const maxAttempts = retrySettings.enabled ? retrySettings.maxAttempts : 1
-  const convExtra = { conversationId }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (streamGenerations.get(conversationId) !== generation) return null
+    if (streamGenerations.get(conversationId) !== ctx.generation) return null
 
-    const attemptSessionId = attempt === 1 ? sdkSessionId : null
-    const attemptMessages = attempt === 1
-      ? messages
-      : buildMessageHistory(db, conversationId)
+    const attemptSessionId = attempt === 1 ? ctx.sdkSessionId : null
+    const attemptMessages = attempt === 1 ? ctx.messages : buildMessageHistory(db, conversationId)
 
     try {
-      const result = await streamMessage(
-        attemptMessages, systemPrompt, aiSettings, conversationId, attemptSessionId
-      )
-      const { content: responseContent, toolCalls, aborted, sessionId: newSessionId, error, stopReason, usage } = result
+      const payload = await runStreamAttempt(attemptMessages, attemptSessionId, ctx)
 
-      // Persist token usage so the /context command and status-line indicator have live data.
-      if (usage) {
-        try {
-          saveConversationUsage(db, conversationId, usage)
-          // Persist content-only total BEFORE notifying the client, so the
-          // refetch triggered by `notifyConversationUpdated` already sees it.
-          await saveConversationContentTokens(db, conversationId, systemPrompt, aiSettings)
-            .catch((e) => console.warn('[messages] saveConversationContentTokens:', e))
-          notifyConversationUpdated(conversationId)
-        } catch (e) { console.warn('[messages] saveConversationUsage:', e) }
+      // Persist token usage even when the turn ends without content — the
+      // status-line bar should reflect tool-only turns too.
+      if (payload.usage) await persistTurnUsage(db, ctx, payload)
+
+      if (payload.aborted) return null
+
+      if (payload.responseContent) {
+        return persistAssistantTurn(ctx, payload)
       }
 
-      if (aborted) return null
+      if (!payload.error) return null
 
-      if (responseContent) {
-        if (newSessionId) {
-          saveConversationSdkSessionId(db, conversationId, newSessionId)
-        }
-        const exists = (db as any).prepare('SELECT 1 FROM conversations WHERE id = ?').get(conversationId)
-        if (!exists) return null
-
-        const finalContent = hookSystemContents.length > 0
-          ? hookSystemContents.map(c => `<hook-system-message>${c}</hook-system-message>`).join('\n') + '\n\n' + responseContent
-          : responseContent
-        const assistantMsg = saveMessage(db, conversationId, 'assistant', finalContent, [], toolCalls)
-        updateConversationTimestamp(db, conversationId)
-        notifyConversationUpdated(conversationId)
-
-        // Fire-and-forget: webhook notification
-        if (aiSettings.webhookCompletionUrl && options.onWebhookFire) {
-          const convTitle = ((db as any).prepare('SELECT title FROM conversations WHERE id = ?').get(conversationId) as { title: string } | undefined)?.title ?? ''
-          try {
-            options.onWebhookFire(aiSettings.webhookCompletionUrl, {
-              event: error ? 'completion_with_error' : 'completion',
-              conversationId,
-              conversationTitle: convTitle,
-              messageId: assistantMsg.id,
-              content: responseContent,
-              model: aiSettings.model || '',
-              stopReason,
-              createdAt: assistantMsg.created_at,
-              ...(error ? { error } : {}),
-            })
-          } catch (err) {
-            console.error('[messages] Webhook error:', err)
-          }
-        }
-
-        // Fire-and-forget: TTS
-        if (!error && options.onTtsSpeak) {
-          try {
-            options.onTtsSpeak(responseContent, conversationId, aiSettings)
-          } catch (err) {
-            console.error('[tts] Response TTS error:', err)
-          }
-        }
-
-        return assistantMsg
-      }
-
-      if (!error) return null
-
-      // Error with no content — retry or emit final error
+      // Error with no content — invalidate session and retry or surface.
       if (attemptSessionId) {
         invalidateAllSessions(db, conversationId)
       }
@@ -769,22 +387,18 @@ async function streamAndSave(
 
       if (attempt < maxAttempts) {
         const delay = retrySettings.initialDelayMs * Math.pow(2, attempt - 1)
-        console.warn(`[messages] Attempt ${attempt}/${maxAttempts} failed, retrying in ${delay}ms:`, error)
-        sendChunk('retry', `Retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}/${maxAttempts})...`, {
-          ...convExtra,
-          retryAttempt: attempt + 1,
-          retryMaxAttempts: maxAttempts,
-          retryDelayMs: delay,
-        })
+        emitRetryChunk(conversationId, attempt, maxAttempts, delay, payload.error)
         await sleep(delay)
-        if (streamGenerations.get(conversationId) !== generation) return null
+        if (streamGenerations.get(conversationId) !== ctx.generation) return null
         continue
       }
 
-      sendChunk('error', error, convExtra)
+      sendChunk('error', payload.error, { conversationId })
       return null
     } catch (err) {
-      if (attempt === 1 && sdkSessionId) {
+      // SDK session resume failure on the first attempt — clear the saved
+      // session id and let the loop rebuild full history on attempt 2.
+      if (attempt === 1 && ctx.sdkSessionId) {
         console.warn('[messages] SDK session resume failed, retrying with full history:', err instanceof Error ? err.message : String(err))
         invalidateAllSessions(db, conversationId)
         options.onSessionInvalidate?.(conversationId)
