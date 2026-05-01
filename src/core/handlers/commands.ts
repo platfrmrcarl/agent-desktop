@@ -15,7 +15,7 @@ interface SlashCommand {
 
 // ─── Constants ──────────────────────────────────────────────
 
-const BUILTIN_COMMANDS: SlashCommand[] = [
+export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'compact', description: 'Compact conversation history', source: 'builtin' },
   { name: 'clear', description: 'Clear AI context (messages stay visible)', source: 'builtin' },
   { name: 'context', description: 'Show context used / free / total', source: 'builtin' },
@@ -60,7 +60,7 @@ export function extractDescription(frontmatter: string): string {
   return ''
 }
 
-async function readFrontmatter(filePath: string): Promise<{ name?: string; description: string }> {
+export async function readFrontmatter(filePath: string): Promise<{ name?: string; description: string }> {
   try {
     const fd = await fs.open(filePath, 'r')
     try {
@@ -84,7 +84,7 @@ async function readFrontmatter(filePath: string): Promise<{ name?: string; descr
   return { description: '' }
 }
 
-async function scanCommandsDir(dir: string, source: 'user' | 'project'): Promise<SlashCommand[]> {
+export async function scanCommandsDir(dir: string, source: 'user' | 'project'): Promise<SlashCommand[]> {
   let entries: string[]
   try {
     entries = await fs.readdir(dir)
@@ -137,7 +137,7 @@ function validateMacroPayload(payload: unknown): payload is MacroFile {
   return p.messages.every((m) => typeof m === 'string' && m.length > 0 && m.length <= MACRO_MESSAGE_MAX)
 }
 
-async function scanMacrosDir(): Promise<SlashCommand[]> {
+export async function scanMacrosDir(): Promise<SlashCommand[]> {
   let entries: string[]
   try {
     entries = await fs.readdir(getMacrosDir())
@@ -193,7 +193,7 @@ async function listMacrosFull(): Promise<MacroFull[]> {
   return macros
 }
 
-async function loadMacro(name: string): Promise<string[] | null> {
+export async function loadMacro(name: string): Promise<string[] | null> {
   if (!validateMacroName(name)) return null
   try {
     const filePath = path.join(getMacrosDir(), `${name}.json`)
@@ -262,7 +262,7 @@ async function deleteMacro(name: string): Promise<void> {
   }
 }
 
-async function scanSkillsDir(dir: string): Promise<SlashCommand[]> {
+export async function scanSkillsDir(dir: string): Promise<SlashCommand[]> {
   let entries: import('fs').Dirent[] | string[]
   try {
     entries = await fs.readdir(dir, { withFileTypes: true })

@@ -62,9 +62,10 @@ describe('commands service', () => {
   it('returns builtin commands when no dirs exist', async () => {
     mockReaddir.mockRejectedValue(new Error('ENOENT'))
     const result = await handlers['commands:list']() as { name: string; source: string }[]
-    expect(result.length).toBe(3)
+    expect(result.length).toBe(4)
     expect(result.map((c) => c.name)).toContain('compact')
     expect(result.map((c) => c.name)).toContain('clear')
+    expect(result.map((c) => c.name)).toContain('context')
     expect(result.map((c) => c.name)).toContain('help')
     expect(result.every((c) => c.source === 'builtin')).toBe(true)
   })
@@ -122,7 +123,7 @@ describe('commands service', () => {
     mockOpen.mockResolvedValue(mkFd('---\ndescription: Valid\n---\n'))
 
     const result = await handlers['commands:list']() as { name: string }[]
-    const nonBuiltin = result.filter((c) => !['compact', 'clear', 'help'].includes(c.name))
+    const nonBuiltin = result.filter((c) => !['compact', 'clear', 'context', 'help'].includes(c.name))
     expect(nonBuiltin.length).toBe(1)
     expect(nonBuiltin[0].name).toBe('valid')
   })
