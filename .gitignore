@@ -22,3 +22,6 @@ plans/
 ssl/
 wiki/
 .fallow/
+graphify-out/
+.cache/
+attachments/
