@@ -41,14 +41,12 @@ export function UserBubble({ message, isLast, effectiveTtsResponseMode, onEdit, 
 
   const mobile = useMobileMode()
   const sendOnEnter = useSettingsStore((s) => s.settings.sendOnEnter ?? 'true')
-  const ttsProvider = useSettingsStore((s) => s.settings.tts_provider)
-  const globalTtsResponseMode = useSettingsStore((s) => s.settings.tts_responseMode)
   const speakingMessageId = useTtsStore((s) => s.speakingMessageId)
   const { playMessage, stopPlayback } = useTtsStore()
 
   const isSpeakingThis = speakingMessageId === message.id
-  const ttsMode = effectiveTtsResponseMode ?? globalTtsResponseMode
-  const showTtsButton = !!ttsProvider && ttsProvider !== 'off' && !!ttsMode && ttsMode !== 'off'
+  // TTS is only for assistant messages — user messages never show TTS controls
+  const showTtsButton = false
 
   const handleCopy = useCallback(async (e?: React.MouseEvent) => {
     await navigator.clipboard.writeText(message.content)
