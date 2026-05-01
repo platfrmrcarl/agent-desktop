@@ -26,3 +26,4 @@ graphify-out/
 .cache/
 attachments/
 /.crap-baseline.json
+coverage/

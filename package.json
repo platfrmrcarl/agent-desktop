@@ -70,6 +70,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@fallow-cli/fallow-cov": "^0.1.9",
     "@storybook/addon-essentials": "^8.6.14",
     "@storybook/react": "^8.6.18",
     "@storybook/react-vite": "^8.6.18",
@@ -85,6 +86,7 @@
     "@types/three": "^0.183.0",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^4.1.5",
     "autoprefixer": "^10.4.20",
     "electron": "^33.3.1",
     "electron-builder": "^25.1.8",
