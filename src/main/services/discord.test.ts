@@ -66,7 +66,7 @@ vi.mock('discord.js', () => ({
 // ─── Imports (after mocks) ──────────────────────────
 
 import {
-  registerHandlers,
+  registerDiscordHandlers,
   startBot,
   stopBot,
   getBotStatus,
@@ -122,9 +122,9 @@ describe('Discord service', () => {
     vi.useRealTimers()
   })
 
-  describe('registerHandlers', () => {
+  describe('registerDiscordHandlers', () => {
     it('registers 3 IPC channels', () => {
-      registerHandlers(ipc as any, dispatch)
+      registerDiscordHandlers(ipc as any, dispatch)
       expect(ipc.handlers.has('discord:connect')).toBe(true)
       expect(ipc.handlers.has('discord:disconnect')).toBe(true)
       expect(ipc.handlers.has('discord:status')).toBe(true)
@@ -137,13 +137,13 @@ describe('Discord service', () => {
       dispatch = createDispatch({
         'settings:get': async () => ({ discord_botToken: 'test-token-123' }),
       })
-      registerHandlers(ipc as any, dispatch)
+      registerDiscordHandlers(ipc as any, dispatch)
       await ipc.invoke('discord:connect')
       expect(mockLogin).toHaveBeenCalledWith('test-token-123')
     })
 
     it('throws when token not configured', async () => {
-      registerHandlers(ipc as any, dispatch)
+      registerDiscordHandlers(ipc as any, dispatch)
       await expect(ipc.invoke('discord:connect')).rejects.toThrow(
         'Discord bot token not configured',
       )
@@ -155,7 +155,7 @@ describe('Discord service', () => {
       dispatch = createDispatch({
         'settings:get': async () => ({ discord_botToken: 'tok' }),
       })
-      registerHandlers(ipc as any, dispatch)
+      registerDiscordHandlers(ipc as any, dispatch)
       await ipc.invoke('discord:connect')
       await ipc.invoke('discord:disconnect')
       expect(mockDestroy).toHaveBeenCalled()
@@ -164,7 +164,7 @@ describe('Discord service', () => {
 
   describe('discord:status', () => {
     it('returns disconnected when no client', async () => {
-      registerHandlers(ipc as any, dispatch)
+      registerDiscordHandlers(ipc as any, dispatch)
       const status = await ipc.invoke('discord:status')
       expect(status).toEqual({ connected: false })
     })
@@ -173,7 +173,7 @@ describe('Discord service', () => {
       dispatch = createDispatch({
         'settings:get': async () => ({ discord_botToken: 'tok' }),
       })
-      registerHandlers(ipc as any, dispatch)
+      registerDiscordHandlers(ipc as any, dispatch)
       await ipc.invoke('discord:connect')
       mockIsReady.mockReturnValue(true)
       const status = await ipc.invoke('discord:status')

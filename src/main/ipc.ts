@@ -18,8 +18,8 @@ import { registerHandlers as filesHandlers } from './services/files'
 import { registerHandlers as knowledgeHandlers, ensureKnowledgesDir } from './services/knowledge'
 
 // Category B imports — platform-independent, in core, but registered here
-import { registerHandlers as webServerHandlers } from '../core/services/webServer'
-import { registerHandlers as discordHandlers } from '../core/services/discord'
+import { registerWebServerHandlers } from '../core/services/webServer'
+import { registerDiscordHandlers } from '../core/services/discord'
 
 /**
  * Wrap ipcMain.handle() so all unhandled errors are sanitized
@@ -71,8 +71,8 @@ export function bridgeDispatchToIpc(engine: AgentEngine, ipcMain: IpcMain): void
   }
 
   // 2. Register Category B services on engine.dispatch (makes them available to webServer/discord/headless)
-  webServerHandlers(engine.dispatch, { webPassword: engine.webPassword, dispatch: engine.dispatch })
-  discordHandlers(engine.dispatch, engine.dispatch)
+  registerWebServerHandlers(engine.dispatch, { webPassword: engine.webPassword, dispatch: engine.dispatch })
+  registerDiscordHandlers(engine.dispatch, engine.dispatch)
 
   // Mirror Category B handlers that were just registered onto ipcMain
   // (they weren't in engine.dispatch during the loop above)

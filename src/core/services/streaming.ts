@@ -171,7 +171,16 @@ export function buildPromptWithHistory(messages: MessageParam[]): string {
   return `<conversation_history>\n${historyParts.join('\n')}\n</conversation_history>\n\n${prompt}`
 }
 
-export type McpServerConfig =
+/**
+ * Runtime transport config for spawning an MCP client connection.
+ *
+ * Distinct from `McpServerConfig` in `core/types/types.ts`, which is
+ * the persisted DB/UI shape (with `name` field, all-optional fields).
+ * This union is the minimal runtime contract: stdio (command + args)
+ * or HTTP/SSE (type + url). The server name is the key in the parent
+ * `Record<string, McpTransportConfig>`.
+ */
+export type McpTransportConfig =
   | { command: string; args: string[]; env?: Record<string, string> }
   | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }
 
@@ -185,7 +194,7 @@ export interface AISettings {
   tools?: { type: 'preset'; preset: string } | string[]
   permissionMode?: string
   requirePlanApproval?: boolean
-  mcpServers?: Record<string, McpServerConfig>
+  mcpServers?: Record<string, McpTransportConfig>
   cwdRestrictionEnabled?: boolean
   cwdWhitelist?: CwdWhitelistEntry[]
   sharedHooks?: boolean

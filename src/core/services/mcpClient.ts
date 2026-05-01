@@ -2,8 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
-import type { McpServerConfig } from './streaming'
-export type { McpServerConfig }
+import type { McpTransportConfig } from './streaming'
 
 export interface McpToolSpec {
   name: string
@@ -28,7 +27,7 @@ export class McpConnectError extends Error {
   }
 }
 
-function buildTransport(config: McpServerConfig) {
+function buildTransport(config: McpTransportConfig) {
   if ('command' in config) {
     return new StdioClientTransport({
       command: config.command,
@@ -45,7 +44,7 @@ function buildTransport(config: McpServerConfig) {
 
 export async function createMcpClient(
   name: string,
-  config: McpServerConfig
+  config: McpTransportConfig
 ): Promise<McpClientHandle> {
   const client = new Client({ name: 'agent-desktop', version: '0.1.0' }, { capabilities: {} })
   let toolList: Awaited<ReturnType<typeof client.listTools>>

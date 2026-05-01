@@ -859,7 +859,7 @@ export { handleAskUserChunk as _handleAskUserChunk, buildModalForQuestions as _b
 
 // ─── IPC handlers ───────────────────────────────────
 
-export function registerHandlers(registrar: HandleRegistrar, dispatch: DispatchRegistry): void {
+export function registerDiscordHandlers(registrar: HandleRegistrar, dispatch: DispatchRegistry): void {
   botDispatch = dispatch
 
   registrar.handle('discord:connect', async () => {
