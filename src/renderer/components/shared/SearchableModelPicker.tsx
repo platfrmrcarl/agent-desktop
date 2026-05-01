@@ -20,6 +20,8 @@ interface SearchableModelPickerProps {
   searchPlaceholder?: string
   emptyMessage?: string
   placement?: 'up' | 'down'
+  /** Which edge of the button the popup is anchored to. Defaults to 'right' (popup expands leftwards from the button) — used in the right-aligned settings layout. Use 'left' when the button sits on the left side of the screen so the popup expands rightwards and doesn't overflow the viewport. */
+  align?: 'left' | 'right'
   extraOptions?: ModelPickerOption[]
   disabled?: boolean
   showChevron?: boolean
@@ -35,6 +37,7 @@ export function SearchableModelPicker({
   searchPlaceholder = 'Search models',
   emptyMessage = 'No models found',
   placement = 'down',
+  align = 'right',
   extraOptions = [],
   disabled = false,
   showChevron = true,
@@ -79,7 +82,7 @@ export function SearchableModelPicker({
   useClickOutside(rootRef, close)
 
   return (
-    <div ref={rootRef} className={`relative inline-flex flex-col items-end gap-1 ${className ?? ''}`}>
+    <div ref={rootRef} className={`relative inline-flex flex-col gap-1 ${align === 'left' ? 'items-start' : 'items-end'} ${className ?? ''}`}>
       <button
         type="button"
         onClick={() => {
@@ -102,7 +105,7 @@ export function SearchableModelPicker({
 
       {open && !disabled && (
         <div
-          className={`absolute ${placement === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'} right-0 rounded shadow-lg text-xs min-w-[240px] max-w-[calc(100vw-2rem)] z-50`}
+          className={`absolute ${placement === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'} ${align === 'left' ? 'left-0' : 'right-0'} rounded shadow-lg text-xs min-w-[240px] max-w-[calc(100vw-2rem)] z-50`}
           style={{
             backgroundColor: 'var(--color-surface)',
             border: '1px solid var(--color-text-muted)',

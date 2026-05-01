@@ -99,6 +99,7 @@ export function ChatStatusLine({ model, backend = 'claude-agent-sdk', permission
         buttonLabel="Model"
         ariaLabel="Change model"
         placement="up"
+        align="left"
         disabled={!onModelChange}
         showChevron={!!onModelChange}
       />

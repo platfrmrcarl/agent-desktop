@@ -31,6 +31,41 @@ describe('SearchableModelPicker', () => {
     expect(list.getByText('codex/gpt-5.4')).toBeInTheDocument()
   })
 
+  it('anchors the popup to the right edge of the button by default', () => {
+    render(
+      <SearchableModelPicker
+        value="codex/gpt-5.4"
+        options={options}
+        onChange={vi.fn()}
+        buttonLabel="Model"
+        ariaLabel="Select model"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select model' }))
+    const popup = screen.getByRole('listbox', { name: 'Model options' }).parentElement!
+    expect(popup.className).toContain('right-0')
+    expect(popup.className).not.toContain('left-0')
+  })
+
+  it('anchors the popup to the left edge of the button when align="left"', () => {
+    render(
+      <SearchableModelPicker
+        value="codex/gpt-5.4"
+        options={options}
+        onChange={vi.fn()}
+        buttonLabel="Model"
+        ariaLabel="Select model"
+        align="left"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select model' }))
+    const popup = screen.getByRole('listbox', { name: 'Model options' }).parentElement!
+    expect(popup.className).toContain('left-0')
+    expect(popup.className).not.toContain('right-0')
+  })
+
   it('filters options by search text and selects the filtered item', () => {
     const onChange = vi.fn()
 
