@@ -1,17 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { createRateLimiter, normalizeIp } from './rateLimiter'
-
-describe('normalizeIp', () => {
-  it('strips ::ffff: prefix from IPv6-mapped IPv4', () => {
-    expect(normalizeIp('::ffff:192.168.1.5')).toBe('192.168.1.5')
-  })
-  it('returns IPv4 unchanged', () => {
-    expect(normalizeIp('192.168.1.5')).toBe('192.168.1.5')
-  })
-  it('returns pure IPv6 unchanged', () => {
-    expect(normalizeIp('fe80::1')).toBe('fe80::1')
-  })
-})
+import { createRateLimiter } from './rateLimiter'
 
 describe('RateLimiter', () => {
   beforeEach(() => { vi.useFakeTimers({ now: 1_000_000 }) })

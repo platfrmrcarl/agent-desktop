@@ -8,7 +8,7 @@ const SALT_BYTES = 16
 const SESSION_SECRET_BYTES = 32
 const MIN_PASSWORD_LENGTH = 8
 
-export interface SettingsPort {
+interface SettingsPort {
   get(key: string): string | undefined
   set(key: string, value: string): void
   delete(key: string): void
