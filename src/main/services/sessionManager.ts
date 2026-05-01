@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto'
 import { loadAgentSDK } from './anthropic'
-import { sendChunk, abortControllers, respondToApproval, buildPromptWithHistory, injectApiKeyEnv } from './streaming'
-import { applyAiSettingsToQueryOptions } from '../../core/services/sdkQueryOptions'
+import { sendChunk, abortControllers, respondToApproval, buildPromptWithHistory } from './streaming'
 import { createCanUseTool } from '../../core/services/canUseTool'
 import {
   forwardInitMcpStatus,
@@ -9,7 +8,10 @@ import {
   forwardTaskNotification,
   type ChunkSender,
 } from '../../core/services/sdkSystemForward'
-import { findBinaryInPath, ensureFreshMacOSToken } from '../utils/env'
+import { buildQueryOptions } from './sessionManager/buildQueryOptions'
+import { setupAuth } from './sessionManager/setupAuth'
+import { configureMcp } from './sessionManager/configureMcp'
+import { wireAbort } from './sessionManager/wireAbort'
 import type { AISettings } from './streaming'
 import type { ToolCall, ToolApprovalResponse, AskUserResponse } from '../../shared/types'
 
@@ -722,84 +724,14 @@ async function consumeStream(session: ActiveSession): Promise<void> {
 
 // ─── Session creation ─────────────────────────────────────────
 
-const VALID_PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'] as const
-type ValidPermissionMode = typeof VALID_PERMISSION_MODES[number]
-
-async function createSession(
-  conversationId: number,
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-  systemPrompt: string | undefined,
+/** Wire canUseTool into queryOptions. Delegated to the core factory so streaming and sessionManager share one source of truth. */
+function wireCanUseTool(
+  session: ActiveSession,
+  queryOptions: Record<string, unknown>,
   aiSettings: AISettings,
-  sdkSessionId: string | null
-): Promise<ActiveSession> {
-  // Ensure fresh token
-  if (!aiSettings?.apiKey) {
-    await ensureFreshMacOSToken()
-  }
-
-  // Inject API key env
-  const restoreEnv = injectApiKeyEnv(aiSettings?.apiKey, aiSettings?.baseUrl)
-
-  const sdk = await loadAgentSDK()
-
-  const promptController = new PromptController()
-
-  const rawPermMode = aiSettings?.permissionMode || 'bypassPermissions'
-  const permMode: ValidPermissionMode = (VALID_PERMISSION_MODES as readonly string[]).includes(rawPermMode)
-    ? rawPermMode as ValidPermissionMode
-    : 'bypassPermissions'
-
-  const nodeExecutable = findBinaryInPath('node') ?? 'node'
-  // Force the Claude Code CLI binary from PATH (see streaming.ts for rationale):
-  // the SDK's bundled platform detection picks the broken musl variant on
-  // glibc systems when native optional-deps are installed in node_modules.
-  const claudeExecutable = findBinaryInPath('claude')
-
-  const queryOptions: Record<string, unknown> = {
-    model: aiSettings?.model || undefined,
-    systemPrompt: systemPrompt || undefined,
-    maxTurns: aiSettings?.maxTurns || undefined,
-    maxThinkingTokens: aiSettings?.maxThinkingTokens || undefined,
-    maxBudgetUsd: aiSettings?.maxBudgetUsd || undefined,
-    cwd: aiSettings?.cwd || undefined,
-    includePartialMessages: true,
-    permissionMode: permMode,
-    executable: nodeExecutable,
-    ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
-  }
-
-  // Resume existing SDK session when available
-  if (sdkSessionId) {
-    queryOptions.resume = sdkSessionId
-  }
-
-  if (permMode === 'bypassPermissions') {
-    queryOptions.allowDangerouslySkipPermissions = true
-  }
-
-  // Create session state (partially — will be completed below)
-  const session: ActiveSession = {
-    query: null as unknown as ActiveSession['query'], // set after query creation
-    conversationId,
-    sessionId: null,
-    promptController,
-    streamConsumer: null as unknown as Promise<void>, // set below
-    currentTurn: null,
-    status: 'active',
-    lastActivity: Date.now(),
-    turnLock: Promise.resolve(),
-    turnLockRelease: null,
-    restoreEnv,
-    pendingRequests: new Map(),
-    pendingApprovalCount: 0,
-    chunkBuffer: [],
-    settingsFingerprint: computeSettingsFingerprint(aiSettings),
-    closing: false,
-    queryOptions: {},
-    lastMessageReceivedAt: Date.now(),
-  }
-
-  // canUseTool — delegated to the core factory so streaming and sessionManager share one source of truth.
+  permMode: string,
+  conversationId: number,
+): void {
   const sessionCanUseTool = createCanUseTool({
     aiSettings: {
       requirePlanApproval: aiSettings?.requirePlanApproval,
@@ -820,59 +752,91 @@ async function createSession(
     console.log(`[sessionManager] canUseTool called: tool="${toolName}" permMode="${permMode}" pendingApprovalCount=${session.pendingApprovalCount} conv=${conversationId}`)
     return sessionCanUseTool(toolName, input)
   }
+}
 
-  applyAiSettingsToQueryOptions(queryOptions, aiSettings)
-
-  // Build the initial prompt: when resuming, send only the last user message
+/** Push the initial prompt into the controller. When resuming, send only the last user message — SDK already has prior history. */
+function pushInitialPrompt(
+  promptController: PromptController,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  sdkSessionId: string | null,
+): void {
   const initialPrompt = sdkSessionId
     ? messages[messages.length - 1]?.content ?? ''
     : buildPromptWithHistory(messages)
-
-  // Push initial message into the controller — the query will consume it
   promptController.push({
     type: 'user',
     message: { role: 'user', content: initialPrompt },
     parent_tool_use_id: null,
     session_id: '',
   })
+}
 
-  // Create the query with the async iterable prompt
-  const abortController = new AbortController()
-  abortControllers.set(conversationId, abortController)
-  queryOptions.abortController = abortController
+/** LRU-evict oldest idle session when MAX_SESSIONS exceeded. Skips the just-created session and any session with an in-flight turn. */
+function evictOldestIfOverLimit(currentConvId: number): void {
+  if (sessions.size <= MAX_SESSIONS) return
+  let oldestConvId: number | null = null
+  let oldestActivity = Infinity
+  for (const [cid, s] of sessions) {
+    if (!s.currentTurn && s.lastActivity < oldestActivity && cid !== currentConvId) {
+      oldestConvId = cid
+      oldestActivity = s.lastActivity
+    }
+  }
+  if (oldestConvId !== null) {
+    console.log(`[sessionManager] LRU eviction: conversation ${oldestConvId}`)
+    invalidateSession(oldestConvId)
+  }
+}
+
+async function createSession(
+  conversationId: number,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  systemPrompt: string | undefined,
+  aiSettings: AISettings,
+  sdkSessionId: string | null
+): Promise<ActiveSession> {
+  const restoreEnv = await setupAuth(aiSettings)
+  const sdk = await loadAgentSDK()
+  const promptController = new PromptController()
+
+  const { queryOptions, permMode } = buildQueryOptions({ systemPrompt, aiSettings, sdkSessionId })
+
+  const session: ActiveSession = {
+    query: null as unknown as ActiveSession['query'],
+    conversationId,
+    sessionId: null,
+    promptController,
+    streamConsumer: null as unknown as Promise<void>,
+    currentTurn: null,
+    status: 'active',
+    lastActivity: Date.now(),
+    turnLock: Promise.resolve(),
+    turnLockRelease: null,
+    restoreEnv,
+    pendingRequests: new Map(),
+    pendingApprovalCount: 0,
+    chunkBuffer: [],
+    settingsFingerprint: computeSettingsFingerprint(aiSettings),
+    closing: false,
+    queryOptions: {},
+    lastMessageReceivedAt: Date.now(),
+  }
+
+  wireCanUseTool(session, queryOptions, aiSettings, permMode, conversationId)
+  configureMcp(queryOptions, aiSettings)
+  pushInitialPrompt(promptController, messages, sdkSessionId)
+  wireAbort(conversationId, queryOptions)
 
   // Save queryOptions for reconnection (abortController excluded — recreated each time)
   session.queryOptions = { ...queryOptions }
   delete session.queryOptions.abortController
 
-  const agentQuery = sdk.query({
-    prompt: promptController,
-    options: queryOptions,
-  })
-
-  session.query = agentQuery as unknown as ActiveSession['query']
-
-  // Start the background consumer
+  session.query = sdk.query({ prompt: promptController, options: queryOptions }) as unknown as ActiveSession['query']
   session.streamConsumer = consumeStream(session)
 
   sessions.set(conversationId, session)
   startIdleTimer()
-
-  // Evict oldest idle sessions if over limit
-  if (sessions.size > MAX_SESSIONS) {
-    let oldestConvId: number | null = null
-    let oldestActivity = Infinity
-    for (const [cid, s] of sessions) {
-      if (!s.currentTurn && s.lastActivity < oldestActivity && cid !== conversationId) {
-        oldestConvId = cid
-        oldestActivity = s.lastActivity
-      }
-    }
-    if (oldestConvId !== null) {
-      console.log(`[sessionManager] LRU eviction: conversation ${oldestConvId}`)
-      invalidateSession(oldestConvId)
-    }
-  }
+  evictOldestIfOverLimit(conversationId)
 
   return session
 }
