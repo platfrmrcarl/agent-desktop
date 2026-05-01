@@ -1,57 +1,13 @@
-import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { execSync } from 'child_process'
 import type { HandleRegistrar } from '../dispatch'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import type { AuthStatus, AuthDiagnostics } from '../types/types'
-
-function getCredentialsPath(): string {
-  const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
-  return path.join(configDir, '.credentials.json')
-}
-
-async function credentialsAvailable(credentialsPath: string): Promise<boolean> {
-  const fileExists = await fs.promises.access(credentialsPath, fs.constants.F_OK).then(() => true).catch(() => false)
-  if (fileExists) return true
-
-  if (process.platform === 'darwin') {
-    try {
-      const username = process.env.USER || os.userInfo().username
-      execSync(`security find-generic-password -a "${username}" -s "Claude Code-credentials"`, {
-        stdio: 'ignore',
-      })
-      return true
-    } catch {
-      // Not in keychain either — fall through to false
-    }
-  }
-
-  return false
-}
-
-async function getUserInfoFromCredentials(credentialsPath: string): Promise<{ email: string; name: string }> {
-  const fallback = { email: 'Claude User', name: 'Claude User' }
-  try {
-    const configDir = path.dirname(credentialsPath)
-    const claudeJsonPath = path.join(configDir, '.claude.json')
-    try {
-      const data = JSON.parse(await fs.promises.readFile(claudeJsonPath, 'utf8'))
-      const account = data?.oauthAccount
-      if (account?.emailAddress) {
-        return {
-          email: account.emailAddress,
-          name: account.displayName || account.emailAddress,
-        }
-      }
-    } catch {
-      // file not found or not valid JSON — return fallback
-    }
-  } catch {
-    // ignore
-  }
-  return fallback
-}
+import {
+  getCredentialsPath,
+  credentialsAvailable,
+  getUserInfoFromCredentials,
+} from '../auth/credentials'
 
 async function runDiagnostics(sdkError?: string): Promise<AuthDiagnostics> {
   const home = os.homedir()
