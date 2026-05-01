@@ -320,6 +320,357 @@ export async function streamMessage(
   return streamMessageOneShot(messages, systemPrompt, aiSettings, conversationId, sdkSessionId, persistSession)
 }
 
+// ─── streamMessageOneShot helpers ─────────────────────
+
+interface OneShotState {
+  fullContent: string
+  capturedSessionId: string | null
+  toolInputAccum: Map<string, string>
+  toolCallsMap: Map<string, ToolCall>
+  currentToolBlockId: string | null
+  askUserToolIds: Set<string>
+  lastStopReason: string | undefined
+  lastResultSubtype: string | undefined
+}
+
+interface ChunkBuffer {
+  sendOrBuffer: (type: string, content?: string, extra?: Record<string, string | number>) => void
+  onApprovalStart: () => void
+  onApprovalEnd: () => void
+}
+
+function createChunkBuffer(): ChunkBuffer {
+  let pendingApprovalCount = 0
+  const chunkBuffer: Array<{ type: string; content?: string; extra?: Record<string, string | number> }> = []
+
+  const flushBuffer = (): void => {
+    while (chunkBuffer.length > 0) {
+      const chunk = chunkBuffer.shift()!
+      sendChunk(chunk.type, chunk.content, chunk.extra)
+    }
+  }
+
+  return {
+    sendOrBuffer: (type, content, extra) => {
+      if (pendingApprovalCount > 0) {
+        chunkBuffer.push({ type, content, extra })
+      } else {
+        sendChunk(type, content, extra)
+      }
+    },
+    onApprovalStart: () => { pendingApprovalCount++ },
+    onApprovalEnd: () => {
+      pendingApprovalCount--
+      if (pendingApprovalCount === 0) flushBuffer()
+    },
+  }
+}
+
+function buildOneShotQueryOptions(
+  aiSettings: AISettings | undefined,
+  systemPrompt: string | undefined,
+  abortController: AbortController,
+  sdkSessionId: string | null | undefined,
+  persistSession: boolean | undefined,
+  conversationId: number | undefined,
+  convKey: number,
+  buffer: ChunkBuffer,
+): Record<string, unknown> {
+  const rawPermMode = aiSettings?.permissionMode || 'bypassPermissions'
+  const permMode: ValidPermissionMode = (VALID_PERMISSION_MODES as readonly string[]).includes(rawPermMode)
+    ? rawPermMode as ValidPermissionMode
+    : 'bypassPermissions'
+
+  // Resolve node executable explicitly so the SDK can spawn cli.js even when
+  // the app is launched from Finder/Dock (minimal PATH, no shell init scripts).
+  const nodeExecutable = findBinaryInPath('node') ?? 'node'
+  // Force the Claude Code CLI binary from PATH. Without this, the SDK's
+  // bundled platform detection may pick the musl native variant on glibc
+  // systems (`claude-agent-sdk-linux-x64-musl/claude`) and fail with
+  // "Claude Code native binary not found". System claude (via `claude login`)
+  // is the canonical install path on Linux.
+  const claudeExecutable = findBinaryInPath('claude')
+
+  const queryOptions: Record<string, unknown> = {
+    model: aiSettings?.model || undefined,
+    systemPrompt: systemPrompt || undefined,
+    maxTurns: aiSettings?.maxTurns || undefined,
+    maxThinkingTokens: aiSettings?.maxThinkingTokens || undefined,
+    maxBudgetUsd: aiSettings?.maxBudgetUsd || undefined,
+    cwd: aiSettings?.cwd || undefined,
+    includePartialMessages: true,
+    permissionMode: permMode,
+    abortController,
+    executable: nodeExecutable,
+    ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
+    ...(persistSession === false ? { persistSession: false } : {}),
+  }
+
+  if (sdkSessionId) {
+    queryOptions.resume = sdkSessionId
+  }
+
+  if (permMode === 'bypassPermissions') {
+    queryOptions.allowDangerouslySkipPermissions = true
+  }
+
+  // Canonical canUseTool — extracted factory shared with sessionManager.
+  queryOptions.canUseTool = createCanUseTool({
+    aiSettings: {
+      requirePlanApproval: aiSettings?.requirePlanApproval,
+      disabledSkills: aiSettings?.disabledSkills,
+    },
+    permissionMode: permMode,
+    chunkConversationId: conversationId ?? null,
+    pendingRequestsKey: convKey,
+    pendingRequests,
+    sendChunk,
+    onApprovalStart: buffer.onApprovalStart,
+    onApprovalEnd: buffer.onApprovalEnd,
+  })
+
+  applyAiSettingsToQueryOptions(queryOptions, aiSettings)
+
+  return queryOptions
+}
+
+function handleStreamEventMessage(
+  msg: StreamEventMessage,
+  state: OneShotState,
+  buffer: ChunkBuffer,
+  convExtra: Record<string, number>,
+): void {
+  const event = msg.event
+  if (
+    event?.type === 'content_block_start' &&
+    event.content_block?.type === 'tool_use'
+  ) {
+    const toolId = event.content_block.id || `tool_${Date.now()}`
+    const toolName = event.content_block.name || 'tool'
+
+    // AskUserQuestion is handled via canUseTool → ask_user chunk; suppress from tool pipeline
+    if (toolName === 'AskUserQuestion') {
+      state.askUserToolIds.add(toolId)
+      state.currentToolBlockId = toolId
+      state.toolInputAccum.set(toolId, '')
+    } else {
+      buffer.sendOrBuffer('tool_start', toolName, {
+        toolName,
+        toolId,
+        ...convExtra,
+      })
+      state.currentToolBlockId = toolId
+      state.toolInputAccum.set(toolId, '')
+      // Create stub ToolCall immediately — guaranteed to fire since tools show during streaming
+      state.toolCallsMap.set(toolId, { id: toolId, name: toolName, input: '{}', output: '', status: 'done' })
+    }
+  } else if (
+    event?.type === 'content_block_delta' &&
+    event.delta?.type === 'text_delta' &&
+    event.delta.text
+  ) {
+    state.fullContent += event.delta.text
+    buffer.sendOrBuffer('text', event.delta.text, convExtra)
+  }
+
+  if (
+    event?.type === 'content_block_delta' &&
+    event.delta?.type === 'input_json_delta'
+  ) {
+    if (state.currentToolBlockId) {
+      const existing = state.toolInputAccum.get(state.currentToolBlockId) || ''
+      state.toolInputAccum.set(state.currentToolBlockId, existing + (event.delta.partial_json || ''))
+    }
+  }
+
+  if (event?.type === 'content_block_stop' && state.currentToolBlockId && state.toolInputAccum.has(state.currentToolBlockId)) {
+    if (state.askUserToolIds.has(state.currentToolBlockId)) {
+      // AskUserQuestion: skip tool_input chunk and toolCallsMap — handled via ask_user chunk
+      state.currentToolBlockId = null
+    } else {
+      const inputJson = state.toolInputAccum.get(state.currentToolBlockId) || '{}'
+      // Finalize input on the stub ToolCall
+      const existing = state.toolCallsMap.get(state.currentToolBlockId)
+      if (existing) {
+        state.toolCallsMap.set(state.currentToolBlockId, { ...existing, input: inputJson })
+      }
+      buffer.sendOrBuffer('tool_input', undefined, {
+        toolId: state.currentToolBlockId,
+        toolInput: inputJson,
+        ...convExtra,
+      })
+      state.currentToolBlockId = null
+    }
+  }
+}
+
+function handleResultMessage(
+  result: ResultMessage,
+  state: OneShotState,
+  buffer: ChunkBuffer,
+  convExtra: Record<string, number>,
+): void {
+  // Capture stop_reason and subtype from every result message
+  if (result.stop_reason) state.lastStopReason = result.stop_reason
+  if (result.subtype) state.lastResultSubtype = result.subtype
+  if (result.subtype !== 'tool_result' && !result.tool_name) return
+
+  const toolName = result.tool_name || 'tool'
+  const toolId = result.tool_use_id || `tool_${Date.now()}`
+
+  // AskUserQuestion results handled via canUseTool — skip tool tracking
+  if (state.askUserToolIds.has(toolId)) {
+    state.askUserToolIds.delete(toolId)
+    return
+  }
+
+  const summary = result.summary || ''
+  const fullOutput = result.content || summary
+  const inputJson = state.toolInputAccum.get(toolId) || '{}'
+
+  // Enrich existing stub or create new entry
+  const existing = state.toolCallsMap.get(toolId)
+  state.toolCallsMap.set(toolId, {
+    id: toolId,
+    name: existing?.name || toolName,
+    input: existing?.input || inputJson,
+    output: fullOutput.slice(0, 50_000),
+    status: 'done',
+  })
+
+  buffer.sendOrBuffer('tool_result', summary, {
+    toolName,
+    toolId,
+    toolOutput: fullOutput.slice(0, 50_000),
+    toolInput: inputJson,
+    ...convExtra,
+  })
+}
+
+function handleSystemMessage(
+  sysMsg: SystemMessage,
+  buffer: ChunkBuffer,
+  convExtra: Record<string, number>,
+): void {
+  if (sysMsg.subtype === 'init' && sysMsg.mcp_servers) {
+    buffer.sendOrBuffer('mcp_status', undefined, {
+      mcpServers: JSON.stringify(sysMsg.mcp_servers),
+      ...convExtra,
+    })
+    for (const s of sysMsg.mcp_servers) {
+      if (s.status !== 'connected') {
+        console.error(`[streaming] MCP "${s.name}" status=${s.status} error=${JSON.stringify(s.error || null)} details=${JSON.stringify(s)}`)
+      }
+    }
+    return
+  }
+
+  if (sysMsg.subtype === 'hook_response') {
+    // Extract systemMessage from hook output JSON
+    let systemMessage: string | undefined
+    const raw = sysMsg.output || sysMsg.stdout || ''
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { systemMessage?: string }
+        systemMessage = parsed.systemMessage
+      } catch { /* output is not JSON — ignore */ }
+    }
+    if (systemMessage) {
+      buffer.sendOrBuffer('system_message', systemMessage, {
+        ...convExtra,
+        ...(sysMsg.hook_name ? { hookName: sysMsg.hook_name } : {}),
+        ...(sysMsg.hook_event ? { hookEvent: sysMsg.hook_event } : {}),
+      })
+    }
+    return
+  }
+
+  if (sysMsg.subtype === 'task_notification') {
+    buffer.sendOrBuffer('task_notification', sysMsg.summary, {
+      ...convExtra,
+      ...(sysMsg.task_id ? { taskId: sysMsg.task_id } : {}),
+      ...(sysMsg.status ? { taskStatus: sysMsg.status } : {}),
+      ...(sysMsg.output_file ? { outputFile: sysMsg.output_file } : {}),
+    })
+  }
+}
+
+async function consumeAgentQuery(
+  agentQuery: AsyncIterable<unknown>,
+  state: OneShotState,
+  buffer: ChunkBuffer,
+  convExtra: Record<string, number>,
+): Promise<void> {
+  for await (const message of agentQuery) {
+    const msg = message as SDKMessage
+
+    // Capture session_id from any SDK message that carries it
+    if (!state.capturedSessionId && typeof (msg as Record<string, unknown>).session_id === 'string') {
+      state.capturedSessionId = (msg as Record<string, unknown>).session_id as string
+    }
+
+    if (msg.type === 'stream_event') {
+      handleStreamEventMessage(msg as StreamEventMessage, state, buffer, convExtra)
+    } else if (msg.type === 'result') {
+      handleResultMessage(msg as ResultMessage, state, buffer, convExtra)
+    } else if (msg.type === 'system') {
+      handleSystemMessage(msg as SystemMessage, buffer, convExtra)
+    }
+  }
+}
+
+function newOneShotState(): OneShotState {
+  return {
+    fullContent: '',
+    capturedSessionId: null,
+    toolInputAccum: new Map(),
+    toolCallsMap: new Map(),
+    currentToolBlockId: null,
+    askUserToolIds: new Set(),
+    lastStopReason: undefined,
+    lastResultSubtype: undefined,
+  }
+}
+
+function sendDoneChunk(state: OneShotState, convExtra: Record<string, number>): void {
+  sendChunk('done', undefined, {
+    ...convExtra,
+    ...(state.lastStopReason ? { stopReason: state.lastStopReason } : {}),
+    ...(state.lastResultSubtype ? { resultSubtype: state.lastResultSubtype } : {}),
+  })
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.message.includes('abort'))
+}
+
+function buildOneShotPrompt(messages: MessageParam[], sdkSessionId: string | null | undefined): string {
+  // When resuming an SDK session, send only the last user message (the SDK already has context)
+  if (sdkSessionId) return messages[messages.length - 1]?.content ?? ''
+  return buildPromptWithHistory(messages)
+}
+
+function registerOneShotAbortController(convKey: number): AbortController {
+  // Abort any existing stream for this conversation before starting new one
+  abortControllers.get(convKey)?.abort()
+  const abortController = new AbortController()
+  abortControllers.set(convKey, abortController)
+  return abortController
+}
+
+function cleanupOneShotStream(
+  convKey: number,
+  abortController: AbortController,
+  restoreEnv: (() => void) | null,
+): void {
+  // Only delete if this is still our controller (another stream may have replaced it)
+  if (abortControllers.get(convKey) === abortController) {
+    abortControllers.delete(convKey)
+  }
+  denyPendingForConversation(convKey)
+  restoreEnv?.()
+}
+
 async function streamMessageOneShot(
   messages: MessageParam[],
   systemPrompt?: string,
@@ -327,315 +678,52 @@ async function streamMessageOneShot(
   conversationId?: number,
   sdkSessionId?: string | null,
   persistSession?: boolean
-): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string }> {
+): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; error?: string; stopReason?: string }> {
   // Ensure the macOS OAuth token is fresh — skip when using API key auth
-  if (!aiSettings?.apiKey && _ensureFreshMacOSToken) {
-    await _ensureFreshMacOSToken()
-  }
+  if (!aiSettings?.apiKey && _ensureFreshMacOSToken) await _ensureFreshMacOSToken()
 
   // Inject API key / base URL into process.env for the SDK subprocess
   const restoreEnv = injectApiKeyEnv(aiSettings?.apiKey, aiSettings?.baseUrl)
-
   const sdk = await loadAgentSDK()
 
   const convKey = conversationId ?? -1
-
-  // Abort any existing stream for this conversation before starting new one
-  const existing = abortControllers.get(convKey)
-  if (existing) existing.abort()
-
-  const abortController = new AbortController()
-  abortControllers.set(convKey, abortController)
-
-  let fullContent = ''
-  let aborted = false
-  let capturedSessionId: string | null = null
-  let streamError: string | undefined
-
   const convExtra = conversationId != null ? { conversationId } : {}
+  const abortController = registerOneShotAbortController(convKey)
 
-  const toolInputAccum = new Map<string, string>()
-  const toolCallsMap = new Map<string, ToolCall>()
-  let currentToolBlockId: string | null = null
-  // Track AskUserQuestion tool IDs to suppress them from regular tool streaming/persistence
-  const askUserToolIds = new Set<string>()
-  // Capture SDK result metadata for notification routing in the renderer
-  let lastStopReason: string | undefined
-  let lastResultSubtype: string | undefined
+  const state = newOneShotState()
+  const buffer = createChunkBuffer()
+  let aborted = false
+  let streamError: string | undefined
 
   try {
     sendChunk('text', '', convExtra)
-
-    // When resuming an SDK session, send only the last user message (the SDK already has context)
-    const prompt = sdkSessionId
-      ? messages[messages.length - 1]?.content ?? ''
-      : buildPromptWithHistory(messages)
-
-    const rawPermMode = aiSettings?.permissionMode || 'bypassPermissions'
-    const permMode: ValidPermissionMode = (VALID_PERMISSION_MODES as readonly string[]).includes(rawPermMode)
-      ? rawPermMode as ValidPermissionMode
-      : 'bypassPermissions'
-
-    // Resolve node executable explicitly so the SDK can spawn cli.js even when
-    // the app is launched from Finder/Dock (minimal PATH, no shell init scripts).
-    const nodeExecutable = findBinaryInPath('node') ?? 'node'
-    // Force the Claude Code CLI binary from PATH. Without this, the SDK's
-    // bundled platform detection may pick the musl native variant on glibc
-    // systems (`claude-agent-sdk-linux-x64-musl/claude`) and fail with
-    // "Claude Code native binary not found". System claude (via `claude login`)
-    // is the canonical install path on Linux.
-    const claudeExecutable = findBinaryInPath('claude')
-
-    const queryOptions: Record<string, unknown> = {
-      model: aiSettings?.model || undefined,
-      systemPrompt: systemPrompt || undefined,
-      maxTurns: aiSettings?.maxTurns || undefined,
-      maxThinkingTokens: aiSettings?.maxThinkingTokens || undefined,
-      maxBudgetUsd: aiSettings?.maxBudgetUsd || undefined,
-      cwd: aiSettings?.cwd || undefined,
-      includePartialMessages: true,
-      permissionMode: permMode,
-      abortController,
-      executable: nodeExecutable,
-      ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
-      ...(persistSession === false ? { persistSession: false } : {}),
-    }
-
-    // Resume existing SDK session when available
-    if (sdkSessionId) {
-      queryOptions.resume = sdkSessionId
-    }
-
-    // Buffer for chunks received while awaiting tool approval
-    // The SDK subprocess may yield buffered messages even while canUseTool is pending
-    let pendingApprovalCount = 0
-    const chunkBuffer: Array<{ type: string; content?: string; extra?: Record<string, string | number> }> = []
-
-    function flushBuffer(): void {
-      while (chunkBuffer.length > 0) {
-        const chunk = chunkBuffer.shift()!
-        sendChunk(chunk.type, chunk.content, chunk.extra)
-      }
-    }
-
-    function sendOrBuffer(type: string, content?: string, extra?: Record<string, string | number>): void {
-      if (pendingApprovalCount > 0) {
-        chunkBuffer.push({ type, content, extra })
-      } else {
-        sendChunk(type, content, extra)
-      }
-    }
-
-    if (permMode === 'bypassPermissions') {
-      queryOptions.allowDangerouslySkipPermissions = true
-    }
-
-    // Canonical canUseTool — extracted factory shared with sessionManager.
-    queryOptions.canUseTool = createCanUseTool({
-      aiSettings: {
-        requirePlanApproval: aiSettings?.requirePlanApproval,
-        disabledSkills: aiSettings?.disabledSkills,
-      },
-      permissionMode: permMode,
-      chunkConversationId: conversationId ?? null,
-      pendingRequestsKey: convKey,
-      pendingRequests,
-      sendChunk,
-      onApprovalStart: () => { pendingApprovalCount++ },
-      onApprovalEnd: () => {
-        pendingApprovalCount--
-        if (pendingApprovalCount === 0) flushBuffer()
-      },
-    })
-
-    applyAiSettingsToQueryOptions(queryOptions, aiSettings)
-
-    const agentQuery = sdk.query({
-      prompt,
-      options: queryOptions,
-    })
-
-    for await (const message of agentQuery) {
-      const msg = message as SDKMessage
-
-      // Capture session_id from any SDK message that carries it
-      if (!capturedSessionId && typeof (msg as Record<string, unknown>).session_id === 'string') {
-        capturedSessionId = (msg as Record<string, unknown>).session_id as string
-      }
-
-      if (msg.type === 'stream_event') {
-        const event = msg.event as {
-          type?: string
-          delta?: { type: string; text?: string; partial_json?: string }
-          content_block?: { type: string; name?: string; id?: string }
-        } | undefined
-
-        if (
-          event?.type === 'content_block_start' &&
-          event.content_block?.type === 'tool_use'
-        ) {
-          const toolId = event.content_block.id || `tool_${Date.now()}`
-          const toolName = event.content_block.name || 'tool'
-
-          // AskUserQuestion is handled via canUseTool → ask_user chunk; suppress from tool pipeline
-          if (toolName === 'AskUserQuestion') {
-            askUserToolIds.add(toolId)
-            currentToolBlockId = toolId
-            toolInputAccum.set(toolId, '')
-          } else {
-            sendOrBuffer('tool_start', toolName, {
-              toolName,
-              toolId,
-              ...convExtra,
-            })
-            currentToolBlockId = toolId
-            toolInputAccum.set(toolId, '')
-            // Create stub ToolCall immediately — guaranteed to fire since tools show during streaming
-            toolCallsMap.set(toolId, { id: toolId, name: toolName, input: '{}', output: '', status: 'done' })
-          }
-        } else if (
-          event?.type === 'content_block_delta' &&
-          event.delta?.type === 'text_delta' &&
-          event.delta.text
-        ) {
-          fullContent += event.delta.text
-          sendOrBuffer('text', event.delta.text, convExtra)
-        }
-
-        if (
-          event?.type === 'content_block_delta' &&
-          event.delta?.type === 'input_json_delta'
-        ) {
-          if (currentToolBlockId) {
-            const existing = toolInputAccum.get(currentToolBlockId) || ''
-            toolInputAccum.set(currentToolBlockId, existing + (event.delta.partial_json || ''))
-          }
-        }
-
-        if (event?.type === 'content_block_stop' && currentToolBlockId && toolInputAccum.has(currentToolBlockId)) {
-          if (askUserToolIds.has(currentToolBlockId)) {
-            // AskUserQuestion: skip tool_input chunk and toolCallsMap — handled via ask_user chunk
-            currentToolBlockId = null
-          } else {
-            const inputJson = toolInputAccum.get(currentToolBlockId) || '{}'
-            // Finalize input on the stub ToolCall
-            const existing = toolCallsMap.get(currentToolBlockId)
-            if (existing) {
-              toolCallsMap.set(currentToolBlockId, { ...existing, input: inputJson })
-            }
-            sendOrBuffer('tool_input', undefined, {
-              toolId: currentToolBlockId,
-              toolInput: inputJson,
-              ...convExtra,
-            })
-            currentToolBlockId = null
-          }
-        }
-      } else if (msg.type === 'result') {
-        const result = msg as ResultMessage
-        // Capture stop_reason and subtype from every result message
-        if (result.stop_reason) lastStopReason = result.stop_reason
-        if (result.subtype) lastResultSubtype = result.subtype
-        if (result.subtype === 'tool_result' || result.tool_name) {
-          const toolName = result.tool_name || 'tool'
-          const toolId = result.tool_use_id || `tool_${Date.now()}`
-
-          // AskUserQuestion results handled via canUseTool — skip tool tracking
-          if (askUserToolIds.has(toolId)) {
-            askUserToolIds.delete(toolId)
-          } else {
-            const summary = result.summary || ''
-            const fullOutput = result.content || summary
-            const inputJson = toolInputAccum.get(toolId) || '{}'
-
-            // Enrich existing stub or create new entry
-            const existing = toolCallsMap.get(toolId)
-            toolCallsMap.set(toolId, {
-              id: toolId,
-              name: existing?.name || toolName,
-              input: existing?.input || inputJson,
-              output: fullOutput.slice(0, 50_000),
-              status: 'done',
-            })
-
-            sendOrBuffer('tool_result', summary, {
-              toolName,
-              toolId,
-              toolOutput: fullOutput.slice(0, 50_000),
-              toolInput: inputJson,
-              ...convExtra,
-            })
-          }
-        }
-      } else if (msg.type === 'system') {
-        const sysMsg = msg as SystemMessage
-        if (sysMsg.subtype === 'init' && sysMsg.mcp_servers) {
-          sendOrBuffer('mcp_status', undefined, {
-            mcpServers: JSON.stringify(sysMsg.mcp_servers),
-            ...convExtra,
-          })
-          for (const s of sysMsg.mcp_servers) {
-            if (s.status !== 'connected') {
-              console.error(`[streaming] MCP "${s.name}" status=${s.status} error=${JSON.stringify(s.error || null)} details=${JSON.stringify(s)}`)
-            }
-          }
-        } else if (sysMsg.subtype === 'hook_response') {
-          // Extract systemMessage from hook output JSON
-          let systemMessage: string | undefined
-          const raw = sysMsg.output || sysMsg.stdout || ''
-          if (raw) {
-            try {
-              const parsed = JSON.parse(raw) as { systemMessage?: string }
-              systemMessage = parsed.systemMessage
-            } catch { /* output is not JSON — ignore */ }
-          }
-          if (systemMessage) {
-            sendOrBuffer('system_message', systemMessage, {
-              ...convExtra,
-              ...(sysMsg.hook_name ? { hookName: sysMsg.hook_name } : {}),
-              ...(sysMsg.hook_event ? { hookEvent: sysMsg.hook_event } : {}),
-            })
-          }
-        } else if (sysMsg.subtype === 'task_notification') {
-          sendOrBuffer('task_notification', sysMsg.summary, {
-            ...convExtra,
-            ...(sysMsg.task_id ? { taskId: sysMsg.task_id } : {}),
-            ...(sysMsg.status ? { taskStatus: sysMsg.status } : {}),
-            ...(sysMsg.output_file ? { outputFile: sysMsg.output_file } : {}),
-          })
-        }
-      }
-    }
-
-    sendChunk('done', undefined, {
-      ...convExtra,
-      ...(lastStopReason ? { stopReason: lastStopReason } : {}),
-      ...(lastResultSubtype ? { resultSubtype: lastResultSubtype } : {}),
-    })
+    const prompt = buildOneShotPrompt(messages, sdkSessionId)
+    const queryOptions = buildOneShotQueryOptions(
+      aiSettings, systemPrompt, abortController, sdkSessionId, persistSession, conversationId, convKey, buffer,
+    )
+    await consumeAgentQuery(sdk.query({ prompt, options: queryOptions }), state, buffer, convExtra)
+    sendDoneChunk(state, convExtra)
   } catch (err: unknown) {
-    if (
-      err instanceof Error &&
-      (err.name === 'AbortError' || err.message.includes('abort'))
-    ) {
+    if (isAbortError(err)) {
       aborted = true
       sendChunk('done', undefined, { ...convExtra, stopReason: 'aborted' })
     } else {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown streaming error'
+      streamError = err instanceof Error ? err.message : 'Unknown streaming error'
       console.error('[streaming] Error:', err)
-      streamError = errorMsg
-      sendChunk('error', errorMsg, convExtra)
+      sendChunk('error', streamError, convExtra)
     }
   } finally {
-    // Only delete if this is still our controller (another stream may have replaced it)
-    if (abortControllers.get(convKey) === abortController) {
-      abortControllers.delete(convKey)
-    }
-    denyPendingForConversation(convKey)
-    // Restore original env vars after streaming completes
-    restoreEnv?.()
+    cleanupOneShotStream(convKey, abortController, restoreEnv)
   }
 
-  return { content: fullContent, toolCalls: Array.from(toolCallsMap.values()), aborted, sessionId: capturedSessionId, error: streamError, stopReason: lastStopReason }
+  return {
+    content: state.fullContent,
+    toolCalls: Array.from(state.toolCallsMap.values()),
+    aborted,
+    sessionId: state.capturedSessionId,
+    error: streamError,
+    stopReason: state.lastStopReason,
+  }
 }
 
 export function notifyConversationUpdated(conversationId: number): void {
