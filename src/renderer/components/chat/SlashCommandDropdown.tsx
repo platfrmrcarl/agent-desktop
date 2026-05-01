@@ -36,7 +36,7 @@ export function SlashCommandDropdown({ commands, filter, selectedIndex, onSelect
     return (
       <div
         ref={listRef}
-        className="absolute bottom-full left-0 mb-1 rounded shadow-lg text-xs min-w-[280px] max-w-[calc(100vw-2rem)] py-2 px-3 z-50"
+        className="absolute bottom-full left-0 right-0 mb-1 rounded shadow-lg text-xs py-2 px-3 z-50"
         style={{
           backgroundColor: 'var(--color-surface)',
           border: '1px solid var(--color-text-muted)',
@@ -51,7 +51,7 @@ export function SlashCommandDropdown({ commands, filter, selectedIndex, onSelect
   return (
     <div
       ref={listRef}
-      className="absolute bottom-full left-0 mb-1 rounded shadow-lg text-xs min-w-[280px] max-w-[calc(100vw-2rem)] max-h-[240px] overflow-y-auto py-1 z-50"
+      className="absolute bottom-full left-0 right-0 mb-1 rounded shadow-lg text-xs max-h-[240px] overflow-y-auto py-1 z-50"
       style={{
         backgroundColor: 'var(--color-surface)',
         border: '1px solid var(--color-text-muted)',
@@ -79,7 +79,7 @@ export function SlashCommandDropdown({ commands, filter, selectedIndex, onSelect
               {filter && cmd._indices.length > 0 ? fuzzyHighlight(cmd.name, cmd._indices) : cmd.name}
             </span>
             {cmd.description && (
-              <span className="truncate" style={{ color: 'var(--color-text-muted)' }}>
+              <span className="truncate min-w-0 flex-1" style={{ color: 'var(--color-text-muted)' }}>
                 {cmd.description}
               </span>
             )}
