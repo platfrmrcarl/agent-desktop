@@ -3,6 +3,12 @@ import { loadAgentSDK } from './anthropic'
 import { sendChunk, abortControllers, respondToApproval, buildPromptWithHistory, injectApiKeyEnv } from './streaming'
 import { applyAiSettingsToQueryOptions } from '../../core/services/sdkQueryOptions'
 import { createCanUseTool } from '../../core/services/canUseTool'
+import {
+  forwardInitMcpStatus,
+  forwardHookSystemMessage,
+  forwardTaskNotification,
+  type ChunkSender,
+} from '../../core/services/sdkSystemForward'
 import { findBinaryInPath, ensureFreshMacOSToken } from '../utils/env'
 import type { AISettings } from './streaming'
 import type { ToolCall, ToolApprovalResponse, AskUserResponse } from '../../shared/types'
@@ -504,44 +510,30 @@ function handleSystemMessage(
   sysMsg: SystemMsg,
   convExtra: Record<string, number>,
 ): void {
+  // init/hook chunks are bufferable (they wait for pending approvals to clear)
+  const bufferedSender: ChunkSender = (type, content, extra) =>
+    sendOrBuffer(session, type, content, extra)
+
   if (sysMsg.subtype === 'init' && sysMsg.mcp_servers) {
-    sendOrBuffer(session, 'mcp_status', undefined, {
-      mcpServers: JSON.stringify(sysMsg.mcp_servers),
-      ...convExtra,
-    })
-    for (const s of sysMsg.mcp_servers) {
-      if (s.status !== 'connected') {
-        console.error(`[sessionManager] MCP "${s.name}" status=${s.status} error=${JSON.stringify(s.error || null)}`)
-      }
-    }
-  } else if (sysMsg.subtype === 'hook_response') {
-    let systemMessage: string | undefined
-    const raw = sysMsg.output || sysMsg.stdout || ''
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as { systemMessage?: string }
-        systemMessage = parsed.systemMessage
-      } catch { /* not JSON */ }
-    }
-    if (systemMessage) {
-      sendOrBuffer(session, 'system_message', systemMessage, {
-        ...convExtra,
-        ...(sysMsg.hook_name ? { hookName: sysMsg.hook_name } : {}),
-        ...(sysMsg.hook_event ? { hookEvent: sysMsg.hook_event } : {}),
-      })
-    }
-  } else if (sysMsg.subtype === 'task_started' && sysMsg.task_id) {
+    forwardInitMcpStatus(sysMsg, bufferedSender, convExtra, '[sessionManager]')
+    return
+  }
+  if (sysMsg.subtype === 'hook_response') {
+    forwardHookSystemMessage(sysMsg, bufferedSender, convExtra)
+    return
+  }
+  if (sysMsg.subtype === 'task_started' && sysMsg.task_id) {
     console.log(`[sessionManager] ▶ task_started: ${sysMsg.task_id} (${sysMsg.description || '?'}) — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
-  } else if (sysMsg.subtype === 'task_progress' && sysMsg.task_id) {
+    return
+  }
+  if (sysMsg.subtype === 'task_progress' && sysMsg.task_id) {
     console.log(`[sessionManager] ♥ task_progress: ${sysMsg.task_id} (${sysMsg.last_tool_name || '?'}) — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
-  } else if (sysMsg.subtype === 'task_notification') {
-    // Background task completed/failed/stopped
-    sendChunk('task_notification', sysMsg.summary, {
-      ...convExtra,
-      ...(sysMsg.task_id ? { taskId: sysMsg.task_id } : {}),
-      ...(sysMsg.status ? { taskStatus: sysMsg.status } : {}),
-      ...(sysMsg.output_file ? { outputFile: sysMsg.output_file } : {}),
-    })
+    return
+  }
+  if (sysMsg.subtype === 'task_notification') {
+    // Background task completed/failed/stopped — bypass approval buffer so
+    // the user sees status updates even mid-approval.
+    forwardTaskNotification(sysMsg, sendChunk, convExtra)
 
     // Simple decrement — no ID matching needed
     if (turn.pendingTaskCount > 0) turn.pendingTaskCount--

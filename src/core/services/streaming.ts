@@ -1,6 +1,11 @@
 import { loadAgentSDK } from './anthropic'
 import { applyAiSettingsToQueryOptions } from './sdkQueryOptions'
 import { createCanUseTool } from './canUseTool'
+import {
+  forwardInitMcpStatus,
+  forwardHookSystemMessage,
+  forwardTaskNotification,
+} from './sdkSystemForward'
 import { findBinaryInPath } from '../utils/env'
 import { broadcast } from '../utils/broadcast'
 import type { ToolApprovalResponse, AskUserResponse, ToolCall, CwdWhitelistEntry } from '../types'
@@ -552,46 +557,17 @@ function handleSystemMessage(
   buffer: ChunkBuffer,
   convExtra: Record<string, number>,
 ): void {
+  const sender = buffer.sendOrBuffer
   if (sysMsg.subtype === 'init' && sysMsg.mcp_servers) {
-    buffer.sendOrBuffer('mcp_status', undefined, {
-      mcpServers: JSON.stringify(sysMsg.mcp_servers),
-      ...convExtra,
-    })
-    for (const s of sysMsg.mcp_servers) {
-      if (s.status !== 'connected') {
-        console.error(`[streaming] MCP "${s.name}" status=${s.status} error=${JSON.stringify(s.error || null)} details=${JSON.stringify(s)}`)
-      }
-    }
+    forwardInitMcpStatus(sysMsg, sender, convExtra, '[streaming]')
     return
   }
-
   if (sysMsg.subtype === 'hook_response') {
-    // Extract systemMessage from hook output JSON
-    let systemMessage: string | undefined
-    const raw = sysMsg.output || sysMsg.stdout || ''
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as { systemMessage?: string }
-        systemMessage = parsed.systemMessage
-      } catch { /* output is not JSON — ignore */ }
-    }
-    if (systemMessage) {
-      buffer.sendOrBuffer('system_message', systemMessage, {
-        ...convExtra,
-        ...(sysMsg.hook_name ? { hookName: sysMsg.hook_name } : {}),
-        ...(sysMsg.hook_event ? { hookEvent: sysMsg.hook_event } : {}),
-      })
-    }
+    forwardHookSystemMessage(sysMsg, sender, convExtra)
     return
   }
-
   if (sysMsg.subtype === 'task_notification') {
-    buffer.sendOrBuffer('task_notification', sysMsg.summary, {
-      ...convExtra,
-      ...(sysMsg.task_id ? { taskId: sysMsg.task_id } : {}),
-      ...(sysMsg.status ? { taskStatus: sysMsg.status } : {}),
-      ...(sysMsg.output_file ? { outputFile: sysMsg.output_file } : {}),
-    })
+    forwardTaskNotification(sysMsg, sender, convExtra)
   }
 }
 
