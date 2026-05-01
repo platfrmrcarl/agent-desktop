@@ -1,10 +1,9 @@
 import { randomUUID } from 'crypto'
 import { loadAgentSDK } from './anthropic'
 import { sendChunk, abortControllers, respondToApproval, buildPromptWithHistory, injectApiKeyEnv } from './streaming'
-import { buildCwdRestrictionHooks } from './cwdHooks'
+import { applyAiSettingsToQueryOptions } from '../../core/services/sdkQueryOptions'
 import { createCanUseTool } from '../../core/services/canUseTool'
 import { findBinaryInPath, ensureFreshMacOSToken } from '../utils/env'
-import { mcpServerWildcard } from '../../core/utils/mcpNames'
 import type { AISettings } from './streaming'
 import type { ToolCall, ToolApprovalResponse, AskUserResponse } from '../../shared/types'
 
@@ -765,35 +764,7 @@ async function createSession(
     return sessionCanUseTool(toolName, input)
   }
 
-  // CWD restriction hooks
-  if (aiSettings?.cwdRestrictionEnabled && aiSettings?.cwd) {
-    queryOptions.hooks = buildCwdRestrictionHooks(aiSettings.cwd, aiSettings.cwdWhitelist || [])
-  }
-
-  if (aiSettings?.tools) {
-    queryOptions.tools = aiSettings.tools
-  }
-
-  if (aiSettings?.mcpServers && Object.keys(aiSettings.mcpServers).length > 0) {
-    queryOptions.mcpServers = aiSettings.mcpServers
-    const mcpWildcards = Object.keys(aiSettings.mcpServers).map((name) => mcpServerWildcard(name))
-    queryOptions.allowedTools = [
-      ...(Array.isArray(queryOptions.allowedTools) ? queryOptions.allowedTools as string[] : []),
-      ...mcpWildcards,
-    ]
-  }
-
-  if (aiSettings?.skills && aiSettings.skills !== 'off') {
-    const sourceMap: Record<string, string[]> = { user: ['user'], project: ['user', 'project'], local: ['user', 'project', 'local'] }
-    queryOptions.settingSources = sourceMap[aiSettings.skills] || ['user']
-  }
-
-  if (aiSettings?.skills && aiSettings.skills !== 'off' && aiSettings?.skillsEnabled !== false) {
-    queryOptions.allowedTools = [
-      ...(Array.isArray(queryOptions.allowedTools) ? queryOptions.allowedTools as string[] : []),
-      'Skill',
-    ]
-  }
+  applyAiSettingsToQueryOptions(queryOptions, aiSettings)
 
   // Build the initial prompt: when resuming, send only the last user message
   const initialPrompt = sdkSessionId

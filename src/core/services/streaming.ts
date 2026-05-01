@@ -1,9 +1,8 @@
 import { loadAgentSDK } from './anthropic'
-import { buildCwdRestrictionHooks } from './cwdHooks'
+import { applyAiSettingsToQueryOptions } from './sdkQueryOptions'
 import { createCanUseTool } from './canUseTool'
 import { findBinaryInPath } from '../utils/env'
 import { broadcast } from '../utils/broadcast'
-import { mcpServerWildcard } from '../utils/mcpNames'
 import type { ToolApprovalResponse, AskUserResponse, ToolCall, CwdWhitelistEntry } from '../types'
 
 // ─── Injectable dependencies (set by the adapter layer) ─────
@@ -449,41 +448,7 @@ async function streamMessageOneShot(
       },
     })
 
-    // CWD restriction hooks: runs independently of permission mode (even in bypass)
-    // Uses the SDK hooks API — PreToolUse hook with 'deny' decision for out-of-CWD writes
-    if (aiSettings?.cwdRestrictionEnabled && aiSettings?.cwd) {
-      queryOptions.hooks = buildCwdRestrictionHooks(aiSettings.cwd, aiSettings.cwdWhitelist || [])
-    }
-
-    if (aiSettings?.tools) {
-      queryOptions.tools = aiSettings.tools
-    }
-
-    if (aiSettings?.mcpServers && Object.keys(aiSettings.mcpServers).length > 0) {
-      queryOptions.mcpServers = aiSettings.mcpServers
-      // MCP tools require explicit allowedTools wildcards for the SDK to permit their use
-      const mcpWildcards = Object.keys(aiSettings.mcpServers).map(
-        (name) => mcpServerWildcard(name)
-      )
-      queryOptions.allowedTools = [
-        ...(Array.isArray(queryOptions.allowedTools) ? queryOptions.allowedTools as string[] : []),
-        ...mcpWildcards,
-      ]
-    }
-
-    // Setting Sources: load configuration from filesystem (independent of skills toggle)
-    if (aiSettings?.skills && aiSettings.skills !== 'off') {
-      const sourceMap: Record<string, string[]> = { user: ['user'], project: ['user', 'project'], local: ['user', 'project', 'local'] }
-      queryOptions.settingSources = sourceMap[aiSettings.skills] || ['user']
-    }
-
-    // Skills tool: only add when sources are active AND skills toggle is ON
-    if (aiSettings?.skills && aiSettings.skills !== 'off' && aiSettings?.skillsEnabled !== false) {
-      queryOptions.allowedTools = [
-        ...(Array.isArray(queryOptions.allowedTools) ? queryOptions.allowedTools as string[] : []),
-        'Skill',
-      ]
-    }
+    applyAiSettingsToQueryOptions(queryOptions, aiSettings)
 
     const agentQuery = sdk.query({
       prompt,
