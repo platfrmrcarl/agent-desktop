@@ -11,8 +11,6 @@
     "out/**",
     "release/**",
     "graphify-out/**",
-    "attachments/**",
-    ".cache/**",
     "**/*.test.{ts,tsx,js,jsx,mts,cts}",
     "**/*.spec.{ts,tsx,js,jsx,mts,cts}",
     "**/__tests__/**",
