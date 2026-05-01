@@ -5,6 +5,7 @@ import type { NotificationConfig, NotificationEvent } from '../../../shared/type
 import { ChevronDownIcon } from '../icons/ChevronDownIcon'
 import { tint } from '../../utils/colorMix'
 import { Toggle } from '../shared/Toggle'
+import { SettingRow } from '../shared/SettingRow'
 
 interface ToggleOption {
   key: string
@@ -195,18 +196,7 @@ export function GeneralSettings() {
         </div>
       ))}
 
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Response timeout
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Seconds before a streaming response times out. 0 = no timeout.
-          </span>
-        </div>
+      <SettingRow label="Response timeout" description="Seconds before a streaming response times out. 0 = no timeout.">
         <input
           type="number"
           min={0}
@@ -217,42 +207,20 @@ export function GeneralSettings() {
           style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
           aria-label="Response timeout in seconds"
         />
-      </div>
+      </SettingRow>
 
       {/* Auto-retry settings */}
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Auto-retry on error
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Automatically retry when a streaming response fails (e.g. SDK crash).
-          </span>
-        </div>
+      <SettingRow label="Auto-retry on error" description="Automatically retry when a streaming response fails (e.g. SDK crash).">
         <Toggle
           enabled={getValue('retry_enabled', 'true')}
           onToggle={() => handleToggle('retry_enabled', 'true')}
           label="Auto-retry on error"
         />
-      </div>
+      </SettingRow>
 
       {getValue('retry_enabled', 'true') && (
         <>
-          <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-            <div className="flex flex-col gap-0.5 pr-4">
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                Max retry attempts
-              </span>
-              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Number of times to retry before giving up (1–10).
-              </span>
-            </div>
+          <SettingRow label="Max retry attempts" description="Number of times to retry before giving up (1–10).">
             <input
               type="number"
               min={1}
@@ -267,20 +235,9 @@ export function GeneralSettings() {
               style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
               aria-label="Max retry attempts"
             />
-          </div>
+          </SettingRow>
 
-          <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-            <div className="flex flex-col gap-0.5 pr-4">
-              <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-                Initial retry delay
-              </span>
-              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Seconds before first retry. Doubles on each subsequent attempt (1–30).
-              </span>
-            </div>
+          <SettingRow label="Initial retry delay" description="Seconds before first retry. Doubles on each subsequent attempt (1–30).">
             <input
               type="number"
               min={1}
@@ -295,23 +252,12 @@ export function GeneralSettings() {
               style={{ backgroundColor: 'var(--color-base)', color: 'var(--color-text)', borderColor: tint('--color-text-muted', 20) }}
               aria-label="Initial retry delay in seconds"
             />
-          </div>
+          </SettingRow>
         </>
       )}
 
       {/* Default sort order */}
-      <div
-        className="flex items-center justify-between py-3 border-b"
-        style={{ borderColor: tint('--color-text-muted', 10) }}
-      >
-        <div className="flex flex-col gap-0.5 pr-4">
-          <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-            Default conversation sort
-          </span>
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            How conversations and folders are sorted in the sidebar.
-          </span>
-        </div>
+      <SettingRow label="Default conversation sort" description="How conversations and folders are sorted in the sidebar.">
         <div className="flex items-center gap-2">
           <select
             value={settings.sort_criterion ?? 'updated_at'}
@@ -335,7 +281,7 @@ export function GeneralSettings() {
             <option value="asc">Ascending</option>
           </select>
         </div>
-      </div>
+      </SettingRow>
     </div>
   )
 }
