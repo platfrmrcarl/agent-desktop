@@ -51,6 +51,8 @@ export type DispatchOrigin = 'electron' | 'ws' | 'discord' | 'scheduler'
  *  - Spawns/terminates local Jupyter kernels
  *  - Compiles local SCAD files
  */
+// consumed by headless/index.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export const ELECTRON_ONLY_CHANNELS: ReadonlySet<string> = new Set([
   // MCP server management — arbitrary command+args, turn-key RCE via testConnection
   'mcp:addServer',
@@ -118,6 +120,8 @@ export const ELECTRON_ONLY_CHANNELS: ReadonlySet<string> = new Set([
  *    permissions, MCP servers) without local user interaction.
  *  - openscad:exportStl — uses `event.sender` (null over WS → crash).
  */
+// consumed by headless/index.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export const WS_BLOCKED_CHANNELS: ReadonlySet<string> = new Set([
   'openscad:exportStl',
   'server:clearPassword',  // credential control-plane: remote must not clear the password
@@ -139,6 +143,8 @@ export class OriginDeniedError extends Error {
   }
 }
 
+// consumed by headless/index.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function isElectronOnly(channel: string): boolean {
   return ELECTRON_ONLY_CHANNELS.has(channel)
 }

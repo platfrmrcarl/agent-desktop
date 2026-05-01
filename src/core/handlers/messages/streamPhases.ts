@@ -97,7 +97,7 @@ export interface AssistantTurnPayload {
   } | undefined
 }
 
-export function saveConversationUsage(
+function saveConversationUsage(
   db: SqlJsAdapter,
   conversationId: number,
   usage: NonNullable<AssistantTurnPayload['usage']>,
@@ -130,7 +130,7 @@ export function saveConversationUsage(
  * Failures are non-fatal: a stale `last_content_tokens` lags by one turn,
  * better than aborting the whole response persistence.
  */
-export async function saveConversationContentTokens(
+async function saveConversationContentTokens(
   db: SqlJsAdapter,
   conversationId: number,
   systemPrompt: string,

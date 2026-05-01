@@ -8,11 +8,6 @@
 import type { SqlJsAdapter } from '../../db/sqljs-adapter'
 import { safeJsonParse } from '../../utils/json'
 
-export interface ConversationCascadeRow {
-  folder_id: number | null
-  ai_overrides: string | null
-}
-
 export function getFolderOverrides(db: SqlJsAdapter, folderId: number): Record<string, string> {
   const row = (db as any)
     .prepare('SELECT ai_overrides FROM folders WHERE id = ?')

@@ -3,7 +3,7 @@ import type {
   GitStatus, GitCommit, GitBranch, GitStashEntry, GitError, GitCommitFile,
 } from '@shared/git-types'
 
-export type GitSubTab = 'graph' | 'status' | 'branches' | 'stash'
+type GitSubTab = 'graph' | 'status' | 'branches' | 'stash'
 
 interface Loading { status: boolean; log: boolean; branches: boolean; stash: boolean }
 interface Errors {

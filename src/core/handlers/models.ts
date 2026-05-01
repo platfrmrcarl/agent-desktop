@@ -5,7 +5,7 @@ import type { HandleRegistrar } from '../dispatch'
 import { MODEL_OPTIONS, shortenModelName } from '../types/constants'
 import { discoverPIModels } from '../../main/services/piModels'
 
-export interface ModelOption {
+interface ModelOption {
   value: string
   label: string
 }
@@ -93,6 +93,8 @@ async function loadModels(forceRefresh: boolean): Promise<ModelOption[]> {
   }
 }
 
+// consumed by models.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function _resetModelsCache(): void {
   cache = null
 }

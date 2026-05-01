@@ -1,8 +1,7 @@
-import { validateString, validatePositiveInt } from '../../utils/validate'
 import type { IntervalUnit, PreRunAction } from '../../types'
 
-export const VALID_PRE_RUN_ACTIONS: readonly PreRunAction[] = ['none', 'clear', 'compact']
-export const VALID_INTERVAL_UNITS: readonly IntervalUnit[] = ['minutes', 'hours', 'days']
+const VALID_PRE_RUN_ACTIONS: readonly PreRunAction[] = ['none', 'clear', 'compact']
+const VALID_INTERVAL_UNITS: readonly IntervalUnit[] = ['minutes', 'hours', 'days']
 
 export function validatePreRunAction(value: unknown): PreRunAction {
   if (typeof value !== 'string' || !VALID_PRE_RUN_ACTIONS.includes(value as PreRunAction)) {
@@ -23,5 +22,3 @@ export function validateScheduleTime(value: unknown): void {
     throw new Error('schedule_time must be HH:MM format')
   }
 }
-
-export { validateString, validatePositiveInt }

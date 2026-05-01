@@ -13,7 +13,7 @@
  * intent-preserving with the original inline call.
  */
 import { applyAiSettingsToQueryOptions } from '../../../core/services/sdkQueryOptions'
-import type { AISettings } from '../streaming'
+import type { AISettings } from '../../../core/services/streaming'
 
 export function configureMcp(
   queryOptions: Record<string, unknown>,

@@ -49,12 +49,12 @@ const streamGenerations = new Map<number, number>()
 const CWD_CACHE_MAX = 1000
 const cwdCache = new Map<number, string>()
 
-export function invalidateCwdCache(conversationId: number): void {
+function invalidateCwdCache(conversationId: number): void {
   cwdCache.delete(conversationId)
 }
 
 /** Increment the generation counter for a conversation, cancelling any pending retry */
-export function invalidateRetry(conversationId: number): void {
+function invalidateRetry(conversationId: number): void {
   streamGenerations.set(conversationId, (streamGenerations.get(conversationId) ?? 0) + 1)
 }
 
@@ -74,6 +74,8 @@ async function uniqueDestPath(dir: string, name: string): Promise<string> {
   return candidate
 }
 
+// consumed by messages.cascade.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export async function copyAttachmentsToSession(
   cwd: string,
   attachments: Attachment[]
@@ -236,7 +238,7 @@ function saveConversationSdkSessionId(db: SqlJsAdapter, conversationId: number, 
 }
 
 // Invalidates BOTH session IDs (Claude SDK and PI) — call on any history mutation that breaks session continuity
-export function invalidateAllSessions(db: SqlJsAdapter, conversationId: number): void {
+function invalidateAllSessions(db: SqlJsAdapter, conversationId: number): void {
   (db as any).prepare('UPDATE conversations SET sdk_session_id = NULL, pi_session_file = NULL WHERE id = ?').run(conversationId)
 }
 

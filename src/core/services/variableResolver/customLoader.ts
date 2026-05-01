@@ -17,6 +17,8 @@ const moduleCache = new Map<string, CacheEntry>()
 const overrideWarnedFor = new Set<string>()
 
 /** Reset internal caches — exported for tests only. */
+// consumed by customLoader.test.ts and variableResolver/index.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function _resetCacheForTests(): void {
   moduleCache.clear()
   overrideWarnedFor.clear()

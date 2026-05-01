@@ -29,7 +29,7 @@ const WEEKDAYS_FR = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','s
 
 // ─── Built-ins (sync) ──────────────────────────────────────
 
-export const BUILTINS: BuiltinSpec[] = [
+const BUILTINS: BuiltinSpec[] = [
   {
     name: 'today_date',
     description: "Date du jour. Arg: format (DD/MM/YYYY, YYYY-MM-DD...). Par défaut ISO YYYY-MM-DD.",

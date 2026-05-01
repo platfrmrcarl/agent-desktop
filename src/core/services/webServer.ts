@@ -567,15 +567,6 @@ function broadcastEvent(channel: string, ...args: unknown[]): void {
   }
 }
 
-/**
- * Returns the broadcast function for wiring into the broadcast utility,
- * or null if there are no authenticated clients.
- */
-export function getWsBroadcaster(): ((channel: string, ...args: unknown[]) => void) | null {
-  if (authenticatedClients.size === 0) return null
-  return broadcastEvent
-}
-
 // ─── Server lifecycle ───────────────────────────────
 
 export interface ServerStartOptions {
@@ -852,6 +843,8 @@ export async function stopServer(): Promise<void> {
   }
 }
 
+// consumed by webServer.test.ts (excluded) and via dispatch handler (server:getStatus). (suppressed below)
+// fallow-ignore-next-line unused-export
 export async function getServerStatus(): Promise<{
   running: boolean
   port: number | null

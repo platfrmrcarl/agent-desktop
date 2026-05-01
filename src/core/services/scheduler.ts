@@ -6,41 +6,10 @@ import { getDefaultFolderId, getDefaultModel, conversationExists } from '../db/q
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import { validatePreRunAction, validateIntervalUnit, validateScheduleTime } from './scheduler/validation'
 import { executeTaskUpdate, executeTaskDelete, executeTaskToggle } from './scheduler/persistence'
+import { computeNextRun } from './scheduler/compute'
 
-// ─── Pure computations ─────────────────────────────────────
-
-export function computeNextRun(
-  intervalValue: number,
-  intervalUnit: IntervalUnit,
-  scheduleTime: string | null,
-  fromTime: Date = new Date()
-): string {
-  // Truncate seconds — prevents drift from accumulating across ticks
-  const from = new Date(fromTime)
-  from.setSeconds(0, 0)
-  const ms = from.getTime()
-
-  if (intervalUnit === 'minutes') {
-    return new Date(ms + intervalValue * 60_000).toISOString()
-  }
-
-  if (intervalUnit === 'hours') {
-    return new Date(ms + intervalValue * 3_600_000).toISOString()
-  }
-
-  // days
-  if (scheduleTime && /^\d{2}:\d{2}$/.test(scheduleTime)) {
-    const [hours, minutes] = scheduleTime.split(':').map(Number)
-    const next = new Date(from)
-    next.setHours(hours, minutes, 0, 0)
-    if (next.getTime() <= ms) {
-      next.setDate(next.getDate() + intervalValue)
-    }
-    return next.toISOString()
-  }
-
-  return new Date(ms + intervalValue * 86_400_000).toISOString()
-}
+// Re-exported for existing callers (tests, main/services/scheduler.ts).
+export { computeNextRun }
 
 export function getExpectedThemeFilename(
   dayTime: string,
@@ -261,6 +230,8 @@ export class SchedulerService {
     return this.get(result.lastInsertRowid as number)!
   }
 
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   update(id: number, data: Partial<CreateScheduledTask>): void {
     validatePositiveInt(id, 'id')
 
@@ -282,16 +253,22 @@ export class SchedulerService {
     executeTaskUpdate(this.db, id, updates, values)
   }
 
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   delete(id: number): void {
     validatePositiveInt(id, 'id')
     executeTaskDelete(this.db, id)
   }
 
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   toggle(id: number, enabled: boolean): void {
     validatePositiveInt(id, 'id')
     executeTaskToggle(this.db, id, enabled, new Date().toISOString())
   }
 
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   conversationTasks(conversationId: number): number[] {
     validatePositiveInt(conversationId, 'conversationId')
     const rows = this.db.prepare('SELECT id FROM scheduled_tasks WHERE conversation_id = ?').all(conversationId) as { id: number }[]
@@ -419,6 +396,8 @@ export class SchedulerService {
   }
 
   /** Check if any enabled tasks exist */
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   hasEnabledTasks(): boolean {
     const row = this.db.prepare('SELECT 1 FROM scheduled_tasks WHERE enabled = 1 LIMIT 1').get()
     return row !== undefined

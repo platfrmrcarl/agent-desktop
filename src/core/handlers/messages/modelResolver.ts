@@ -21,7 +21,7 @@ import { applyCascadeOnto } from './cascade'
 import { mergeKnowledgeFoldersIntoWhitelist } from './knowledgeBase'
 import { loadMcpServersFromDb, filterDisabledMcpServers, injectSchedulerMcp } from './mcpServers'
 
-export interface ModelInputs {
+interface ModelInputs {
   /** Final cascaded value of `ai_model` (Conv > Folder > Global). */
   cascadedModel: string | undefined
   /** Global `ai_model` row before any cascading. */
@@ -30,7 +30,7 @@ export interface ModelInputs {
   globalCustomModel: string | undefined
 }
 
-export function resolveFinalModel(inputs: ModelInputs): string | undefined {
+function resolveFinalModel(inputs: ModelInputs): string | undefined {
   const { cascadedModel, globalModel, globalCustomModel } = inputs
   const modelWasOverridden = cascadedModel !== globalModel
   const rawModel = modelWasOverridden

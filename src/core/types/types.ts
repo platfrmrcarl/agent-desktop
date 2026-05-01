@@ -134,16 +134,6 @@ export interface AllowedTool {
   enabled: boolean
 }
 
-export interface KnowledgeFile {
-  id: number
-  path: string
-  name: string
-  content_hash: string
-  size: number
-  created_at: string
-  updated_at: string
-}
-
 export interface KnowledgeCollection {
   name: string          // folder name (relative to knowledges root)
   path: string          // absolute path

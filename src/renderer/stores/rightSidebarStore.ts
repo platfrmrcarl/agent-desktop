@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type RightSidebarTab = 'preview' | 'git'
+type RightSidebarTab = 'preview' | 'git'
 
 interface RightSidebarState {
   activeTab: RightSidebarTab

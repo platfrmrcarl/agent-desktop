@@ -44,6 +44,8 @@ export interface PiUIResponse {
 
 // ─── Pi Extension UI — Component Actions (renderer -> main) ─
 
+// consumed by piUITypes.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-type
 export interface PiUIComponentAction {
   id: string
   actionId: string
@@ -65,14 +67,3 @@ export interface PiUIWidget {
   placement: 'aboveEditor' | 'belowEditor'
 }
 
-// ─── Pi Extension UI — TUI Bridge IPC (headless TUI) ────────
-
-export interface PiUITuiInput {
-  id: string
-  data: string
-}
-
-export interface PiUITuiRender {
-  id: string
-  html: string
-}

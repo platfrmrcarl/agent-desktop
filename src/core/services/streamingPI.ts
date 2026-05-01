@@ -201,11 +201,6 @@ function getOrCreateSessionStore(conversationId: number): Map<string, unknown> {
   return store
 }
 
-/** Clear the session store for a conversation (called on /clear, /new, regenerate). */
-export function clearExtensionSessionStore(conversationId: number): void {
-  sessionStores.delete(conversationId)
-}
-
 type PiSdk = Awaited<ReturnType<typeof loadPISdk>>
 
 async function resolveSessionManager(

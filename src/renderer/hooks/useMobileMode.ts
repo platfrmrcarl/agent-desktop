@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from 'react'
 
+// consumed by useMobileMode.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export const MOBILE_BREAKPOINT = 768
+// consumed by useMobileMode.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export const COMPACT_BREAKPOINT = 1024
 
 function getIsMobile(): boolean {

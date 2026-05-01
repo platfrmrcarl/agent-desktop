@@ -6,12 +6,15 @@ import { ChevronDownIcon } from '../icons/ChevronDownIcon'
 import { Checkbox } from '../ui/Checkbox'
 import { SearchableModelPicker } from '../shared/SearchableModelPicker'
 
+// consumed by ChatStatusLine.test.tsx (excluded from fallow scan). (suppressed below)
+// Consumed by ChatStatusLine.test.tsx (excluded from fallow scan).
+// fallow-ignore-next-line unused-type
 export interface McpServerEntry {
   name: string
   active: boolean
 }
 
-export interface KbCollectionEntry {
+interface KbCollectionEntry {
   name: string
   selected: boolean
   access: 'read' | 'readwrite'

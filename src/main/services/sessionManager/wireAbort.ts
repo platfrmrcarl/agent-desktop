@@ -11,7 +11,8 @@
  * `queryOptions` snapshot used at reconnect time, because reconnect always
  * rebuilds a fresh controller.
  */
-import { abortControllers } from '../streaming'
+// Import directly from core to avoid the helper → main/streaming → sessionManager cycle.
+import { abortControllers } from '../../../core/services/streaming'
 
 export function wireAbort(
   conversationId: number,

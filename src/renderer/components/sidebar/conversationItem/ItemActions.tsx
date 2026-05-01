@@ -9,7 +9,7 @@ import { MoveToFolderModal } from '../../shared/MoveToFolderModal'
 import { ColorSwatches, ColorPicker } from '../../shared/ColorPicker'
 
 /** Everything the actions layer needs about the target conversation. */
-export interface ItemActionsConversationProps {
+interface ItemActionsConversationProps {
   id: number
   title: string
   color: string | null
@@ -49,7 +49,7 @@ interface BulkProps extends CommonProps {
   onBulkMoveToFolder: (folderId: number | null) => void
 }
 
-export type ItemActionsProps = SingleProps | BulkProps
+type ItemActionsProps = SingleProps | BulkProps
 
 /**
  * Renders the context menu (single or bulk), the Move-to-Folder modal, and

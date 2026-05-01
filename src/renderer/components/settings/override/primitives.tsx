@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 // ─── Shared display primitives ───────────────────────────────
 
-export function ToggleButton({ active, onClick }: { active: boolean; onClick: () => void }) {
+function ToggleButton({ active, onClick }: { active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick() }}

@@ -13,9 +13,15 @@
  *   - `[1m]` suffix (legacy alias) → force 1M
  */
 
+// consumed by contextWindow.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export const DEFAULT_CONTEXT_WINDOW = 200_000
+// consumed by contextWindow.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export const EXTENDED_CONTEXT_WINDOW = 1_000_000
 
+// consumed by contextWindow.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function getContextWindow(modelId: string | null | undefined): number {
   if (!modelId) return DEFAULT_CONTEXT_WINDOW
 

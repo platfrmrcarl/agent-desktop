@@ -28,10 +28,14 @@ export class DispatchRegistry implements HandleRegistrar {
     return this.handlers.get(channel)
   }
 
+  // public registry surface; consumed by dispatch.test.ts (excluded). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   has(channel: string): boolean {
     return this.handlers.has(channel)
   }
 
+  // public registry surface; consumed by dispatch.test.ts (excluded). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   entries(): IterableIterator<[string, (...args: unknown[]) => Promise<unknown>]> {
     return this.handlers.entries()
   }

@@ -78,6 +78,8 @@ function wrapWithStyles(html: string, styles: Map<string, string>): string {
   return `<span style="${styleStr}">${html}</span>`
 }
 
+// consumed by ansiToHtml.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function ansiToHtml(text: string): string {
   const parts: string[] = []
   const styles = new Map<string, string>()

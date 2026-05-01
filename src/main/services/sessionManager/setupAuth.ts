@@ -12,8 +12,9 @@
  * pure orchestration.
  */
 import { ensureFreshMacOSToken } from '../../utils/env'
-import { injectApiKeyEnv } from '../streaming'
-import type { AISettings } from '../streaming'
+// Import directly from core to avoid the helper → main/streaming → sessionManager cycle.
+import { injectApiKeyEnv } from '../../../core/services/streaming'
+import type { AISettings } from '../../../core/services/streaming'
 
 export async function setupAuth(aiSettings: AISettings): Promise<(() => void) | null> {
   if (!aiSettings?.apiKey) {

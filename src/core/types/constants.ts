@@ -89,15 +89,12 @@ export const SETTING_SOURCES_OPTIONS = [
   { value: 'local', label: 'User + Project + Local' },
 ] as const
 
-/** @deprecated Use SETTING_SOURCES_OPTIONS instead */
-export const SKILLS_OPTIONS = SETTING_SOURCES_OPTIONS
-
-export const SKILLS_TOGGLE_OPTIONS = [
+const SKILLS_TOGGLE_OPTIONS = [
   { value: 'true', label: 'Enabled' },
   { value: 'false', label: 'Disabled' },
 ] as const
 
-export const PLAN_APPROVAL_OPTIONS = [
+const PLAN_APPROVAL_OPTIONS = [
   { value: 'true', label: 'Always ask' },
   { value: 'false', label: 'Auto-approve (bypass)' },
 ] as const
@@ -109,7 +106,7 @@ export const CONFIG_SHARING_OPTIONS = [
 
 // ─── TTS Response Options ───────────────────────────────────
 
-export const TTS_RESPONSE_OPTIONS = [
+const TTS_RESPONSE_OPTIONS = [
   { value: 'off', label: 'Off' },
   { value: 'full', label: 'Full Response' },
   { value: 'summary', label: 'Summary' },

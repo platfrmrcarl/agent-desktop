@@ -31,7 +31,7 @@ function getMacrosDir(): string {
 }
 
 /** Extract description from frontmatter, handling single-line, quoted, and YAML folded block (>) formats */
-export function extractDescription(frontmatter: string): string {
+function extractDescription(frontmatter: string): string {
   // Try single-line: description: text  OR  description: "text"
   const lineMatch = frontmatter.match(DESCRIPTION_RE)
   if (lineMatch) {
@@ -60,7 +60,7 @@ export function extractDescription(frontmatter: string): string {
   return ''
 }
 
-export async function readFrontmatter(filePath: string): Promise<{ name?: string; description: string }> {
+async function readFrontmatter(filePath: string): Promise<{ name?: string; description: string }> {
   try {
     const fd = await fs.open(filePath, 'r')
     try {

@@ -5,11 +5,6 @@ export function truncatePath(filePath: string, segments = 3): string {
   return parts.slice(-(segments + 1)).join('/')
 }
 
-/** Check if tool is an edit tool (Claude SDK "Edit" or PI "edit") */
-export function isEditTool(name: string): boolean {
-  return name.toLowerCase() === 'edit'
-}
-
 /** Get the old/new strings from an edit tool, handling both SDK conventions */
 export function getEditDiffStrings(input: Record<string, unknown>): { oldStr: string; newStr: string } | null {
   // Claude SDK: old_str / new_str — PI SDK: oldText / newText

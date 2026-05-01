@@ -85,11 +85,6 @@ const streamBuffersMap = new Map<number, StreamPart[]>()
 /** Accumulated text content per conversation — avoids O(n) recomputation on every chunk */
 const streamTextMap = new Map<number, string>()
 
-/** Check if a conversation has an active stream buffer */
-export function hasStreamBuffer(conversationId: number): boolean {
-  return streamBuffersMap.has(conversationId)
-}
-
 function getTextFromParts(parts: StreamPart[]): string {
   return parts.filter((p) => p.type === 'text').map((p) => p.content).join('')
 }
@@ -559,6 +554,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 }))
 
 // Expose streamBuffersMap for tests and external checks (e.g. conversation-updated listener)
+// consumed by chatStore.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export { streamBuffersMap as _streamBuffersMap, streamTextMap as _streamTextMap }
 
 // Conversation-updated listener -- reload messages when another window finishes streaming

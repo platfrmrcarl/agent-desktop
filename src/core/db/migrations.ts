@@ -41,6 +41,8 @@ export function runMigrations(db: Database.Database): void {
 }
 
 /** Strip trailing -YYYYMMDD from Claude model IDs only. Pass-through for other prefixes. */
+// Consumed by migrations.test.ts (excluded from fallow scan).
+// fallow-ignore-next-line unused-export
 export function stripClaudeDateSuffix(id: unknown): unknown {
   if (typeof id !== 'string') return id
   if (!id.startsWith('claude-') && !id.startsWith('anthropic/claude-')) return id

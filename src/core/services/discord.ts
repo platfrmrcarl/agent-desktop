@@ -69,6 +69,8 @@ async function persistBindings(): Promise<void> {
 
 const DISCORD_MAX_LENGTH = 2000
 
+// consumed by discord.test.ts + main/services/discord.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function splitMessage(text: string): string[] {
   if (text.length <= DISCORD_MAX_LENGTH) return [text]
   const chunks: string[] = []
@@ -830,6 +832,8 @@ export async function startBot(options: BotStartOptions): Promise<void> {
   await loadBindings()
 }
 
+// consumed by main/services/discord.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export async function stopBot(): Promise<void> {
   unsubscribeBroadcast?.()
   unsubscribeBroadcast = null
@@ -839,6 +843,8 @@ export async function stopBot(): Promise<void> {
   }
 }
 
+// consumed by main/services/discord.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function getBotStatus(): { connected: boolean; username?: string; guildCount?: number } {
   if (!client || !client.isReady()) {
     return { connected: false }
@@ -850,11 +856,14 @@ export function getBotStatus(): { connected: boolean; username?: string; guildCo
   }
 }
 
-// Exported for testing
+// consumed by discord.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function getChannelConversations(): Map<string, number> {
   return channelConversations
 }
 
+// consumed by discord.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export { handleAskUserChunk as _handleAskUserChunk, buildModalForQuestions as _buildModalForQuestions }
 
 // ─── IPC handlers ───────────────────────────────────

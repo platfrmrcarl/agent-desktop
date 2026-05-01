@@ -19,7 +19,7 @@
  *   - includePartialMessages is always true (we render streamed deltas)
  */
 import { findBinaryInPath } from '../../utils/env'
-import type { AISettings } from '../streaming'
+import type { AISettings } from '../../../core/services/streaming'
 
 const VALID_PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'] as const
 export type ValidPermissionMode = typeof VALID_PERMISSION_MODES[number]

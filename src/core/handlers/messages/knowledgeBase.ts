@@ -19,7 +19,7 @@ import { cascadeStringKey, getFolderOverrides, parseConvOverrides } from './casc
 
 const KB_BUDGET = 500_000
 
-export interface KnowledgeBaseResult {
+interface KnowledgeBaseResult {
   /** Pre-formatted text to append to the system prompt (may be empty). */
   content: string
   /** Resolved absolute paths of folders flagged `readwrite`. */
@@ -45,7 +45,7 @@ function resolveSelection(
  * skipped — a single oversized file would otherwise leave the entire
  * collection silently absent.
  */
-export async function injectKnowledgeBase(
+async function injectKnowledgeBase(
   knowledgeFoldersRaw: string | undefined,
   knowledgesDir: string | undefined,
   supportedExts: Set<string>,

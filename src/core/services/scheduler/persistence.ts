@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 import type { IntervalUnit } from '../../types'
-import { computeNextRun } from '../scheduler'
+import { computeNextRun } from './compute'
 
 /** Apply a set of column=? assignments to scheduled_tasks for the given id. */
 export function executeTaskUpdate(
