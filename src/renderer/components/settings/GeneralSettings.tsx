@@ -4,6 +4,7 @@ import { NOTIFICATION_EVENTS, DEFAULT_NOTIFICATION_CONFIG } from '../../../share
 import type { NotificationConfig, NotificationEvent } from '../../../shared/types'
 import { ChevronDownIcon } from '../icons/ChevronDownIcon'
 import { tint } from '../../utils/colorMix'
+import { Toggle } from '../shared/Toggle'
 
 interface ToggleOption {
   key: string
@@ -38,39 +39,6 @@ const toggleOptions: ToggleOption[] = [
     defaultValue: 'false',
   },
 ]
-
-function Toggle({
-  enabled,
-  onToggle,
-  label,
-}: {
-  enabled: boolean
-  onToggle: () => void
-  label: string
-}) {
-  return (
-    <button
-      onClick={onToggle}
-      className="relative w-11 h-6 rounded-full flex-shrink-0 overflow-hidden transition-colors"
-      style={{
-        backgroundColor: enabled
-          ? 'var(--color-primary)'
-          : 'var(--color-text-muted)',
-        opacity: enabled ? 1 : 0.3,
-      }}
-      role="switch"
-      aria-checked={enabled}
-      aria-label={`Toggle ${label}`}
-    >
-      <span
-        className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"
-        style={{
-          transform: enabled ? 'translateX(20px)' : 'translateX(0px)',
-        }}
-      />
-    </button>
-  )
-}
 
 function getNotifConfig(settings: Record<string, string>): NotificationConfig {
   const raw = settings.notificationConfig
@@ -138,6 +106,7 @@ export function GeneralSettings() {
               enabled={getValue(opt.key, opt.defaultValue)}
               onToggle={() => handleToggle(opt.key, opt.defaultValue)}
               label={opt.label}
+              ariaLabel={`Toggle ${opt.label}`}
             />
           </div>
 
@@ -180,6 +149,7 @@ export function GeneralSettings() {
                             enabled={notifConfig[evt.key as NotificationEvent].sound}
                             onToggle={() => toggleNotifEvent(evt.key as NotificationEvent, 'sound')}
                             label={`${evt.label} sound`}
+                            ariaLabel={`Toggle ${evt.label} sound`}
                           />
                         </div>
                         <div className="flex justify-center">
@@ -187,6 +157,7 @@ export function GeneralSettings() {
                             enabled={notifConfig[evt.key as NotificationEvent].desktop}
                             onToggle={() => toggleNotifEvent(evt.key as NotificationEvent, 'desktop')}
                             label={`${evt.label} desktop`}
+                            ariaLabel={`Toggle ${evt.label} desktop`}
                           />
                         </div>
                       </div>

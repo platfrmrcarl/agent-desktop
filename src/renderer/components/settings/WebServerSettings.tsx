@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { PasswordAuthSection } from './PasswordAuthSection'
+import { Toggle } from '../shared/Toggle'
 
 interface ServerStatus {
   running: boolean
@@ -14,27 +15,6 @@ interface ServerStatus {
   accessMode: string | null
   clients: number
   firewallWarning: string | null
-}
-
-function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () => void; label: string }) {
-  return (
-    <button
-      onClick={onToggle}
-      className="relative w-11 h-6 rounded-full flex-shrink-0 overflow-hidden transition-colors"
-      style={{
-        backgroundColor: enabled ? 'var(--color-primary)' : 'var(--color-text-muted)',
-        opacity: enabled ? 1 : 0.3,
-      }}
-      role="switch"
-      aria-checked={enabled}
-      aria-label={label}
-    >
-      <span
-        className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform"
-        style={{ transform: enabled ? 'translateX(20px)' : 'translateX(0)' }}
-      />
-    </button>
-  )
 }
 
 export function WebServerSettings() {
