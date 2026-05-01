@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useBugReportStore } from '../../stores/bugReportStore'
 import { rendererErrorBuffer } from '../../bootstrap/rendererErrorCapture'
-import type { SendResult } from '../../main/services/bugReport'
+import type { SendResult } from '../../../shared/bugReport'
 
 function formatEntry(e: {
   timestamp: string

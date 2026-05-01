@@ -4,7 +4,7 @@ import type {
   BugReportMetadata,
   BugReportPayload,
   SendResult,
-} from '../../main/services/bugReport'
+} from '../../shared/bugReport'
 
 export interface BugReportHandlerOptions {
   mainBuffer: ErrorBuffer
