@@ -30,6 +30,7 @@ import { startServer, stopServer } from '../core/services/webServer'
 import { loadFromDisk, attachPersistence } from './services/errorBufferPersist'
 import { sendBugReport } from './services/bugReport'
 import { scrub as scrubLog } from './services/logScrubber'
+import { setMainContext } from './mainContext'
 
 // Custom protocol — must be registered before app.ready
 registerPreviewScheme()
@@ -326,6 +327,15 @@ if (!gotLock) {
     setupDeepLinks(app)
     createWindow()
     registerStreamWindow(mainWindow!)
+
+    // Publish the main context for services. The `mainWindow` accessor uses a
+    // closure so a single context object survives window recreation (close +
+    // tray reopen reassigns the module-level `mainWindow` ref).
+    setMainContext({
+      mainWindow: () => mainWindow,
+      ipcMain,
+      db,
+    })
     registerGlobalShortcuts(db, {
       onQuickChat: () => showOverlay('text'),
       onQuickVoice: () => showOverlay('voice'),
