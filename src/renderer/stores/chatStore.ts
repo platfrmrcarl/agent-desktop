@@ -571,331 +571,350 @@ if (typeof window !== 'undefined' && window.agent?.events?.onConversationUpdated
   })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stream chunk handlers — table-dispatched from the listener below.
+// Each handler receives the raw chunk + a ListenerCtx captured ONCE per chunk.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ListenerCtx {
+  /** Snapshot taken at listener entry — do NOT re-read inside handlers. */
+  store: ChatState
+  bufferKey: number
+  isActiveView: boolean
+}
+
+type ChunkHandler = (chunk: StreamChunk, ctx: ListenerCtx) => void
+
+/** Update module-level buffer and (when active view) sync the reactive state. */
+function commitParts(ctx: ListenerCtx, parts: StreamPart[], textContent?: string): void {
+  const { bufferKey, isActiveView } = ctx
+  streamBuffersMap.set(bufferKey, parts)
+  const text = textContent ?? (streamTextMap.get(bufferKey) ?? getTextFromParts(parts))
+  streamTextMap.set(bufferKey, text)
+  if (isActiveView) {
+    useChatStore.setState({ streamParts: parts, streamingContent: text })
+  }
+}
+
+function safeParseJSON<T>(raw: string | undefined): T | undefined {
+  if (!raw) return undefined
+  try { return JSON.parse(raw) as T } catch { return undefined }
+}
+
+function handleText(chunk: StreamChunk, ctx: ListenerCtx): void {
+  if (!chunk.content) return
+  const { bufferKey } = ctx
+  const parts = [...(streamBuffersMap.get(bufferKey) || [])]
+  const lastPart = parts[parts.length - 1]
+  if (lastPart && lastPart.type === 'text') {
+    parts[parts.length - 1] = { type: 'text', content: lastPart.content + chunk.content }
+  } else {
+    parts.push({ type: 'text', content: chunk.content })
+  }
+  // Task 1.3: Incremental text accumulation instead of filter+map+join
+  const prevText = streamTextMap.get(bufferKey) ?? ''
+  commitParts(ctx, parts, prevText + chunk.content)
+}
+
+function handleToolStart(chunk: StreamChunk, ctx: ListenerCtx): void {
+  const parts = [...(streamBuffersMap.get(ctx.bufferKey) || [])]
+  const toolName = chunk.toolName || chunk.content || 'tool'
+  const toolId = chunk.toolId || `tool_${Date.now()}`
+  parts.push({ type: 'tool', name: toolName, id: toolId, status: 'running' })
+  commitParts(ctx, parts)
+}
+
+function handleToolInput(chunk: StreamChunk, ctx: ListenerCtx): void {
+  const parts = [...(streamBuffersMap.get(ctx.bufferKey) || [])]
+  const toolId = chunk.toolId
+  const toolInput = safeParseJSON<Record<string, unknown>>(chunk.toolInput) ?? {}
+  // Find the running tool and add input
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]
+    if (p.type === 'tool' && p.status === 'running' && (!toolId || p.id === toolId)) {
+      parts[i] = { ...p, input: toolInput }
+      break
+    }
+  }
+  commitParts(ctx, parts)
+}
+
+function dispatchBashResult(input: Record<string, unknown> | undefined): void {
+  if (typeof input?.command !== 'string') return
+  window.dispatchEvent(new CustomEvent('agent:bash-tool-result', {
+    detail: { command: input.command },
+  }))
+}
+
+/** Mutates `parts` in-place to mark the matching running tool as done.
+ *  Returns true if a matching tool was found, false otherwise. */
+function finalizeRunningTool(parts: StreamPart[], chunk: StreamChunk): boolean {
+  const toolId = chunk.toolId
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]
+    if (p.type !== 'tool' || p.status !== 'running') continue
+    if (toolId && p.id !== toolId) continue
+    parts[i] = {
+      ...p,
+      status: 'done',
+      summary: chunk.content || '',
+      output: chunk.toolOutput || chunk.content || '',
+    }
+    // If input was sent with the result chunk, set it too
+    if (chunk.toolInput && !p.input) {
+      const parsed = safeParseJSON<Record<string, unknown>>(chunk.toolInput)
+      if (parsed) parts[i] = { ...parts[i], input: parsed }
+    }
+    // Dispatch after Bash has actually finished so git state is up-to-date
+    const resolvedInput = (parts[i] as { input?: Record<string, unknown> }).input
+    if (p.name === 'Bash') dispatchBashResult(resolvedInput)
+    return true
+  }
+  return false
+}
+
+/** Append a standalone tool_result entry when no matching running tool was found. */
+function appendStandaloneToolResult(parts: StreamPart[], chunk: StreamChunk): void {
+  const toolInput = safeParseJSON<Record<string, unknown>>(chunk.toolInput)
+  parts.push({
+    type: 'tool',
+    name: chunk.toolName || 'tool',
+    id: chunk.toolId || `tool_${Date.now()}`,
+    status: 'done',
+    summary: chunk.content || '',
+    output: chunk.toolOutput || chunk.content || '',
+    input: toolInput,
+  })
+  // Dispatch for untracked Bash results too
+  if (chunk.toolName === 'Bash') dispatchBashResult(toolInput)
+}
+
+function handleToolResult(chunk: StreamChunk, ctx: ListenerCtx): void {
+  const parts = [...(streamBuffersMap.get(ctx.bufferKey) || [])]
+  if (!finalizeRunningTool(parts, chunk)) {
+    appendStandaloneToolResult(parts, chunk)
+  }
+  commitParts(ctx, parts)
+}
+
+function handleToolApproval(chunk: StreamChunk, ctx: ListenerCtx): void {
+  if (!chunk.requestId || !chunk.toolName) return
+  const parts = [...(streamBuffersMap.get(ctx.bufferKey) || [])]
+  const toolInput = safeParseJSON<Record<string, unknown>>(chunk.toolInput) ?? {}
+  parts.push({ type: 'tool_approval', requestId: chunk.requestId, toolName: chunk.toolName, toolInput })
+  commitParts(ctx, parts)
+}
+
+function handleAskUser(chunk: StreamChunk, ctx: ListenerCtx): void {
+  if (!chunk.requestId || !chunk.questions) return
+  const parts = [...(streamBuffersMap.get(ctx.bufferKey) || [])]
+  const questions = safeParseJSON<AskUserQuestion[]>(chunk.questions) ?? []
+  parts.push({ type: 'ask_user', requestId: chunk.requestId, questions })
+  commitParts(ctx, parts)
+}
+
+// PI-specific: emitted by the bundled agent-desktop-parity extension
+// when the agent calls exit_plan_mode(plan). We store in TWO places:
+//   (1) streamParts buffer — renders inline during streaming.
+//   (2) pendingPlanApprovals state — persists across 'done' so the
+//       approval UI stays visible after the agent's turn ends.
+function handlePlanApprovalRequest(chunk: StreamChunk, ctx: ListenerCtx): void {
+  if (!chunk.content || chunk.conversationId == null) return
+  const parts = [...(streamBuffersMap.get(ctx.bufferKey) || [])]
+  parts.push({ type: 'plan_approval_request', conversationId: chunk.conversationId, plan: chunk.content })
+  commitParts(ctx, parts)
+  const existing = useChatStore.getState().pendingPlanApprovals
+  useChatStore.setState({
+    pendingPlanApprovals: { ...existing, [chunk.conversationId]: { plan: chunk.content } },
+  })
+}
+
+function handleMcpStatus(chunk: StreamChunk, ctx: ListenerCtx): void {
+  if (!chunk.mcpServers) return
+  const servers = safeParseJSON<McpConnectionStatus[]>(chunk.mcpServers) ?? []
+  if (servers.length === 0) return
+  const parts = [...(streamBuffersMap.get(ctx.bufferKey) || [])]
+  parts.push({ type: 'mcp_status', servers })
+  commitParts(ctx, parts)
+}
+
+function handleSystemMessage(chunk: StreamChunk, ctx: ListenerCtx): void {
+  if (!chunk.content) return
+  const parts = [...(streamBuffersMap.get(ctx.bufferKey) || [])]
+  parts.push({
+    type: 'system_message',
+    content: chunk.content,
+    hookName: chunk.hookName,
+    hookEvent: chunk.hookEvent,
+  })
+  commitParts(ctx, parts)
+}
+
+function handleRetry(chunk: StreamChunk, ctx: ListenerCtx): void {
+  const { bufferKey, isActiveView } = ctx
+  const parts = [...(streamBuffersMap.get(bufferKey) || [])]
+  parts.push({
+    type: 'retry',
+    message: chunk.content || 'Retrying...',
+    attempt: chunk.retryAttempt || 0,
+    maxAttempts: chunk.retryMaxAttempts || 0,
+  })
+  streamBuffersMap.set(bufferKey, parts)
+  // streamTextMap unchanged — retry is not text
+  // Clear error state -- no flash between attempts
+  if (isActiveView) {
+    useChatStore.setState({
+      streamParts: parts,
+      streamingContent: streamTextMap.get(bufferKey) ?? getTextFromParts(parts),
+      error: null,
+    })
+  }
+}
+
+function handleDone(chunk: StreamChunk, ctx: ListenerCtx): void {
+  const doneSettings = useSettingsStore.getState().settings
+  if (doneSettings.notificationSounds === 'true' && chunk.stopReason !== 'aborted') {
+    const event = mapToNotificationEvent(chunk.stopReason, chunk.resultSubtype)
+    const config = getNotificationConfig(doneSettings)
+    const eventConfig = config[event]
+    if (eventConfig.sound) {
+      if (event === 'success') {
+        playCompletionSound()
+      } else {
+        playErrorSound()
+      }
+    }
+    const doneDesktopMode = doneSettings.notificationDesktopMode ?? 'unfocused'
+    if (eventConfig.desktop && shouldShowDesktopNotification(doneDesktopMode)) {
+      window.agent.system.showNotification('Agent Desktop', getEventLabel(event)).catch(() => {})
+    }
+  }
+  useChatStore.setState(cleanupStreamBuffer(ctx.store.activeConversationId, ctx.bufferKey))
+}
+
+function handleError(chunk: StreamChunk, ctx: ListenerCtx): void {
+  const errSettings = useSettingsStore.getState().settings
+  if (errSettings.notificationSounds === 'true') {
+    const config = getNotificationConfig(errSettings)
+    const eventConfig = config.error_js
+    if (eventConfig.sound) {
+      playErrorSound()
+    }
+    const errDesktopMode = errSettings.notificationDesktopMode ?? 'unfocused'
+    if (eventConfig.desktop && shouldShowDesktopNotification(errDesktopMode)) {
+      window.agent.system.showNotification('Agent Desktop', getEventLabel('error_js')).catch(() => {})
+    }
+  }
+  // Delete buffer maps (stop accumulating) but keep streamParts/streamingContent
+  // in state — the partial response stays visible instead of flashing away.
+  // The backend saves partial content to DB; conversationUpdated will reload messages.
+  streamBuffersMap.delete(ctx.bufferKey)
+  streamTextMap.delete(ctx.bufferKey)
+  const activeId = ctx.store.activeConversationId
+  const isStillStreaming = activeId != null && streamBuffersMap.has(activeId)
+  useChatStore.setState({
+    error: chunk.content ?? 'Stream error',
+    isStreaming: isStillStreaming,
+  })
+}
+
+const chunkHandlers: Partial<Record<StreamChunk['type'], ChunkHandler>> = {
+  text: handleText,
+  tool_start: handleToolStart,
+  tool_input: handleToolInput,
+  tool_result: handleToolResult,
+  tool_approval: handleToolApproval,
+  ask_user: handleAskUser,
+  plan_approval_request: handlePlanApprovalRequest,
+  mcp_status: handleMcpStatus,
+  system_message: handleSystemMessage,
+  retry: handleRetry,
+  done: handleDone,
+  error: handleError,
+}
+
+/**
+ * `task_notification` is special: it can arrive between turns with NO active
+ * stream buffer — handled before the buffer guard so it's never dropped.
+ * Also fires sound + desktop notification.
+ */
+function handleTaskNotification(chunk: StreamChunk, store: ChatState, fallbackBufferKey: number | null): void {
+  const convId = fallbackBufferKey ?? store.activeConversationId
+  if (convId == null) return
+  const notification: TaskNotification = {
+    taskId: chunk.taskId,
+    taskStatus: chunk.taskStatus,
+    summary: chunk.content || 'Agent task completed',
+    outputFile: chunk.outputFile,
+    receivedAt: Date.now(),
+  }
+  const existing = store.taskNotifications[convId] || []
+  // Task 1.4: Batch setState — build full update, then call setState once
+  const stateUpdate: Partial<ChatState> = {
+    taskNotifications: { ...store.taskNotifications, [convId]: [...existing, notification] },
+  }
+  // Also add inline if streaming
+  if (streamBuffersMap.has(convId)) {
+    const parts = [...(streamBuffersMap.get(convId) || [])]
+    parts.push({
+      type: 'task_notification',
+      summary: notification.summary,
+      taskId: chunk.taskId,
+      taskStatus: chunk.taskStatus,
+      outputFile: chunk.outputFile,
+    })
+    streamBuffersMap.set(convId, parts)
+    // streamTextMap unchanged — task_notification is not text
+    if (convId === store.activeConversationId) {
+      stateUpdate.streamParts = parts
+      stateUpdate.streamingContent = streamTextMap.get(convId) ?? getTextFromParts(parts)
+    }
+  }
+  useChatStore.setState(stateUpdate)
+  // Trigger notification sound + desktop notification
+  const notifSettings = useSettingsStore.getState().settings
+  if (notifSettings.notificationSounds === 'true') {
+    playCompletionSound()
+    const doneDesktopMode = notifSettings.notificationDesktopMode ?? 'unfocused'
+    if (shouldShowDesktopNotification(doneDesktopMode)) {
+      const status = chunk.taskStatus === 'failed' ? 'failed' : 'completed'
+      window.agent.system.showNotification('Agent Desktop', `Background agent ${status}`).catch(() => {})
+    }
+  }
+}
+
+/**
+ * Auto-create stream buffer for streams initiated elsewhere (mobile/web client).
+ * Skip terminal events (done/error) — the initial empty text chunk sent before
+ * every stream (streaming.ts:254, sessionManager.ts:874) handles buffer creation.
+ * Returns true if the chunk should be processed, false if it must be dropped.
+ */
+function ensureBuffer(chunk: StreamChunk, bufferKey: number, store: ChatState): boolean {
+  if (streamBuffersMap.has(bufferKey)) return true
+  if (chunk.type === 'done' || chunk.type === 'error') return false
+  streamBuffersMap.set(bufferKey, [])
+  streamTextMap.set(bufferKey, '')
+  if (bufferKey === store.activeConversationId) {
+    useChatStore.setState({ isStreaming: true, streamParts: [], streamingContent: '' })
+    // Reload messages to show the user message that triggered this stream
+    store.loadMessages(bufferKey)
+  }
+  return true
+}
+
 // Stream listener -- guarded against preload not being ready
 if (typeof window !== 'undefined' && window.agent?.messages?.onStream) {
-window.agent.messages.onStream((chunk: StreamChunk) => {
-  const store = useChatStore.getState()
-
-  // Route chunk to the correct buffer by conversationId
-  const bufferKey = chunk.conversationId ?? store.activeConversationId
-
-  // task_notification can arrive between turns (no active stream buffer)
-  // Handle it before the buffer guard so it's never silently dropped
-  if (chunk.type === 'task_notification') {
-    const convId = bufferKey ?? store.activeConversationId
-    if (convId != null) {
-      const notification: TaskNotification = {
-        taskId: chunk.taskId,
-        taskStatus: chunk.taskStatus,
-        summary: chunk.content || 'Agent task completed',
-        outputFile: chunk.outputFile,
-        receivedAt: Date.now(),
-      }
-      const existing = store.taskNotifications[convId] || []
-      // Task 1.4: Batch setState — build full update, then call setState once
-      const stateUpdate: Partial<ChatState> = {
-        taskNotifications: { ...store.taskNotifications, [convId]: [...existing, notification] },
-      }
-      // Also add inline if streaming
-      if (streamBuffersMap.has(convId)) {
-        const parts = [...(streamBuffersMap.get(convId) || [])]
-        parts.push({
-          type: 'task_notification',
-          summary: notification.summary,
-          taskId: chunk.taskId,
-          taskStatus: chunk.taskStatus,
-          outputFile: chunk.outputFile,
-        })
-        streamBuffersMap.set(convId, parts)
-        // streamTextMap unchanged — task_notification is not text
-        if (convId === store.activeConversationId) {
-          stateUpdate.streamParts = parts
-          stateUpdate.streamingContent = streamTextMap.get(convId) ?? getTextFromParts(parts)
-        }
-      }
-      useChatStore.setState(stateUpdate)
-      // Trigger notification sound + desktop notification
-      const notifSettings = useSettingsStore.getState().settings
-      if (notifSettings.notificationSounds === 'true') {
-        playCompletionSound()
-        const doneDesktopMode = notifSettings.notificationDesktopMode ?? 'unfocused'
-        if (shouldShowDesktopNotification(doneDesktopMode)) {
-          const status = chunk.taskStatus === 'failed' ? 'failed' : 'completed'
-          window.agent.system.showNotification('Agent Desktop', `Background agent ${status}`).catch(() => {})
-        }
-      }
+  window.agent.messages.onStream((chunk: StreamChunk) => {
+    const store = useChatStore.getState()
+    const bufferKey = chunk.conversationId ?? store.activeConversationId
+    // task_notification can arrive between turns (no active stream buffer)
+    if (chunk.type === 'task_notification') {
+      handleTaskNotification(chunk, store, bufferKey)
+      return
     }
-    return
-  }
-
-  if (bufferKey == null) return
-
-  // Auto-create buffer for streams initiated elsewhere (e.g., mobile/web client)
-  // This handles the "late joiner" case: another device started streaming and chunks
-  // are broadcast to all clients, but this renderer never called sendMessage().
-  // Skip terminal events (done/error) — the initial empty text chunk sent before every
-  // stream (streaming.ts:254, sessionManager.ts:874) handles buffer creation.
-  if (!streamBuffersMap.has(bufferKey)) {
-    if (chunk.type === 'done' || chunk.type === 'error') return
-    streamBuffersMap.set(bufferKey, [])
-    streamTextMap.set(bufferKey, '')
-    if (bufferKey === store.activeConversationId) {
-      useChatStore.setState({ isStreaming: true, streamParts: [], streamingContent: '' })
-      // Reload messages to show the user message that triggered this stream
-      store.loadMessages(bufferKey)
-    }
-  }
-
-  const isActiveView = bufferKey === store.activeConversationId
-
-  // Helper: update module-level buffer and optionally sync the reactive view
-  function commitParts(parts: StreamPart[], textContent?: string) {
-    streamBuffersMap.set(bufferKey, parts)
-    const text = textContent ?? (streamTextMap.get(bufferKey) ?? getTextFromParts(parts))
-    streamTextMap.set(bufferKey, text)
-    if (isActiveView) {
-      useChatStore.setState({ streamParts: parts, streamingContent: text })
-    }
-  }
-
-  switch (chunk.type) {
-    case 'text':
-      if (chunk.content) {
-        const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-        const lastPart = parts[parts.length - 1]
-        if (lastPart && lastPart.type === 'text') {
-          parts[parts.length - 1] = { type: 'text', content: lastPart.content + chunk.content }
-        } else {
-          parts.push({ type: 'text', content: chunk.content })
-        }
-        // Task 1.3: Incremental text accumulation instead of filter+map+join
-        const prevText = streamTextMap.get(bufferKey) ?? ''
-        commitParts(parts, prevText + chunk.content)
-      }
-      break
-
-    case 'tool_start': {
-      const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-      const toolName = chunk.toolName || chunk.content || 'tool'
-      const toolId = chunk.toolId || `tool_${Date.now()}`
-      parts.push({ type: 'tool', name: toolName, id: toolId, status: 'running' })
-      commitParts(parts)
-      break
-    }
-
-    case 'tool_input': {
-      const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-      const toolId = chunk.toolId
-      let toolInput: Record<string, unknown> = {}
-      if (chunk.toolInput) {
-        try { toolInput = JSON.parse(chunk.toolInput) as Record<string, unknown> } catch { /* ignore */ }
-      }
-      // Find the running tool and add input
-      for (let i = parts.length - 1; i >= 0; i--) {
-        const p = parts[i]
-        if (p.type === 'tool' && p.status === 'running' && (!toolId || p.id === toolId)) {
-          parts[i] = { ...p, input: toolInput }
-          break
-        }
-      }
-      commitParts(parts)
-      break
-    }
-
-    case 'tool_result': {
-      const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-      const toolId = chunk.toolId
-      let found = false
-      for (let i = parts.length - 1; i >= 0; i--) {
-        const p = parts[i]
-        if (p.type === 'tool' && p.status === 'running' && (!toolId || p.id === toolId)) {
-          parts[i] = {
-            ...p,
-            status: 'done',
-            summary: chunk.content || '',
-            output: chunk.toolOutput || chunk.content || '',
-          }
-          // If input was sent with the result chunk, set it too
-          if (chunk.toolInput && !p.input) {
-            try {
-              parts[i] = { ...parts[i], input: JSON.parse(chunk.toolInput) as Record<string, unknown> }
-            } catch { /* ignore invalid JSON */ }
-          }
-          // Dispatch after Bash has actually finished so git state is up-to-date
-          const resolvedInput = (parts[i] as { input?: Record<string, unknown> }).input
-          if (p.name === 'Bash' && typeof resolvedInput?.command === 'string') {
-            window.dispatchEvent(new CustomEvent('agent:bash-tool-result', {
-              detail: { command: resolvedInput.command },
-            }))
-          }
-          found = true
-          break
-        }
-      }
-      if (!found) {
-        let toolInput: Record<string, unknown> | undefined
-        if (chunk.toolInput) {
-          try { toolInput = JSON.parse(chunk.toolInput) as Record<string, unknown> } catch { /* ignore */ }
-        }
-        parts.push({
-          type: 'tool',
-          name: chunk.toolName || 'tool',
-          id: chunk.toolId || `tool_${Date.now()}`,
-          status: 'done',
-          summary: chunk.content || '',
-          output: chunk.toolOutput || chunk.content || '',
-          input: toolInput,
-        })
-        // Dispatch for untracked Bash results too
-        if (chunk.toolName === 'Bash' && typeof toolInput?.command === 'string') {
-          window.dispatchEvent(new CustomEvent('agent:bash-tool-result', {
-            detail: { command: toolInput.command },
-          }))
-        }
-      }
-      commitParts(parts)
-      break
-    }
-
-    case 'tool_approval': {
-      if (chunk.requestId && chunk.toolName) {
-        const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-        let toolInput: Record<string, unknown> = {}
-        if (chunk.toolInput) {
-          try { toolInput = JSON.parse(chunk.toolInput) as Record<string, unknown> } catch { /* invalid JSON */ }
-        }
-        parts.push({ type: 'tool_approval', requestId: chunk.requestId, toolName: chunk.toolName, toolInput })
-        commitParts(parts)
-      }
-      break
-    }
-
-    case 'ask_user': {
-      if (chunk.requestId && chunk.questions) {
-        const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-        let questions: AskUserQuestion[] = []
-        try { questions = JSON.parse(chunk.questions) as AskUserQuestion[] } catch { /* invalid JSON */ }
-        parts.push({ type: 'ask_user', requestId: chunk.requestId, questions })
-        commitParts(parts)
-      }
-      break
-    }
-
-    case 'plan_approval_request': {
-      // PI-specific: emitted by the bundled agent-desktop-parity extension
-      // when the agent calls exit_plan_mode(plan). We store in TWO places:
-      //   (1) streamParts buffer — renders inline during streaming (via
-      //       StreamingIndicator).
-      //   (2) pendingPlanApprovals state — persists across 'done' so the
-      //       approval UI stays visible after the agent's turn ends,
-      //       until the user clicks Approve or Reject.
-      if (chunk.content && chunk.conversationId != null) {
-        const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-        parts.push({ type: 'plan_approval_request', conversationId: chunk.conversationId, plan: chunk.content })
-        commitParts(parts)
-        const existing = useChatStore.getState().pendingPlanApprovals
-        useChatStore.setState({
-          pendingPlanApprovals: { ...existing, [chunk.conversationId]: { plan: chunk.content } },
-        })
-      }
-      break
-    }
-
-    case 'mcp_status': {
-      if (chunk.mcpServers) {
-        const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-        let servers: McpConnectionStatus[] = []
-        try { servers = JSON.parse(chunk.mcpServers) as McpConnectionStatus[] } catch { /* invalid JSON */ }
-        if (servers.length > 0) {
-          parts.push({ type: 'mcp_status', servers })
-          commitParts(parts)
-        }
-      }
-      break
-    }
-
-    case 'system_message': {
-      if (chunk.content) {
-        const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-        parts.push({
-          type: 'system_message',
-          content: chunk.content,
-          hookName: chunk.hookName,
-          hookEvent: chunk.hookEvent,
-        })
-        commitParts(parts)
-      }
-      break
-    }
-
-    case 'retry': {
-      const parts = [...(streamBuffersMap.get(bufferKey) || [])]
-      parts.push({
-        type: 'retry',
-        message: chunk.content || 'Retrying...',
-        attempt: chunk.retryAttempt || 0,
-        maxAttempts: chunk.retryMaxAttempts || 0,
-      })
-      streamBuffersMap.set(bufferKey, parts)
-      // streamTextMap unchanged — retry is not text
-      // Clear error state -- no flash between attempts
-      if (isActiveView) {
-        useChatStore.setState({
-          streamParts: parts,
-          streamingContent: streamTextMap.get(bufferKey) ?? getTextFromParts(parts),
-          error: null,
-        })
-      }
-      break
-    }
-
-    case 'done': {
-      const doneSettings = useSettingsStore.getState().settings
-      if (doneSettings.notificationSounds === 'true' && chunk.stopReason !== 'aborted') {
-        const event = mapToNotificationEvent(chunk.stopReason, chunk.resultSubtype)
-        const config = getNotificationConfig(doneSettings)
-        const eventConfig = config[event]
-        if (eventConfig.sound) {
-          if (event === 'success') {
-            playCompletionSound()
-          } else {
-            playErrorSound()
-          }
-        }
-        const doneDesktopMode = doneSettings.notificationDesktopMode ?? 'unfocused'
-        if (eventConfig.desktop && shouldShowDesktopNotification(doneDesktopMode)) {
-          window.agent.system.showNotification('Agent Desktop', getEventLabel(event)).catch(() => {})
-        }
-      }
-      useChatStore.setState(cleanupStreamBuffer(store.activeConversationId, bufferKey))
-      break
-    }
-
-    case 'error': {
-      const errSettings = useSettingsStore.getState().settings
-      if (errSettings.notificationSounds === 'true') {
-        const config = getNotificationConfig(errSettings)
-        const eventConfig = config.error_js
-        if (eventConfig.sound) {
-          playErrorSound()
-        }
-        const errDesktopMode = errSettings.notificationDesktopMode ?? 'unfocused'
-        if (eventConfig.desktop && shouldShowDesktopNotification(errDesktopMode)) {
-          window.agent.system.showNotification('Agent Desktop', getEventLabel('error_js')).catch(() => {})
-        }
-      }
-      // Delete buffer maps (stop accumulating) but keep streamParts/streamingContent
-      // in state — the partial response stays visible instead of flashing away.
-      // The backend saves partial content to DB; conversationUpdated will reload messages.
-      streamBuffersMap.delete(bufferKey)
-      streamTextMap.delete(bufferKey)
-      const isStillStreaming = store.activeConversationId != null && streamBuffersMap.has(store.activeConversationId)
-      useChatStore.setState({
-        error: chunk.content ?? 'Stream error',
-        isStreaming: isStillStreaming,
-      })
-      break
-    }
-  }
-})
+    if (bufferKey == null) return
+    if (!ensureBuffer(chunk, bufferKey, store)) return
+    const ctx: ListenerCtx = { store, bufferKey, isActiveView: bufferKey === store.activeConversationId }
+    chunkHandlers[chunk.type]?.(chunk, ctx)
+  })
 }
