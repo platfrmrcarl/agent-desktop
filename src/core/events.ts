@@ -9,7 +9,7 @@ import { EventEmitter } from 'events'
  * This ensures emit() and on() are type-checked at compile time.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type EventMap = Record<string, any[]>
+type EventMap = Record<string, any[]>
 
 export class TypedEventEmitter<T extends EventMap> {
   private emitter = new EventEmitter()

@@ -24,7 +24,7 @@ import { registerGitHandlers } from './git'
 import { registerBugReportHandlers, type BugReportHandlerOptions } from './bugReport'
 import { registerWebServerAuthHandlers } from './webServerAuth'
 
-export interface CoreHandlerOptions {
+interface CoreHandlerOptions {
   broadcaster: Broadcaster
   hookRunner: HookRunner
   sessionsBase: string

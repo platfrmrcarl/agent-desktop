@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveVariables, resolveVariablesWithReport, listVariables } from './index'
+import { resolveVariablesWithReport, listVariables } from './index'
 import { _resetCacheForTests } from './customLoader'
 import type { ResolverCtx } from './types'
 
@@ -29,28 +29,36 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-describe('resolveVariables', () => {
+describe('variable resolution — resolved string', () => {
   it('returns input unchanged when no variables are present', async () => {
-    expect(await resolveVariables('hello world', ctx())).toBe('hello world')
+    expect((await resolveVariablesWithReport('hello world', ctx())).resolved).toBe('hello world')
   })
 
   it('resolves a single builtin', async () => {
-    expect(await resolveVariables('today is {today_date}', ctx())).toBe('today is 2026-04-16')
+    expect((await resolveVariablesWithReport('today is {today_date}', ctx())).resolved)
+      .toBe('today is 2026-04-16')
   })
 
   it('resolves multiple builtins in one prompt', async () => {
-    const out = await resolveVariables('task {task_name} runs {task_run_count} times', ctx())
-    expect(out).toBe('task T runs 1 times')
+    const { resolved } = await resolveVariablesWithReport(
+      'task {task_name} runs {task_run_count} times',
+      ctx(),
+    )
+    expect(resolved).toBe('task T runs 1 times')
   })
 
   it('leaves unknown variables as passthrough (option D)', async () => {
-    const out = await resolveVariables('{unknown_var} + {today_date}', ctx(), { functionsDir: dir })
-    expect(out).toBe('{unknown_var} + 2026-04-16')
+    const { resolved } = await resolveVariablesWithReport(
+      '{unknown_var} + {today_date}',
+      ctx(),
+      { functionsDir: dir },
+    )
+    expect(resolved).toBe('{unknown_var} + 2026-04-16')
   })
 
   it('replaces thrown errors with [erreur: ...] marker', async () => {
-    const out = await resolveVariables('x = {random:abc}', ctx())
-    expect(out).toMatch(/^x = \[erreur: random — /)
+    const { resolved } = await resolveVariablesWithReport('x = {random:abc}', ctx())
+    expect(resolved).toMatch(/^x = \[erreur: random — /)
   })
 
   it('replaces timeouts with [erreur: ... timeout ...] marker', async () => {
@@ -58,11 +66,11 @@ describe('resolveVariables', () => {
       join(dir, 'slow.ts'),
       `export default () => new Promise((r) => setTimeout(() => r('never'), 1000))`
     )
-    const out = await resolveVariables('result: {slow}', ctx(), {
+    const { resolved } = await resolveVariablesWithReport('result: {slow}', ctx(), {
       functionsDir: dir,
       timeoutMs: 50,
     })
-    expect(out).toMatch(/^result: \[erreur: slow — timeout 50ms\]$/)
+    expect(resolved).toMatch(/^result: \[erreur: slow — timeout 50ms\]$/)
   })
 
   it('resolves custom variables from functionsDir', async () => {
@@ -70,8 +78,12 @@ describe('resolveVariables', () => {
       join(dir, 'hello.ts'),
       `export default (args: string[]) => 'hi ' + (args[0] ?? 'world')`
     )
-    const out = await resolveVariables('{hello:laurent}', ctx(), { functionsDir: dir })
-    expect(out).toBe('hi laurent')
+    const { resolved } = await resolveVariablesWithReport(
+      '{hello:laurent}',
+      ctx(),
+      { functionsDir: dir },
+    )
+    expect(resolved).toBe('hi laurent')
   })
 
   it('custom overrides builtin with the same name', async () => {
@@ -79,8 +91,12 @@ describe('resolveVariables', () => {
       join(dir, 'today_date.ts'),
       `export default () => 'CUSTOM_DATE'`
     )
-    const out = await resolveVariables('{today_date}', ctx(), { functionsDir: dir })
-    expect(out).toBe('CUSTOM_DATE')
+    const { resolved } = await resolveVariablesWithReport(
+      '{today_date}',
+      ctx(),
+      { functionsDir: dir },
+    )
+    expect(resolved).toBe('CUSTOM_DATE')
   })
 
   it('resolves variables in parallel (runs concurrently)', async () => {
@@ -93,12 +109,12 @@ describe('resolveVariables', () => {
       `export default () => new Promise((r) => setTimeout(() => r('B'), 200))`
     )
     const start = Date.now()
-    const out = await resolveVariables('{slow1}+{slow2}', ctx(), {
+    const { resolved } = await resolveVariablesWithReport('{slow1}+{slow2}', ctx(), {
       functionsDir: dir,
       timeoutMs: 1000,
     })
     const duration = Date.now() - start
-    expect(out).toBe('A+B')
+    expect(resolved).toBe('A+B')
     expect(duration).toBeLessThan(350)
   })
 })

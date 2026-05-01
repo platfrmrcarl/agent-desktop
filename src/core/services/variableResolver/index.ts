@@ -8,8 +8,6 @@ import {
 } from './customLoader'
 import type { ResolverCtx, ResolutionReport, VariableFn, VariableInfo } from './types'
 
-export type { ResolverCtx, VariableFn, BuiltinSpec, ResolutionReport, VariableInfo } from './types'
-
 const DEFAULT_TIMEOUT_MS = 5000
 
 interface ResolveOpts {
@@ -91,15 +89,6 @@ export async function resolveVariablesWithReport(
     )
   )
   return { resolved: parts.join(''), errors }
-}
-
-export async function resolveVariables(
-  prompt: string,
-  ctx: ResolverCtx,
-  opts?: ResolveOpts
-): Promise<string> {
-  const { resolved } = await resolveVariablesWithReport(prompt, ctx, opts)
-  return resolved
 }
 
 export async function listVariables(

@@ -6,7 +6,7 @@ import { resolveVariablesWithReport } from './variableResolver'
 
 // ─── TaskRunContext (injected by Electron or headless) ─────
 
-export interface StreamResult {
+interface StreamResult {
   content: string
   toolCalls: ToolCall[]
   aborted: boolean
