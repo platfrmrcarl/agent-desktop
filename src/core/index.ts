@@ -1,34 +1,26 @@
 // Core Engine — public API
+//
+// This barrel exposes only what is consumed by parts of the codebase
+// outside `src/core/` (main, renderer, preload, headless, extensions).
+// Symbols only used internally within `core/` should be imported
+// directly from their source file, not re-exported here. This enforces
+// the rule "core = single source for multi-consumed code" — the barrel
+// reflects the *public* contract of the core module.
 export { AgentEngine } from './engine'
-export type { EngineEvents, EngineOptions } from './engine'
-export { TypedEventEmitter } from './events'
-export type { EventMap } from './events'
 
 // Ports
 export type { Broadcaster } from './ports/broadcaster'
-export type { PlatformIO } from './ports/platformIO'
 export { noopPlatformIO } from './ports/platformIO'
-export type { SystemUI } from './ports/systemUI'
 export { noopSystemUI } from './ports/systemUI'
 export type { PlatformScheduler } from './ports/platformScheduler'
 export { noopPlatformScheduler } from './ports/platformScheduler'
-export type { HookRunner, HookSystemMessage } from './ports/hookRunner'
+export type { HookRunner } from './ports/hookRunner'
 export { noopHookRunner } from './ports/hookRunner'
 
 // Services
 export { SchedulerService, computeNextRun, getExpectedThemeFilename } from './services/scheduler'
 export { executeTask } from './services/taskExecutor'
-export type { TaskRunContext, StreamResult } from './services/taskExecutor'
-export { resolveVariables, resolveVariablesWithReport, listVariables } from './services/variableResolver'
-export type { ResolverCtx, VariableFn, BuiltinSpec, ResolutionReport, VariableInfo } from './services/variableResolver'
-
-// Dispatch
-export { DispatchRegistry } from './dispatch'
-export type { HandleRegistrar } from './dispatch'
-
-// Handlers
-export { registerCoreHandlers } from './handlers'
-export type { CoreHandlerOptions } from './handlers'
+export type { TaskRunContext } from './services/taskExecutor'
 
 // Types (re-exported for convenience)
 export * from './types'
