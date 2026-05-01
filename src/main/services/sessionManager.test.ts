@@ -525,4 +525,136 @@ describe('SessionManager API', () => {
 
     sessionManager.invalidateSession(20)
   })
+
+  // ─── Pre-refacto safety net: cover branches that the existing tests miss ──
+  // The 3 tests above cover: stream_event/text, result/success (deferred),
+  // system/task_started, system/task_progress, system/task_notification (within turn),
+  // reconnect-on-iterable-end, abort-via-invalidateSession.
+  //
+  // The 2 tests below cover: between-turn task_notification dispatch (line 287)
+  // and the generic-error catch branch that resolves with partial content (line 630-645).
+  // These exist explicitly to keep the consumeStream refactor honest — DO NOT delete
+  // without re-reading consumeStream's branch table.
+
+  it('dispatches task_notification between turns (after currentTurn = null)', async () => {
+    const streaming = await import('./streaming')
+    const sendChunkMock = vi.mocked(streaming.sendChunk)
+
+    const messages: Array<Record<string, unknown>> = [
+      { type: 'system', subtype: 'init', mcp_servers: [], session_id: 'sess-between' },
+      {
+        type: 'stream_event',
+        session_id: 'sess-between',
+        event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Done.' } },
+      },
+      // Turn end — sets currentTurn = null
+      {
+        type: 'result',
+        subtype: 'success',
+        stop_reason: 'end_turn',
+        session_id: 'sess-between',
+      },
+      // Between-turn task_notification: must hit line 287 branch
+      {
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'task-between-1',
+        status: 'completed',
+        summary: 'Background task completed between turns',
+        session_id: 'sess-between',
+      },
+    ]
+
+    let idx = 0
+    const mockQuery = {
+      [Symbol.asyncIterator]: () => ({
+        async next() {
+          if (idx < messages.length) return { value: messages[idx++], done: false }
+          return new Promise<{ value: undefined; done: true }>(() => {})
+        },
+      }),
+      close: vi.fn(),
+    }
+    mockSdk.query.mockReturnValue(mockQuery)
+    sendChunkMock.mockClear()
+
+    const result = await sessionManager.sendTurn(
+      30,
+      [{ role: 'user', content: 'go' }],
+      'You are helpful',
+      { model: 'claude-sonnet-4-20250514', cwd: '/tmp/test', permissionMode: 'bypassPermissions' } as any,
+      null
+    )
+
+    expect(result.content).toBe('Done.')
+    expect(result.aborted).toBe(false)
+
+    // Wait for the between-turn task_notification to be processed
+    await new Promise<void>((r) => setTimeout(r, 50))
+
+    const calls = sendChunkMock.mock.calls
+    const doneIdx = calls.findIndex((c) => c[0] === 'done')
+    const notifIdx = calls.findIndex(
+      (c, i) =>
+        i > doneIdx &&
+        c[0] === 'task_notification' &&
+        (c[2] as Record<string, unknown> | undefined)?.taskId === 'task-between-1',
+    )
+    expect(notifIdx).toBeGreaterThan(-1)
+    expect(notifIdx).toBeGreaterThan(doneIdx)
+    const notifExtra = calls[notifIdx][2] as Record<string, unknown>
+    expect(notifExtra.taskStatus).toBe('completed')
+
+    sessionManager.invalidateSession(30)
+  })
+
+  it('resolves turn with partial content + error when SDK iterable throws', async () => {
+    const streaming = await import('./streaming')
+    const sendChunkMock = vi.mocked(streaming.sendChunk)
+
+    // SDK yields some text, then throws a non-abort error
+    const partialMessages: Array<Record<string, unknown>> = [
+      { type: 'system', subtype: 'init', mcp_servers: [], session_id: 'sess-err' },
+      {
+        type: 'stream_event',
+        session_id: 'sess-err',
+        event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Partial answer before crash.' } },
+      },
+    ]
+
+    let idx = 0
+    const mockQuery = {
+      [Symbol.asyncIterator]: () => ({
+        async next() {
+          if (idx < partialMessages.length) return { value: partialMessages[idx++], done: false }
+          throw new Error('subprocess crashed')
+        },
+      }),
+      close: vi.fn(),
+    }
+    mockSdk.query.mockReturnValue(mockQuery)
+    sendChunkMock.mockClear()
+
+    const result = await sessionManager.sendTurn(
+      31,
+      [{ role: 'user', content: 'crash me' }],
+      'You are helpful',
+      { model: 'claude-sonnet-4-20250514', cwd: '/tmp/test', permissionMode: 'bypassPermissions' } as any,
+      null
+    )
+
+    // The catch branch (line 630-645) must resolve, not reject
+    expect(result.aborted).toBe(false)
+    expect(result.content).toBe('Partial answer before crash.')
+    expect(result.error).toContain('subprocess crashed')
+    expect(result.sessionId).toBe('sess-err')
+
+    // sendChunk('error', ...) must have been called
+    const errorCall = sendChunkMock.mock.calls.find((c) => c[0] === 'error')
+    expect(errorCall).toBeDefined()
+    expect(errorCall?.[1]).toContain('subprocess crashed')
+
+    // Session must be cleaned up after the catch + break
+    expect(sessionManager.hasActiveSession(31)).toBe(false)
+  })
 })
