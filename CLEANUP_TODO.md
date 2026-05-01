@@ -1,9 +1,20 @@
 # Cleanup résiduel — état au 2026-05-01
 
-Suite à la session de cleanup Fallow (16 commits sur `cleanup/fallow-remediation`,
-voir `git log master..cleanup/fallow-remediation`). Ce fichier liste **ce qui
-reste explicitement hors scope** de cette session, avec assez de contexte pour
-qu'une nouvelle session puisse reprendre.
+Suite à la session de cleanup Fallow. Ce fichier liste **ce qui reste
+explicitement hors scope**, avec assez de contexte pour qu'une nouvelle
+session puisse reprendre.
+
+**Mise à jour 2026-05-01 (suite)** : Les 3 hotspots CRAP catastrophiques
+(section 1 ci-dessous, supprimée) ont été refactorés en parallèle via
+3 subagents Opus. Voir commits `e73747b` (tests filet), `bcdf3d8`
+(chatStore), `112c8c6` (streamMessageOneShot), `67064cb` (consumeStream),
+`c0e185f` (factorisation `sdkSystemForward.ts`). Métriques avant/après :
+
+| # | Fonction | Fichier:ligne | CRAP avant | CRAP après |
+|---|----------|---------------|-----------:|-----------:|
+| 1 | `consumeStream` | `sessionManager.ts:264` | 16256 | **30** |
+| 2 | `streamMessageOneShot` | `streaming.ts:323` | 11342 | **132** |
+| 3 | Stream listener `<arrow>` | `chatStore.ts:576` | 12882 | **42** |
 
 ---
 
@@ -12,11 +23,12 @@ qu'une nouvelle session puisse reprendre.
 ```bash
 cd /home/octopusman/Documents/ClawdDesktopLinux/.worktrees/cleanup-fallow-remediation
 npx fallow dead-code --format json --quiet 2>/dev/null | jq '.total_issues'
-# Attendu : 99
+# Attendu : 99 (inchangé par le refacto Phase 1-3)
 npx fallow dupes --format json --quiet 2>/dev/null | jq '.clone_groups | length'
-# Attendu : 90
+# Attendu : 90 (inchangé)
 npm test
-# Attendu : 2013 main + 1161 renderer, exit 0
+# Attendu : 2015 main + 1161 renderer, exit 0
+# (1 flaky timing test connu dans variableResolver/index.test.ts:118 — passe en isolation)
 npm run build
 # Attendu : 0 errors
 ```
@@ -25,47 +37,40 @@ Si un chiffre a bougé : du code a été ajouté entre-temps, refaire un snapsho
 
 ---
 
-## 1. Hotspots CRAP catastrophiques (priorité haute, gros refacto)
+## 1. (DONE) Hotspots CRAP catastrophiques
 
-Trois fonctions ont une complexité hors-norme (CRAP > 1000, le seuil "rouge" est 30).
-Mesures via `npx fallow health --format json --quiet --explain` au début de la session :
+Refacto effectué le 2026-05-01. Voir le bloc "Mise à jour" en tête de fichier.
+Les 3 fonctions sont passées sous tous les seuils Fallow (cyclomatic < 15,
+cognitive < 30, CRAP < 300). La factorisation `sdkSystemForward.ts` a été
+ajoutée en bonus pour éliminer ~25 lignes de connaissance dupliquée entre
+`streaming.ts` et `sessionManager.ts`.
 
-| # | Fonction | Fichier:ligne | Cyclo | Cog | CRAP |
-|---|----------|---------------|-------|-----|------|
-| 1 | `consumeStream` | `src/main/services/sessionManager.ts:265` | 127 | **374** | 3610 |
-| 2 | `streamMessageOneShot` | `src/core/services/streaming.ts:315` | 127 | 168 | 3610 |
-| 3 | Stream listener anonyme | `src/renderer/stores/chatStore.ts:576` | 113 | 173 | 2871 |
+---
 
-### Stratégie suggérée par fonction
+## 1bis. Hotspots résiduels post-refacto (priorité moyenne)
 
-**`consumeStream` (cognitive 374 = le pire)** — c'est probablement le plus
-structurellement décomposable. La fonction contient un `for await` sur
-`session.query` qui dispatch sur `msg.type`. Découpage proposé :
-- Extract `handleMessage(session, msg)` qui ne fait que le switch type→sub-handler
-- Extract `handleEmptyExitLoop(session, consecutiveEmptyExits)` pour la boucle d'erreurs
-- Extract `handleClosingState(session)` pour le cleanup
-- Garder la coordination `consumeStream` mais limitée à la boucle externe + try/catch
+Le découpage de `consumeStream` et `streamMessageOneShot` a redistribué la
+complexité dans des handlers par msg.type. Les sous-handlers les plus denses
+restent au-dessus du seuil cyclomatic 15 (mais cog < 60, donc lisibles
+isolément) :
 
-**`streamMessageOneShot`** — orchestration du SDK Claude. Découpage :
-- Extract `prepareSdkOptions(messages, systemPrompt, aiSettings, sdkSessionId)` qui
-  construit le `queryOptions` (déjà aidé par `applyAiSettingsToQueryOptions` extrait
-  en commit `45a8981`)
-- Extract `accumulateMessages(query)` qui collecte le résultat brut
-- `streamMessageOneShot` devient une orchestration (3 calls + try/finally)
+| Fichier:ligne | Fonction | Cyclo | Cog | CRAP | Note |
+|---------------|----------|-------|-----|------|------|
+| `sessionManager.ts:423` | `handleStreamEvent` | 30 | 38 | 930 | content_block × tool_use/text/input_json — complexité protocole |
+| `sessionManager.ts:305` | `handleResultMessage` | 29 | 58 | 870 | turn-end fork (deferred polling vs done) |
+| `sessionManager.ts:501` | `handleSystemMessage` | 16 | 19 | 272 | 1 point au-dessus du seuil 15 (5 subtypes) |
+| `streaming.ts:497` | `handleStreamEventMessage` | 27 | 24 | 756 | parallèle de `sessionManager.ts:423` |
 
-**Stream listener `chatStore.ts:576`** — c'est un switch géant sur
-`StreamChunk['type']`. Découpage :
-- Le pattern `if (chunk.type === 'X') { ... }` répété ~15 fois → table de handlers
-  `const chunkHandlers: Record<StreamChunk['type'], (chunk, store) => void>`
-- Chaque handler est une fonction simple
-- Le listener devient `chunkHandlers[chunk.type]?.(chunk, store)`
+Action recommandée : **ajouter du coverage** plutôt que sur-décomposer.
+Fallow indique explicitement *"CRAP = CC² × (1-cov/100)³ + CC; higher
+coverage is the fastest way to bring CRAP under threshold"*. Les tests
+filet du commit `e73747b` (between-turn task_notification + generic
+error) couvrent déjà handleSystemMessage et finalizeStreamError. Cibler
+ensuite handleResultMessage (turn-end deferred path) et handleStreamEvent
+(tool_use detection + Task background).
 
-### Garde-fou
-
-Les 3 fonctions sont **chemin chaud** : le streaming est appelé à chaque
-message, par tous les utilisateurs. Tester en `npm run dev` après chaque
-sous-extraction et envoyer un vrai message à l'agent (Claude SDK + PI SDK)
-pour valider qu'aucun chunk type n'est perdu en route.
+`createSession` (`sessionManager.ts:736`, cyclo 34, cog 24, CRAP 1190) reste
+le hotspot medium-effort connu — voir section 3 ci-dessous.
 
 ---
 
