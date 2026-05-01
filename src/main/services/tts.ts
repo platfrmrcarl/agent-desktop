@@ -1,6 +1,6 @@
 import type { IpcMain } from 'electron'
 import type Database from 'better-sqlite3'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
 import { broadcast } from '../utils/broadcast'
 import {
   stop,

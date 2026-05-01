@@ -9,7 +9,8 @@ vi.mock('electron', () => ({
   },
 }))
 
-vi.mock('../index', () => ({
+vi.mock('../index', () => ({ getMainWindow: vi.fn(() => null) }))
+vi.mock('../mainContext', () => ({
   getMainWindow: vi.fn(() => null),
 }))
 
@@ -90,7 +91,7 @@ import { getSetting } from '../../core/utils/db'
 import { loadAgentSDK } from '../../core/services/anthropic'
 import { injectApiKeyEnv } from '../../core/services/streaming'
 import { duckOtherStreams, restoreOtherStreams } from '../../core/utils/volume'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
 import { getAISettings } from '../../core/handlers/messages'
 
 const mockFindBinary = vi.mocked(findBinaryInPath)

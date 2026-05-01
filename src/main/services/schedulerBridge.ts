@@ -10,7 +10,7 @@ import { validatePositiveInt } from '../utils/validate'
 import { broadcast } from '../utils/broadcast'
 import { sanitizeError } from '../utils/errors'
 import { findBinaryInPath } from '../utils/env'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
 
 let server: net.Server | null = null
 let socketPath: string | null = null

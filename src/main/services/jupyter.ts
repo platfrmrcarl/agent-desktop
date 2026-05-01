@@ -6,7 +6,7 @@ import { findBinaryInPath } from '../utils/env'
 import { broadcast } from '../utils/broadcast'
 import { validateString } from '../utils/validate'
 import { sanitizeError } from '../utils/errors'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
 
 // ─── Types ────────────────────────────────────────────
 

@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { App, BrowserWindow } from 'electron'
 
 // Mock the main index module (getMainWindow)
-vi.mock('../index', () => ({
+vi.mock('../index', () => ({ getMainWindow: vi.fn(() => null) }))
+vi.mock('../mainContext', () => ({
   getMainWindow: vi.fn(),
 }))
 
@@ -32,7 +33,7 @@ describe('DeepLink Service', () => {
     }
 
     // Import after mocks are set up
-    const { getMainWindow } = await import('../index')
+    const { getMainWindow } = await import('../mainContext')
     vi.mocked(getMainWindow).mockReturnValue(mockWindow as BrowserWindow)
   })
 
@@ -139,7 +140,7 @@ describe('DeepLink Service', () => {
 
   it('handles missing window gracefully', async () => {
     const { setupDeepLinks } = await import('./deeplink')
-    const { getMainWindow } = await import('../index')
+    const { getMainWindow } = await import('../mainContext')
     vi.mocked(getMainWindow).mockReturnValue(null as any)
 
     setupDeepLinks(mockApp as App)

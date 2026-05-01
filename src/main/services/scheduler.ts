@@ -5,7 +5,7 @@ import { Notification } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
 import { promises as fsp } from 'fs'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
 import {
   buildMessageHistory,
   getAISettings,

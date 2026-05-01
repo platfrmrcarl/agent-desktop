@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockSend = vi.fn()
-vi.mock('../index', () => ({
+vi.mock('../index', () => ({ getMainWindow: vi.fn(() => null) }))
+vi.mock('../mainContext', () => ({
   getMainWindow: vi.fn(() => ({
     isDestroyed: () => false,
     webContents: { send: (...args: unknown[]) => mockSend(...args) },

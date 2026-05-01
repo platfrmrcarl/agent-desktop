@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { loadAgentSDK } from './anthropic'
-import { sendChunk, abortControllers, respondToApproval, buildPromptWithHistory } from './streaming'
+import { sendChunk, abortControllers, respondToApproval, buildPromptWithHistory } from '../../core/services/streaming'
 import { createCanUseTool } from '../../core/services/canUseTool'
 import {
   forwardInitMcpStatus,
@@ -12,7 +12,7 @@ import { buildQueryOptions } from './sessionManager/buildQueryOptions'
 import { setupAuth } from './sessionManager/setupAuth'
 import { configureMcp } from './sessionManager/configureMcp'
 import { wireAbort } from './sessionManager/wireAbort'
-import type { AISettings } from './streaming'
+import type { AISettings } from '../../core/services/streaming'
 import type { ToolCall, ToolApprovalResponse, AskUserResponse } from '../../shared/types'
 
 // ─── Types ────────────────────────────────────────────────────

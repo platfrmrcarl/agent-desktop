@@ -19,7 +19,7 @@
  * New Electron-only primitives → this file only.
  */
 import { BrowserWindow } from 'electron'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
 import {
   setChunkSender,
   setSessionManager,
