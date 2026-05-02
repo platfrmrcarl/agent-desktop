@@ -214,20 +214,60 @@ function makeLogger(cfg: InternalConfig): Logger {
 }
 
 /**
+ * Build a minimal WritableStream-like adapter that routes writes through a
+ * console method. Used in environments where `process.stdout`/`process.stderr`
+ * are unavailable (Electron renderer, browser bundles, web workers).
+ *
+ * The logger's `emit()` writes a single line ending in `\n` per record; we
+ * strip the trailing newline because the browser console adds one already.
+ */
+function makeConsoleStream(method: (...args: unknown[]) => void): NodeJS.WritableStream {
+  const stream = {
+    write(chunk: string | Buffer): boolean {
+      const str = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+      method(str.replace(/\n$/, ''))
+      return true
+    },
+  } as unknown as NodeJS.WritableStream
+  return stream
+}
+
+/**
  * Create a structured logger.
  *
  * The `name` is emitted with every record so cross-module log streams remain
  * grep-able. Use `child()` to add request/conversation/etc. bindings rather
  * than spawning new top-level loggers per call site.
+ *
+ * Destination resolution (in order):
+ *   1. opts.destination if provided
+ *   2. process.stdout / process.stderr if available (Node, jsdom)
+ *   3. console.log / console.error fallback (Electron renderer, browser)
+ *
+ * Never throws on init — the renderer process exposes `process` but
+ * `process.stdout` is undefined; we route to DevTools console there.
  */
 export function createLogger(name: string, opts: LoggerOptions = {}): Logger {
-  const destination = opts.destination ?? (typeof process !== 'undefined' ? process.stdout : undefined)
-  if (!destination) {
-    throw new Error('createLogger: no destination available (process.stdout undefined)')
-  }
-  // For Node: stderr exists; in jsdom it does too. Errors/warnings go there.
+  const stdout =
+    typeof process !== 'undefined' && process.stdout ? process.stdout : undefined
+  const stderr =
+    typeof process !== 'undefined' && process.stderr ? process.stderr : undefined
+
+  const destination =
+    opts.destination ??
+    stdout ??
+    makeConsoleStream((...args) => {
+      // eslint-disable-next-line no-console
+      console.log(...args)
+    })
+
   const errorDestination =
-    opts.destination ?? (typeof process !== 'undefined' ? process.stderr : destination)
+    opts.destination ??
+    stderr ??
+    makeConsoleStream((...args) => {
+      // eslint-disable-next-line no-console
+      console.error(...args)
+    })
 
   const cfg: InternalConfig = {
     name,

@@ -352,6 +352,40 @@ describe('createLogger defaults', () => {
   })
 })
 
+describe('renderer / browser fallback (no process.stdout)', () => {
+  it('falls back to console without throwing when process.stdout is undefined', () => {
+    const originalStdout = process.stdout
+    const originalStderr = process.stderr
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      // Simulate Electron renderer: process exists but stdout/stderr are undefined
+      Object.defineProperty(process, 'stdout', { value: undefined, configurable: true })
+      Object.defineProperty(process, 'stderr', { value: undefined, configurable: true })
+
+      // Must not throw
+      const log = createLogger('renderer-store', { level: 'debug' })
+      log.info('settings loaded', { count: 12 })
+      log.error('save failed', new Error('quota exceeded'))
+
+      expect(consoleLog).toHaveBeenCalled()
+      expect(consoleError).toHaveBeenCalled()
+      // Verify the JSON shape made it through (msg + ctx for info)
+      const infoLine = consoleLog.mock.calls[0][0] as string
+      const parsed = JSON.parse(infoLine)
+      expect(parsed.level).toBe('info')
+      expect(parsed.name).toBe('renderer-store')
+      expect(parsed.msg).toBe('settings loaded')
+      expect(parsed.ctx).toEqual({ count: 12 })
+    } finally {
+      Object.defineProperty(process, 'stdout', { value: originalStdout, configurable: true })
+      Object.defineProperty(process, 'stderr', { value: originalStderr, configurable: true })
+      consoleLog.mockRestore()
+      consoleError.mockRestore()
+    }
+  })
+})
+
 describe('integration smoke', () => {
   it('round-trips a realistic record: ctx merging + error + name', () => {
     const { logger, entries } = captureLogger({ name: 'streaming' })
