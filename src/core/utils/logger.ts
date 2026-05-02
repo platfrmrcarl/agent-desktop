@@ -244,7 +244,12 @@ export function createLogger(name: string, opts: LoggerOptions = {}): Logger {
  * Test fixture: returns a logger that captures every entry into an array
  * instead of writing to a stream. Levels still filter the same way as a
  * real logger, so consumer code under test sees realistic behavior.
+ *
+ * Reason for suppress: consumed only by *.test.ts files which are in
+ * fallow's ignorePatterns, so fallow can't see those consumers and
+ * flags this as unused.
  */
+// fallow-ignore-next-line unused-export
 export function captureLogger(opts: { level?: LogLevel; name?: string } = {}): {
   logger: Logger
   entries: LogEntry[]
