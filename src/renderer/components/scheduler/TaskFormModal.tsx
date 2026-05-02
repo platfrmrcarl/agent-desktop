@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import type { ScheduledTask, CreateScheduledTask, IntervalUnit, VariableInfo, PreRunAction } from '../../../shared/types'
 import { useConversationsStore } from '../../stores/conversationsStore'
-import { RadioGroup } from '../shared/RadioGroup'
-import { tint } from '../../utils/colorMix'
 import { useEscapeKey } from '../../hooks/useEscapeKey'
+import { tint } from '../../utils/colorMix'
+import { PromptSection } from './taskForm/PromptSection'
+import { ScheduleSection } from './taskForm/ScheduleSection'
+import { AdvancedSection, type MaxRunsMode } from './taskForm/AdvancedSection'
 
 interface Props {
   task?: ScheduledTask | null
@@ -13,28 +15,75 @@ interface Props {
   onClose: () => void
 }
 
+interface FormState {
+  name: string
+  prompt: string
+  conversationId: number | 'new'
+  intervalValue: number
+  intervalUnit: IntervalUnit
+  scheduleTime: string
+  catchUp: boolean
+  notifyDesktop: boolean
+  maxRunsMode: MaxRunsMode
+  maxRunsValue: number
+  notifyVoice: boolean
+  preRunAction: PreRunAction
+}
+
+function resolveMaxRunsMode(maxRuns: number | null | undefined): MaxRunsMode {
+  if (maxRuns == null) return 'unlimited'
+  if (maxRuns === 1) return 'once'
+  return 'custom'
+}
+
+function resolveMaxRunsValue(maxRuns: number | null | undefined): number {
+  return maxRuns != null && maxRuns > 1 ? maxRuns : 5
+}
+
+function autoNameFromPrompt(p: string): string {
+  if (!p) return ''
+  return p.length > 50 ? p.slice(0, 50).trim() + '...' : p
+}
+
+function getInitialFormState(
+  task: ScheduledTask | null | undefined,
+  initialPrompt: string | undefined,
+  initialConversationId: number | undefined,
+): FormState {
+  const effectivePrompt = initialPrompt ?? (task ? task.prompt : '')
+  const maxRuns = task ? task.max_runs : undefined
+  return {
+    name: (task && task.name) || autoNameFromPrompt(effectivePrompt),
+    prompt: effectivePrompt,
+    conversationId: initialConversationId ?? (task ? task.conversation_id : 'new'),
+    intervalValue: (task && task.interval_value) || 1,
+    intervalUnit: (task && task.interval_unit) || 'hours',
+    scheduleTime: (task && task.schedule_time) || '',
+    catchUp: task ? task.catch_up !== false : true,
+    notifyDesktop: task ? task.notify_desktop !== false : true,
+    maxRunsMode: resolveMaxRunsMode(maxRuns),
+    maxRunsValue: resolveMaxRunsValue(maxRuns),
+    notifyVoice: (task && task.notify_voice) || false,
+    preRunAction: (task && task.pre_run_action) || 'none',
+  }
+}
+
 export function TaskFormModal({ task, initialPrompt, initialConversationId, onSave, onClose }: Props) {
   const { conversations, loadConversations } = useConversationsStore()
 
-  const effectivePrompt = initialPrompt ?? task?.prompt ?? ''
-  const [name, setName] = useState(
-    task?.name || (effectivePrompt ? effectivePrompt.slice(0, 50).trim() + (effectivePrompt.length > 50 ? '...' : '') : '')
-  )
-  const [prompt, setPrompt] = useState(effectivePrompt)
-  const [conversationId, setConversationId] = useState<number | 'new'>(initialConversationId ?? task?.conversation_id ?? 'new')
-  const [intervalValue, setIntervalValue] = useState(task?.interval_value || 1)
-  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>(task?.interval_unit || 'hours')
-  const [scheduleTime, setScheduleTime] = useState(task?.schedule_time || '')
-  const [catchUp, setCatchUp] = useState(task?.catch_up !== false)
-  const [notifyDesktop, setNotifyDesktop] = useState(task?.notify_desktop !== false)
-  const [maxRunsMode, setMaxRunsMode] = useState<'unlimited' | 'once' | 'custom'>(
-    task?.max_runs == null ? 'unlimited' : task.max_runs === 1 ? 'once' : 'custom'
-  )
-  const [maxRunsValue, setMaxRunsValue] = useState(
-    task?.max_runs != null && task.max_runs > 1 ? task.max_runs : 5
-  )
-  const [notifyVoice, setNotifyVoice] = useState(task?.notify_voice || false)
-  const [preRunAction, setPreRunAction] = useState<PreRunAction>(task?.pre_run_action ?? 'none')
+  const init = getInitialFormState(task, initialPrompt, initialConversationId)
+  const [name, setName] = useState(init.name)
+  const [prompt, setPrompt] = useState(init.prompt)
+  const [conversationId, setConversationId] = useState<number | 'new'>(init.conversationId)
+  const [intervalValue, setIntervalValue] = useState(init.intervalValue)
+  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>(init.intervalUnit)
+  const [scheduleTime, setScheduleTime] = useState(init.scheduleTime)
+  const [catchUp, setCatchUp] = useState(init.catchUp)
+  const [notifyDesktop, setNotifyDesktop] = useState(init.notifyDesktop)
+  const [maxRunsMode, setMaxRunsMode] = useState<MaxRunsMode>(init.maxRunsMode)
+  const [maxRunsValue, setMaxRunsValue] = useState(init.maxRunsValue)
+  const [notifyVoice, setNotifyVoice] = useState(init.notifyVoice)
+  const [preRunAction, setPreRunAction] = useState<PreRunAction>(init.preRunAction)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [variables, setVariables] = useState<VariableInfo[]>([])
@@ -118,265 +167,40 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
             </div>
           )}
 
-          {/* Name */}
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
-              Name
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. News summary"
-              className="w-full px-3 py-2 rounded text-sm outline-none"
-              style={{
-                backgroundColor: 'var(--color-bg)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-text-muted)/20',
-              }}
-              autoFocus
-            />
-          </div>
-
-          {/* Prompt */}
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
-              Prompt
-            </label>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="The message sent to the conversation each time..."
-              rows={4}
-              className="w-full px-3 py-2 rounded text-sm outline-none resize-y"
-              style={{
-                backgroundColor: 'var(--color-bg)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-text-muted)/20',
-              }}
-            />
-            {variables.length > 0 && (
-              <details className="mt-2 group">
-                <summary
-                  className="cursor-pointer select-none text-xs flex items-center gap-1.5 py-1"
-                  style={{ color: 'var(--color-text-muted)', listStyle: 'none' }}
-                >
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 10 10"
-                    className="transition-transform group-open:rotate-90"
-                    fill="currentColor"
-                  >
-                    <path d="M3 1l4 4-4 4V1z" />
-                  </svg>
-                  <span>Available variables ({variables.length}) — use <code className="font-mono">{'{name}'}</code> or <code className="font-mono">{'{name:arg}'}</code></span>
-                </summary>
-                <div
-                  className="mt-2 rounded p-2 max-h-56 overflow-y-auto space-y-1.5 text-xs"
-                  style={{
-                    backgroundColor: 'var(--color-bg)',
-                    border: '1px solid color-mix(in srgb, var(--color-text-muted) 15%, transparent)',
-                  }}
-                >
-                  {variables.map((v) => (
-                    <div key={v.name} className="flex items-start gap-2">
-                      <code
-                        className="font-mono px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap"
-                        style={{
-                          backgroundColor: 'color-mix(in srgb, var(--color-primary) 12%, transparent)',
-                          color: 'var(--color-text)',
-                        }}
-                      >
-                        {'{'}{v.name}{v.argsHint ? `:${v.argsHint}` : ''}{'}'}
-                      </code>
-                      {v.source === 'custom' && (
-                        <span
-                          className="text-[0.625rem] uppercase px-1 py-0.5 rounded shrink-0"
-                          style={{
-                            backgroundColor: 'color-mix(in srgb, var(--color-accent, var(--color-primary)) 20%, transparent)',
-                            color: 'var(--color-text)',
-                          }}
-                        >
-                          custom
-                        </span>
-                      )}
-                      <span style={{ color: 'var(--color-text-muted)' }}>{v.description}</span>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
-          </div>
-
-          {/* Conversation */}
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
-              Conversation
-            </label>
-            <select
-              value={conversationId}
-              onChange={(e) => setConversationId(e.target.value === 'new' ? 'new' : Number(e.target.value))}
-              className="w-full px-3 py-2 rounded text-sm outline-none"
-              style={{
-                backgroundColor: 'var(--color-bg)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-text-muted)/20',
-              }}
-            >
-              <option value="new">+ Create new conversation</option>
-              {conversations.map((c) => (
-                <option key={c.id} value={c.id}>{c.title}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Schedule */}
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
-              Frequency
-            </label>
-            <div className="flex items-center gap-2">
-              <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Every</span>
-              <input
-                type="number"
-                min={1}
-                value={intervalValue}
-                onChange={(e) => setIntervalValue(Math.max(1, Number(e.target.value)))}
-                className="w-20 px-3 py-2 rounded text-sm outline-none"
-                style={{
-                  backgroundColor: 'var(--color-bg)',
-                  color: 'var(--color-text)',
-                  border: '1px solid var(--color-text-muted)/20',
-                }}
-              />
-              <select
-                value={intervalUnit}
-                onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)}
-                className="px-3 py-2 rounded text-sm outline-none"
-                style={{
-                  backgroundColor: 'var(--color-bg)',
-                  color: 'var(--color-text)',
-                  border: '1px solid var(--color-text-muted)/20',
-                }}
-              >
-                <option value="minutes">minute(s)</option>
-                <option value="hours">hour(s)</option>
-                <option value="days">day(s)</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Time of day — shown for daily tasks */}
-          {intervalUnit === 'days' && (
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
-                Time of day
-              </label>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min={0}
-                    max={23}
-                    value={scheduleTime ? scheduleTime.split(':')[0] : ''}
-                    onChange={(e) => {
-                      const h = Math.max(0, Math.min(23, Number(e.target.value)))
-                      const m = scheduleTime ? scheduleTime.split(':')[1] || '00' : '00'
-                      setScheduleTime(`${String(h).padStart(2, '0')}:${m}`)
-                    }}
-                    placeholder="HH"
-                    className="w-16 px-3 py-2 rounded text-sm outline-none text-center"
-                    style={{
-                      backgroundColor: 'var(--color-bg)',
-                      color: 'var(--color-text)',
-                      border: '1px solid var(--color-text-muted)/20',
-                    }}
-                  />
-                  <span className="text-sm font-bold" style={{ color: 'var(--color-text-muted)' }}>:</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={59}
-                    value={scheduleTime ? scheduleTime.split(':')[1] : ''}
-                    onChange={(e) => {
-                      const m = Math.max(0, Math.min(59, Number(e.target.value)))
-                      const h = scheduleTime ? scheduleTime.split(':')[0] || '00' : '00'
-                      setScheduleTime(`${h}:${String(m).padStart(2, '0')}`)
-                    }}
-                    placeholder="MM"
-                    className="w-16 px-3 py-2 rounded text-sm outline-none text-center"
-                    style={{
-                      backgroundColor: 'var(--color-bg)',
-                      color: 'var(--color-text)',
-                      border: '1px solid var(--color-text-muted)/20',
-                    }}
-                  />
-                </div>
-                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  24h format — leave empty for interval from last run
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Execution limit */}
-          <fieldset className="border-0 p-0 m-0">
-            <legend className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>
-              Execution limit
-            </legend>
-            <div className="flex flex-col gap-1.5">
-              {([
-                { value: 'unlimited' as const, label: 'Unlimited' },
-                { value: 'once' as const, label: 'Run once' },
-                { value: 'custom' as const, label: 'Custom' },
-              ]).map(({ value, label }) => (
-                <label key={value} className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="maxRunsMode"
-                    checked={maxRunsMode === value}
-                    onChange={() => setMaxRunsMode(value)}
-                    className="accent-[var(--color-primary)]"
-                  />
-                  <span className="text-sm" style={{ color: 'var(--color-text)' }}>{label}</span>
-                  {value === 'custom' && maxRunsMode === 'custom' && (
-                    <input
-                      type="number"
-                      min={2}
-                      value={maxRunsValue}
-                      onChange={(e) => setMaxRunsValue(Math.max(2, Number(e.target.value)))}
-                      className="w-20 px-2 py-1 rounded text-sm outline-none ml-1"
-                      style={{
-                        backgroundColor: 'var(--color-bg)',
-                        color: 'var(--color-text)',
-                        border: '1px solid var(--color-text-muted)/20',
-                      }}
-                    />
-                  )}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          {/* Pre-run context action */}
-          <RadioGroup<PreRunAction>
-            legend="Before each run"
-            name="preRunAction"
-            value={preRunAction}
-            onChange={setPreRunAction}
-            options={[
-              { value: 'none', label: 'Keep context', hint: 'Default — previous history is visible to the AI.' },
-              { value: 'clear', label: 'Clear context', hint: 'Resets the conversation history before the prompt. Zero LLM cost.' },
-              { value: 'compact', label: 'Compact (summarize, then clear)', hint: 'Summarizes previous history with Haiku, then clears. Falls back to plain clear if the summary fails.' },
-            ]}
+          <PromptSection
+            name={name}
+            prompt={prompt}
+            conversationId={conversationId}
+            conversations={conversations}
+            variables={variables}
+            onNameChange={setName}
+            onPromptChange={setPrompt}
+            onConversationIdChange={setConversationId}
           />
 
-          {/* Toggles */}
-          <div className="space-y-2">
-            <Toggle label="Catch up missed runs" checked={catchUp} onChange={setCatchUp} />
-            <Toggle label="Desktop notification" checked={notifyDesktop} onChange={setNotifyDesktop} />
-            <Toggle label="Voice notification (TTS)" checked={notifyVoice} onChange={setNotifyVoice} />
-          </div>
+          <ScheduleSection
+            intervalValue={intervalValue}
+            intervalUnit={intervalUnit}
+            scheduleTime={scheduleTime}
+            onIntervalValueChange={setIntervalValue}
+            onIntervalUnitChange={setIntervalUnit}
+            onScheduleTimeChange={setScheduleTime}
+          />
+
+          <AdvancedSection
+            maxRunsMode={maxRunsMode}
+            maxRunsValue={maxRunsValue}
+            catchUp={catchUp}
+            notifyDesktop={notifyDesktop}
+            notifyVoice={notifyVoice}
+            preRunAction={preRunAction}
+            onMaxRunsModeChange={setMaxRunsMode}
+            onMaxRunsValueChange={setMaxRunsValue}
+            onCatchUpChange={setCatchUp}
+            onNotifyDesktopChange={setNotifyDesktop}
+            onNotifyVoiceChange={setNotifyVoice}
+            onPreRunActionChange={setPreRunAction}
+          />
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">
@@ -402,26 +226,5 @@ export function TaskFormModal({ task, initialPrompt, initialConversationId, onSa
         </form>
       </div>
     </div>
-  )
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex items-center gap-3 cursor-pointer">
-      <div
-        className="relative w-9 h-5 rounded-full transition-colors"
-        style={{ backgroundColor: checked ? 'var(--color-primary)' : 'var(--color-bg)' }}
-        onClick={() => onChange(!checked)}
-      >
-        <div
-          className="absolute top-0.5 w-4 h-4 rounded-full transition-transform"
-          style={{
-            backgroundColor: '#fff',
-            transform: checked ? 'translateX(18px)' : 'translateX(2px)',
-          }}
-        />
-      </div>
-      <span className="text-sm" style={{ color: 'var(--color-text)' }}>{label}</span>
-    </label>
   )
 }

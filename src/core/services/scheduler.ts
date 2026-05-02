@@ -4,50 +4,15 @@ import { DEFAULT_MODEL } from '../types/constants'
 import type { ScheduledTask, CreateScheduledTask, IntervalUnit, PreRunAction } from '../types'
 import { getDefaultFolderId, getDefaultModel, conversationExists } from '../db/queries'
 import type { SqlJsAdapter } from '../db/sqljs-adapter'
+import { validatePreRunAction, validateIntervalUnit, validateScheduleTime } from './scheduler/validation'
+import { executeTaskUpdate, executeTaskDelete, executeTaskToggle } from './scheduler/persistence'
+import { computeNextRun } from './scheduler/compute'
+import { createLogger } from '../utils/logger'
 
-const VALID_PRE_RUN_ACTIONS: readonly PreRunAction[] = ['none', 'clear', 'compact']
+const log = createLogger('scheduler')
 
-function validatePreRunAction(value: unknown): PreRunAction {
-  if (typeof value !== 'string' || !VALID_PRE_RUN_ACTIONS.includes(value as PreRunAction)) {
-    throw new Error("pre_run_action must be 'none', 'clear', or 'compact'")
-  }
-  return value as PreRunAction
-}
-
-// ─── Pure computations ─────────────────────────────────────
-
-export function computeNextRun(
-  intervalValue: number,
-  intervalUnit: IntervalUnit,
-  scheduleTime: string | null,
-  fromTime: Date = new Date()
-): string {
-  // Truncate seconds — prevents drift from accumulating across ticks
-  const from = new Date(fromTime)
-  from.setSeconds(0, 0)
-  const ms = from.getTime()
-
-  if (intervalUnit === 'minutes') {
-    return new Date(ms + intervalValue * 60_000).toISOString()
-  }
-
-  if (intervalUnit === 'hours') {
-    return new Date(ms + intervalValue * 3_600_000).toISOString()
-  }
-
-  // days
-  if (scheduleTime && /^\d{2}:\d{2}$/.test(scheduleTime)) {
-    const [hours, minutes] = scheduleTime.split(':').map(Number)
-    const next = new Date(from)
-    next.setHours(hours, minutes, 0, 0)
-    if (next.getTime() <= ms) {
-      next.setDate(next.getDate() + intervalValue)
-    }
-    return next.toISOString()
-  }
-
-  return new Date(ms + intervalValue * 86_400_000).toISOString()
-}
+// Re-exported for existing callers (tests, main/services/scheduler.ts).
+export { computeNextRun }
 
 export function getExpectedThemeFilename(
   dayTime: string,
@@ -123,6 +88,72 @@ const DUE_QUERY = `
     AND (t.last_status IS NULL OR t.last_status != 'running')
 `
 
+// ─── Update field descriptors ──────────────────────────────
+// Each entry maps a CreateScheduledTask key to a (column, transform) pair.
+// `transform` validates and converts the input to the SQL bind value.
+
+type FieldDescriptor<K extends keyof CreateScheduledTask> = {
+  column: string
+  transform: (value: NonNullable<CreateScheduledTask[K]>, db: Database.Database) => unknown
+}
+
+const boolToInt = (v: unknown): number => (v ? 1 : 0)
+
+const FIELD_DESCRIPTORS: { [K in keyof CreateScheduledTask]?: FieldDescriptor<K> } = {
+  name: { column: 'name', transform: (v) => validateString(v, 'name', 200) },
+  prompt: { column: 'prompt', transform: (v) => validateString(v, 'prompt', 10_000_000) },
+  conversation_id: {
+    column: 'conversation_id',
+    transform: (v, db) => {
+      validatePositiveInt(v, 'conversation_id')
+      if (!conversationExists(db as unknown as SqlJsAdapter, v as number)) throw new Error('Conversation not found')
+      return v
+    },
+  },
+  interval_value: { column: 'interval_value', transform: (v) => validatePositiveInt(v, 'interval_value') },
+  interval_unit: { column: 'interval_unit', transform: (v) => validateIntervalUnit(v) },
+  schedule_time: {
+    column: 'schedule_time',
+    transform: (v) => {
+      validateScheduleTime(v)
+      return v || null
+    },
+  },
+  catch_up: { column: 'catch_up', transform: boolToInt },
+  max_runs: {
+    column: 'max_runs',
+    transform: (v) => {
+      if (v !== null) validatePositiveInt(v, 'max_runs')
+      return v ?? null
+    },
+  },
+  notify_desktop: { column: 'notify_desktop', transform: boolToInt },
+  notify_voice: { column: 'notify_voice', transform: boolToInt },
+  pre_run_action: { column: 'pre_run_action', transform: (v) => validatePreRunAction(v) },
+}
+
+/**
+ * Walk the descriptor table once. Each provided (non-undefined) field becomes a
+ * `column = ?` clause + bind value. `null` is forwarded for nullable columns
+ * (max_runs, schedule_time) — only `undefined` means "skip".
+ */
+function collectFieldUpdates(
+  data: Partial<CreateScheduledTask>,
+  db: Database.Database
+): { updates: string[]; values: unknown[] } {
+  const updates: string[] = []
+  const values: unknown[] = []
+  for (const key of Object.keys(FIELD_DESCRIPTORS) as (keyof CreateScheduledTask)[]) {
+    const value = data[key]
+    if (value === undefined) continue
+    const descriptor = FIELD_DESCRIPTORS[key] as FieldDescriptor<typeof key> | undefined
+    if (!descriptor) continue
+    updates.push(`${descriptor.column} = ?`)
+    values.push(descriptor.transform(value as never, db))
+  }
+  return { updates, values }
+}
+
 // ─── SchedulerService ──────────────────────────────────────
 
 export class SchedulerService {
@@ -147,13 +178,8 @@ export class SchedulerService {
     validateString(data.prompt, 'prompt', 10_000_000)
     validatePositiveInt(data.interval_value, 'interval_value')
 
-    const validUnits: IntervalUnit[] = ['minutes', 'hours', 'days']
-    if (!validUnits.includes(data.interval_unit)) {
-      throw new Error('interval_unit must be minutes, hours, or days')
-    }
-    if (data.schedule_time && !/^\d{2}:\d{2}$/.test(data.schedule_time)) {
-      throw new Error('schedule_time must be HH:MM format')
-    }
+    validateIntervalUnit(data.interval_unit)
+    validateScheduleTime(data.schedule_time)
 
     // Resolve or create conversation
     let conversationId: number
@@ -207,112 +233,45 @@ export class SchedulerService {
     return this.get(result.lastInsertRowid as number)!
   }
 
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   update(id: number, data: Partial<CreateScheduledTask>): void {
     validatePositiveInt(id, 'id')
 
     const existing = this.db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as Record<string, unknown> | undefined
     if (!existing) throw new Error('Task not found')
 
-    const updates: string[] = []
-    const values: unknown[] = []
-
-    if (data.name !== undefined) {
-      validateString(data.name, 'name', 200)
-      updates.push('name = ?')
-      values.push(data.name)
-    }
-    if (data.prompt !== undefined) {
-      validateString(data.prompt, 'prompt', 10_000_000)
-      updates.push('prompt = ?')
-      values.push(data.prompt)
-    }
-    if (data.conversation_id !== undefined) {
-      validatePositiveInt(data.conversation_id, 'conversation_id')
-      if (!conversationExists(this.db as unknown as SqlJsAdapter, data.conversation_id)) throw new Error('Conversation not found')
-      updates.push('conversation_id = ?')
-      values.push(data.conversation_id)
-    }
-    if (data.interval_value !== undefined) {
-      validatePositiveInt(data.interval_value, 'interval_value')
-      updates.push('interval_value = ?')
-      values.push(data.interval_value)
-    }
-    if (data.interval_unit !== undefined) {
-      const validUnits: IntervalUnit[] = ['minutes', 'hours', 'days']
-      if (!validUnits.includes(data.interval_unit)) throw new Error('Invalid interval_unit')
-      updates.push('interval_unit = ?')
-      values.push(data.interval_unit)
-    }
-    if (data.schedule_time !== undefined) {
-      if (data.schedule_time && !/^\d{2}:\d{2}$/.test(data.schedule_time)) {
-        throw new Error('schedule_time must be HH:MM format')
-      }
-      updates.push('schedule_time = ?')
-      values.push(data.schedule_time || null)
-    }
-    if (data.catch_up !== undefined) {
-      updates.push('catch_up = ?')
-      values.push(data.catch_up ? 1 : 0)
-    }
-    if (data.max_runs !== undefined) {
-      if (data.max_runs !== null) validatePositiveInt(data.max_runs, 'max_runs')
-      updates.push('max_runs = ?')
-      values.push(data.max_runs ?? null)
-    }
-    if (data.notify_desktop !== undefined) {
-      updates.push('notify_desktop = ?')
-      values.push(data.notify_desktop ? 1 : 0)
-    }
-    if (data.notify_voice !== undefined) {
-      updates.push('notify_voice = ?')
-      values.push(data.notify_voice ? 1 : 0)
-    }
-    if (data.pre_run_action !== undefined) {
-      const action = validatePreRunAction(data.pre_run_action)
-      updates.push('pre_run_action = ?')
-      values.push(action)
-    }
-
+    const { updates, values } = collectFieldUpdates(data, this.db)
     if (updates.length === 0) return
 
     // Recompute next_run_at with potentially updated schedule
     const iv = (data.interval_value ?? existing.interval_value) as number
     const iu = (data.interval_unit ?? existing.interval_unit) as IntervalUnit
     const st = data.schedule_time !== undefined ? (data.schedule_time || null) : (existing.schedule_time as string | null)
-    const nextRun = computeNextRun(iv, iu, st)
     updates.push('next_run_at = ?')
-    values.push(nextRun)
-
-    const now = new Date().toISOString()
+    values.push(computeNextRun(iv, iu, st))
     updates.push('updated_at = ?')
-    values.push(now)
+    values.push(new Date().toISOString())
 
-    values.push(id)
-    this.db.prepare(`UPDATE scheduled_tasks SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+    executeTaskUpdate(this.db, id, updates, values)
   }
 
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   delete(id: number): void {
     validatePositiveInt(id, 'id')
-    this.db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id)
+    executeTaskDelete(this.db, id)
   }
 
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   toggle(id: number, enabled: boolean): void {
     validatePositiveInt(id, 'id')
-    const now = new Date().toISOString()
-
-    if (enabled) {
-      const row = this.db.prepare('SELECT interval_value, interval_unit, schedule_time FROM scheduled_tasks WHERE id = ?')
-        .get(id) as { interval_value: number; interval_unit: IntervalUnit; schedule_time: string | null } | undefined
-      if (!row) throw new Error('Task not found')
-      const nextRun = computeNextRun(row.interval_value, row.interval_unit, row.schedule_time)
-      this.db.prepare('UPDATE scheduled_tasks SET enabled = 1, next_run_at = ?, updated_at = ? WHERE id = ?')
-        .run(nextRun, now, id)
-    } else {
-      this.db.prepare('UPDATE scheduled_tasks SET enabled = 0, updated_at = ? WHERE id = ?')
-        .run(now, id)
-    }
+    executeTaskToggle(this.db, id, enabled, new Date().toISOString())
   }
 
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   conversationTasks(conversationId: number): number[] {
     validatePositiveInt(conversationId, 'conversationId')
     const rows = this.db.prepare('SELECT id FROM scheduled_tasks WHERE conversation_id = ?').all(conversationId) as { id: number }[]
@@ -410,7 +369,7 @@ export class SchedulerService {
       ).run(task.name, defaultFolderId ?? null, model)
       this.db.prepare('UPDATE scheduled_tasks SET conversation_id = ?, updated_at = ? WHERE id = ?')
         .run(convResult.lastInsertRowid as number, now, task.id)
-      console.log(`[scheduler] Task "${task.name}" (id=${task.id}): conversation ${conversationId} deleted, reassigned to new conversation ${convResult.lastInsertRowid}`)
+      log.info('Task conversation reassigned', { taskName: task.name, taskId: task.id, oldConvId: conversationId, newConvId: convResult.lastInsertRowid })
     }
   }
 
@@ -430,7 +389,7 @@ export class SchedulerService {
     this.db.prepare('UPDATE scheduled_tasks SET conversation_id = ?, updated_at = ? WHERE id = ?')
       .run(newConvId, now, task.id)
 
-    console.log(`[scheduler] Task "${task.name}" (id=${task.id}): conversation ${task.conversation_id} deleted, created new conversation ${newConvId}`)
+    log.info('Task conversation recreated', { taskName: task.name, taskId: task.id, oldConvId: task.conversation_id, newConvId })
     return { ...task, conversation_id: newConvId }
   }
 
@@ -440,6 +399,8 @@ export class SchedulerService {
   }
 
   /** Check if any enabled tasks exist */
+  // consumed via DispatchRegistry (engine-owned dispatch). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   hasEnabledTasks(): boolean {
     const row = this.db.prepare('SELECT 1 FROM scheduled_tasks WHERE enabled = 1 LIMIT 1').get()
     return row !== undefined

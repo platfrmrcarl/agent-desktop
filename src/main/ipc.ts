@@ -1,6 +1,9 @@
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import type { AgentEngine } from '../core'
 import { sanitizeError } from './utils/errors'
+import { createLogger } from '../core/utils/logger'
+
+const log = createLogger('ipc')
 
 // Category C imports — Electron-only services that stay on ipcMain
 import { registerHandlers as systemHandlers } from './services/system'
@@ -109,6 +112,6 @@ export function bridgeDispatchToIpc(engine: AgentEngine, ipcMain: IpcMain): void
   knowledgeHandlers(safeIpc, db)
 
   // Fire-and-forget startup tasks
-  ensureThemeDir().catch((err) => console.error('[themes] Failed to ensure theme dir:', err))
-  ensureKnowledgesDir().catch((err) => console.error('[knowledge] Failed to ensure knowledges dir:', err))
+  ensureThemeDir().catch((err) => log.error('failed to ensure theme dir', err))
+  ensureKnowledgesDir().catch((err) => log.error('failed to ensure knowledges dir', err))
 }

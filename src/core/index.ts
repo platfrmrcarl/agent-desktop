@@ -12,15 +12,7 @@ export { AgentEngine } from './engine'
 export type { Broadcaster } from './ports/broadcaster'
 export { noopPlatformIO } from './ports/platformIO'
 export { noopSystemUI } from './ports/systemUI'
-export type { PlatformScheduler } from './ports/platformScheduler'
-export { noopPlatformScheduler } from './ports/platformScheduler'
-export type { HookRunner } from './ports/hookRunner'
 export { noopHookRunner } from './ports/hookRunner'
-
-// Services
-export { SchedulerService, computeNextRun, getExpectedThemeFilename } from './services/scheduler'
-export { executeTask } from './services/taskExecutor'
-export type { TaskRunContext } from './services/taskExecutor'
 
 // Types (re-exported for convenience)
 export * from './types'

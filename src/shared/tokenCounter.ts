@@ -17,6 +17,8 @@ export interface TokenCounter {
   count(text: string): number
 }
 
+// class consumed by tokenCounter.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export class LocalTokenizer implements TokenCounter {
   count(text: string): number {
     if (!text) return 0
@@ -32,6 +34,8 @@ export class LocalTokenizer implements TokenCounter {
 export const localTokenizer = new LocalTokenizer()
 
 /** Count tokens of a JSON-serialisable object. Stable ordering isn't needed — we only care about size. */
+// consumed by tokenCounter.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function countJsonTokens(obj: unknown, counter: TokenCounter = localTokenizer): number {
   if (obj == null) return 0
   try {

@@ -1,5 +1,7 @@
 import { ErrorBuffer, INTERNAL_LOG_PREFIX } from '../../core/services/errorBuffer'
 
+// consumed by rendererErrorCapture.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export { INTERNAL_LOG_PREFIX }
 
 export const rendererErrorBuffer = new ErrorBuffer()

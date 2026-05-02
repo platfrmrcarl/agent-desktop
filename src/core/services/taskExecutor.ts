@@ -3,6 +3,9 @@ import type { ScheduledTask, ToolCall } from '../types'
 import type { AISettings } from './streaming'
 import type { SchedulerService } from './scheduler'
 import { resolveVariablesWithReport } from './variableResolver'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('taskExecutor')
 
 // ─── TaskRunContext (injected by Electron or headless) ─────
 
@@ -69,10 +72,7 @@ export async function executeTask(
       try {
         await ctx.compactConversation(task.conversation_id)
       } catch (err) {
-        console.warn(
-          `[scheduler] Task "${task.name}" (id=${task.id}) compact failed, falling back to clear:`,
-          err instanceof Error ? err.message : String(err),
-        )
+        log.warn('compact failed, falling back to clear', err instanceof Error ? err : new Error(String(err)), { taskName: task.name, taskId: task.id })
         ctx.clearConversation(task.conversation_id)
       }
     }
@@ -86,10 +86,7 @@ export async function executeTask(
         now: new Date(),
       })
     if (resolverErrors.length > 0) {
-      console.warn(
-        `[scheduler] Task "${task.name}" (id=${task.id}) variable errors:`,
-        resolverErrors
-      )
+      log.warn('variable resolution errors', { taskName: task.name, taskId: task.id, errors: resolverErrors })
     }
 
     // Save user message (resolved prompt)
@@ -146,6 +143,6 @@ export async function executeTask(
     const updated = scheduler.get(task.id)
     if (updated) ctx.onTaskUpdate(updated)
 
-    console.error(`[scheduler] Task "${task.name}" (id=${task.id}) failed:`, errorMsg)
+    log.error('Task failed', new Error(errorMsg), { taskName: task.name, taskId: task.id })
   }
 }

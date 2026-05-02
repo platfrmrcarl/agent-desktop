@@ -4,6 +4,9 @@ import { TaskCard } from './TaskCard'
 import { TaskFormModal } from './TaskFormModal'
 import type { ScheduledTask, CreateScheduledTask } from '../../../shared/types'
 import { tint } from '../../utils/colorMix'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('SchedulerPage')
 
 function BackgroundToggle() {
   const [bgEnabled, setBgEnabled] = useState(false)
@@ -27,7 +30,7 @@ function BackgroundToggle() {
       const status = await window.agent.scheduler.backgroundStatus()
       setBgInstalled(status.installed)
     } catch (err) {
-      console.error('Failed to toggle background scheduling:', err)
+      log.error('Failed to toggle background scheduling', err)
     }
     setLoading(false)
   }

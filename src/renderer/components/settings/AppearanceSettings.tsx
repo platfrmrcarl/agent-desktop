@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import Editor from '@monaco-editor/react'
 import { useSettingsStore } from '../../stores/settingsStore'
-import type { ThemeFile } from '../../../shared/types'
-import { applyFontScale, parseFontScale } from '../../utils/fontScale'
-import { useMonacoFontSize } from '../../hooks/useMonacoFontSize'
+import type { ThemeFile } from '../../../core/types/types'
+import { applyFontScale } from '../../utils/fontScale'
+import { FontWindowSection } from './appearance/FontWindowSection'
+import { ThemeSection } from './appearance/ThemeSection'
+import { CustomCSSSection } from './appearance/CustomCSSSection'
 
 const TEMPLATE_CSS = `/* My Custom Theme */
 :root {
@@ -23,11 +24,6 @@ const TEMPLATE_CSS = `/* My Custom Theme */
 }
 `
 
-function extractColors(css: string): string[] {
-  const matches = css.matchAll(/--color-\w+:\s*(#[0-9a-fA-F]{3,8})/g)
-  return [...matches].map((m) => m[1]).slice(0, 6)
-}
-
 export function AppearanceSettings() {
   const { themes, activeTheme, settings, loadThemes, loadSettings, applyTheme, setSetting } = useSettingsStore()
 
@@ -46,30 +42,12 @@ export function AppearanceSettings() {
   }, [loadThemes, loadSettings])
 
   const currentFontSize = settings.fontSize ?? '1'
-  const currentScale = parseFontScale(currentFontSize)
-
-  const [customInputValue, setCustomInputValue] = useState<string>(String(currentScale))
-  useEffect(() => {
-    setCustomInputValue(String(currentScale))
-  }, [currentScale])
-  const windowTitle = settings.windowTitle ?? ''
-  const showTitlebar = (settings.showTitlebar ?? 'true') === 'true'
-  const alwaysVisible = (settings.panelButtonAlwaysVisible ?? 'false') === 'true'
-  const heatmapEnabled = (settings.heatmap_enabled ?? 'false') === 'true'
-  const heatmapMode = settings.heatmap_mode ?? 'relative'
-  const autoThemeEnabled = (settings.autoTheme_enabled ?? 'false') === 'true'
-  const autoThemeDayTheme = settings.autoTheme_dayTheme ?? 'default-light.css'
-  const autoThemeNightTheme = settings.autoTheme_nightTheme ?? 'default-dark.css'
-  const autoThemeDayTime = settings.autoTheme_dayTime ?? '07:00'
-  const autoThemeNightTime = settings.autoTheme_nightTime ?? '21:00'
-  const diffExpanded = (settings.diffExpandedByDefault ?? 'false') === 'true'
   useEffect(() => {
     applyFontScale(currentFontSize)
   }, [currentFontSize])
 
-  const monacoFontSize = useMonacoFontSize(13)
-
   const handleSelectTheme = (theme: ThemeFile) => {
+    const autoThemeEnabled = (settings.autoTheme_enabled ?? 'false') === 'true'
     if (autoThemeEnabled) {
       setAutoThemeDialog(theme)
     } else {
@@ -114,7 +92,6 @@ export function AppearanceSettings() {
       await window.agent.themes.delete(filename)
       await loadThemes()
       setDeleteConfirm(null)
-      // If deleted theme was active, apply first available
       if (activeTheme === filename && themes.length > 0) {
         const fallback = themes.find((t) => t.filename !== filename)
         if (fallback) applyTheme(fallback)
@@ -129,8 +106,7 @@ export function AppearanceSettings() {
       const dir = await window.agent.themes.getDir()
       setThemesDir(dir)
       await window.agent.files.revealInFileManager(dir)
-    } catch (err) {
-      // Fallback: just show the path
+    } catch {
       const dir = await window.agent.themes.getDir()
       setThemesDir(dir)
     }
@@ -138,568 +114,83 @@ export function AppearanceSettings() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Interface Settings */}
-      <div className="rounded-lg overflow-hidden border border-deep">
-        {/* Show Title Bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-          <span className="text-sm text-body">Show Title Bar</span>
-          <button
-            onClick={() => setSetting('showTitlebar', showTitlebar ? 'false' : 'true')}
-            role="switch"
-            aria-checked={showTitlebar}
-            aria-label="Toggle title bar visibility"
-            className="relative w-9 h-5 rounded-full flex-shrink-0 transition-colors"
-            style={{
-              backgroundColor: showTitlebar ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              opacity: showTitlebar ? 1 : 0.3,
-            }}
-          >
-            <span
-              className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
-              style={{ transform: showTitlebar ? 'translateX(16px)' : 'translateX(0px)' }}
-            />
-          </button>
-        </div>
+      <FontWindowSection
+        fontSize={currentFontSize}
+        windowTitle={settings.windowTitle ?? ''}
+        showTitlebar={(settings.showTitlebar ?? 'true') === 'true'}
+        alwaysVisible={(settings.panelButtonAlwaysVisible ?? 'false') === 'true'}
+        panelButtonRadius={settings.panelButtonRadius ?? '10'}
+        chatLayout={settings.chatLayout ?? 'tight'}
+        diffExpanded={(settings.diffExpandedByDefault ?? 'false') === 'true'}
+        heatmapEnabled={(settings.heatmap_enabled ?? 'false') === 'true'}
+        heatmapMode={settings.heatmap_mode ?? 'relative'}
+        heatmapMin={settings.heatmap_min ?? '0'}
+        heatmapMax={settings.heatmap_max ?? '50'}
+        onSetFontSize={(v) => setSetting('fontSize', v)}
+        onSetWindowTitle={(v) => setSetting('windowTitle', v)}
+        onToggleTitlebar={() => setSetting('showTitlebar', (settings.showTitlebar ?? 'true') === 'true' ? 'false' : 'true')}
+        onToggleAlwaysVisible={() => setSetting('panelButtonAlwaysVisible', (settings.panelButtonAlwaysVisible ?? 'false') === 'false' ? 'true' : 'false')}
+        onSetPanelButtonRadius={(v) => setSetting('panelButtonRadius', v)}
+        onSetChatLayout={(v) => setSetting('chatLayout', v)}
+        onToggleDiffExpanded={() => setSetting('diffExpandedByDefault', (settings.diffExpandedByDefault ?? 'false') === 'true' ? 'false' : 'true')}
+        onToggleHeatmap={() => setSetting('heatmap_enabled', (settings.heatmap_enabled ?? 'false') === 'true' ? 'false' : 'true')}
+        onSetHeatmapMode={(v) => setSetting('heatmap_mode', v)}
+        onSetHeatmapMin={(v) => setSetting('heatmap_min', v)}
+        onSetHeatmapMax={(v) => setSetting('heatmap_max', v)}
+      />
 
-        {/* Window Title */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-          <span className="text-sm text-body">Window Title</span>
-          <input
-            type="text"
-            value={windowTitle}
-            onChange={(e) => setSetting('windowTitle', e.target.value)}
-            placeholder="Agent Desktop"
-            className="w-48 bg-surface border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
-            style={{ color: 'var(--color-text)' }}
-            aria-label="Custom window title"
-          />
-        </div>
+      <ThemeSection
+        themes={themes}
+        activeTheme={activeTheme}
+        themesDir={themesDir}
+        autoThemeDialog={autoThemeDialog}
+        autoThemeEnabled={(settings.autoTheme_enabled ?? 'false') === 'true'}
+        autoThemeDayTheme={settings.autoTheme_dayTheme ?? 'default-light.css'}
+        autoThemeNightTheme={settings.autoTheme_nightTheme ?? 'default-dark.css'}
+        autoThemeDayTime={settings.autoTheme_dayTime ?? '07:00'}
+        autoThemeNightTime={settings.autoTheme_nightTime ?? '21:00'}
+        deleteConfirm={deleteConfirm}
+        onSelectTheme={handleSelectTheme}
+        onStartCreate={handleStartCreate}
+        onStartEdit={handleStartEdit}
+        onDelete={handleDelete}
+        onSetDeleteConfirm={setDeleteConfirm}
+        onOpenFolder={handleOpenFolder}
+        onToggleAutoTheme={() => setSetting('autoTheme_enabled', (settings.autoTheme_enabled ?? 'false') === 'true' ? 'false' : 'true')}
+        onSetAutoThemeDayTheme={(v) => setSetting('autoTheme_dayTheme', v)}
+        onSetAutoThemeNightTheme={(v) => setSetting('autoTheme_nightTheme', v)}
+        onSetAutoThemeDayTime={(v) => setSetting('autoTheme_dayTime', v)}
+        onSetAutoThemeNightTime={(v) => setSetting('autoTheme_nightTime', v)}
+        onSetAutoThemeDayAndApply={(filename, theme) => {
+          setSetting('autoTheme_dayTheme', filename)
+          applyTheme(theme)
+          setAutoThemeDialog(null)
+        }}
+        onSetAutoThemeNightAndApply={(filename, theme) => {
+          setSetting('autoTheme_nightTheme', filename)
+          applyTheme(theme)
+          setAutoThemeDialog(null)
+        }}
+        onApplyGloballyAndDisableAuto={(theme) => {
+          setSetting('autoTheme_enabled', 'false')
+          applyTheme(theme)
+          setAutoThemeDialog(null)
+        }}
+        onDismissAutoThemeDialog={() => setAutoThemeDialog(null)}
+      />
 
-        {/* Font Scale */}
-        <div className="flex flex-col px-4 py-3 border-b border-deep gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-body">Font Scale</span>
-            <span className="text-xs text-muted">{currentScale.toFixed(2)}× · ~{Math.round(currentScale * 16)}px</span>
-          </div>
-          <div className="flex items-center gap-1 flex-wrap">
-            {[
-              { value: '0.85', label: 'Small' },
-              { value: '1', label: 'Normal' },
-              { value: '1.25', label: 'Large' },
-              { value: '1.5', label: 'XL' },
-              { value: '2', label: 'XXL' },
-            ].map((preset) => {
-              const active = Math.abs(currentScale - parseFloat(preset.value)) < 0.01
-              return (
-                <button
-                  key={preset.value}
-                  onClick={() => setSetting('fontSize', preset.value)}
-                  className={`px-3 py-1 rounded text-xs font-medium transition-colors mobile:px-4 mobile:py-3 mobile:text-sm ${
-                    active ? 'bg-primary text-contrast' : 'bg-surface text-body'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              )
-            })}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted">Custom</span>
-            <input
-              type="number"
-              min={0.5}
-              max={3}
-              step={0.05}
-              value={customInputValue}
-              onChange={(e) => {
-                const v = e.target.value
-                setCustomInputValue(v)
-                if (v === '') return
-                const n = Number(v)
-                if (!isNaN(n) && n >= 0.5 && n <= 3) setSetting('fontSize', String(n))
-              }}
-              className="w-20 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
-              style={{ color: 'var(--color-text)' }}
-              aria-label="Custom font scale"
-            />
-            <span className="text-xs text-muted">×</span>
-          </div>
-        </div>
-
-        {/* Chat Layout */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-          <span className="text-sm text-body">Chat Layout</span>
-          <div className="flex gap-1">
-            {(['tight', 'wide'] as const).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setSetting('chatLayout', mode)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors mobile:px-4 mobile:py-3 mobile:text-sm ${
-                  (settings.chatLayout ?? 'tight') === mode
-                    ? 'bg-primary text-contrast'
-                    : 'bg-surface text-body'
-                }`}
-              >
-                {mode === 'tight' ? 'Tight' : 'Wide'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Panel Buttons — Always Visible */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-          <span className="text-sm text-body">Panel Buttons</span>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted">Always visible</span>
-            <button
-              onClick={() => setSetting('panelButtonAlwaysVisible', alwaysVisible ? 'false' : 'true')}
-              role="switch"
-              aria-checked={alwaysVisible}
-              aria-label="Toggle always visible panel buttons"
-              className="relative w-9 h-5 rounded-full flex-shrink-0 transition-colors"
-              style={{
-                backgroundColor: alwaysVisible ? 'var(--color-primary)' : 'var(--color-text-muted)',
-                opacity: alwaysVisible ? 1 : 0.3,
-              }}
-            >
-              <span
-                className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
-                style={{ transform: alwaysVisible ? 'translateX(16px)' : 'translateX(0px)' }}
-              />
-            </button>
-          </div>
-        </div>
-
-        {/* Panel Buttons — Proximity Radius */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-          <span className="text-sm text-muted pl-4">Proximity radius</span>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              max={50}
-              step={1}
-              value={settings.panelButtonRadius ?? '10'}
-              onChange={(e) => {
-                const v = e.target.value
-                if (v !== '' && Number(v) >= 0 && Number(v) <= 50) setSetting('panelButtonRadius', v)
-              }}
-              className="w-16 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
-              style={{ color: 'var(--color-text)' }}
-              aria-label="Panel button proximity radius"
-            />
-            <span className="text-xs text-muted">%</span>
-          </div>
-        </div>
-
-        {/* File Diffs */}
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex flex-col">
-            <span className="text-sm text-body">File Diffs</span>
-            <span className="text-xs text-muted">Show edit diffs expanded by default</span>
-          </div>
-          <button
-            onClick={() => setSetting('diffExpandedByDefault', diffExpanded ? 'false' : 'true')}
-            role="switch"
-            aria-checked={diffExpanded}
-            aria-label="Toggle file diffs expanded by default"
-            className="relative w-9 h-5 rounded-full flex-shrink-0 transition-colors"
-            style={{
-              backgroundColor: diffExpanded ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              opacity: diffExpanded ? 1 : 0.3,
-            }}
-          >
-            <span
-              className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
-              style={{ transform: diffExpanded ? 'translateX(16px)' : 'translateX(0px)' }}
-            />
-          </button>
-        </div>
-      </div>
-
-      {/* Folder Heatmap */}
-      <div className="rounded-lg overflow-hidden border border-deep">
-        {/* Enable/Disable */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-          <div className="flex flex-col">
-            <span className="text-sm text-body">Folder Heatmap</span>
-            <span className="text-xs text-muted">Color folders by conversation count (green→red)</span>
-          </div>
-          <button
-            onClick={() => setSetting('heatmap_enabled', heatmapEnabled ? 'false' : 'true')}
-            role="switch"
-            aria-checked={heatmapEnabled}
-            aria-label="Toggle folder heatmap"
-            className="relative w-9 h-5 rounded-full flex-shrink-0 transition-colors"
-            style={{
-              backgroundColor: heatmapEnabled ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              opacity: heatmapEnabled ? 1 : 0.3,
-            }}
-          >
-            <span
-              className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
-              style={{ transform: heatmapEnabled ? 'translateX(16px)' : 'translateX(0px)' }}
-            />
-          </button>
-        </div>
-
-        {heatmapEnabled && (
-          <>
-            {/* Mode: Relative / Fixed */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-              <span className="text-sm text-body">Mode</span>
-              <div className="flex gap-1">
-                {(['relative', 'fixed'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    onClick={() => setSetting('heatmap_mode', mode)}
-                    className={`px-3 py-1 rounded text-xs font-medium transition-colors mobile:px-4 mobile:py-3 mobile:text-sm ${
-                      heatmapMode === mode
-                        ? 'bg-primary text-contrast'
-                        : 'bg-surface text-body'
-                    }`}
-                  >
-                    {mode === 'relative' ? 'Relative' : 'Fixed'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Fixed thresholds */}
-            {heatmapMode === 'fixed' && (
-              <>
-                <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-                  <span className="text-sm text-muted pl-4">Min (green)</span>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={0}
-                      max={999}
-                      value={settings.heatmap_min ?? '0'}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        if (v !== '' && Number(v) >= 0) setSetting('heatmap_min', v)
-                      }}
-                      className="w-16 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
-                      style={{ color: 'var(--color-text)' }}
-                      aria-label="Heatmap minimum threshold"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between px-4 py-3">
-                  <span className="text-sm text-muted pl-4">Max (red)</span>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={999}
-                      value={settings.heatmap_max ?? '50'}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        if (v !== '' && Number(v) >= 1) setSetting('heatmap_max', v)
-                      }}
-                      className="w-16 bg-surface border border-muted rounded px-2 py-1 text-sm text-center outline-none focus:border-primary mobile:text-base"
-                      style={{ color: 'var(--color-text)' }}
-                      aria-label="Heatmap maximum threshold"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Auto Day/Night Theme */}
-      <div className="rounded-lg overflow-hidden border border-deep">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-          <div className="flex flex-col">
-            <span className="text-sm text-body">Auto Day/Night Theme</span>
-            <span className="text-xs text-muted">Switch theme automatically based on time of day</span>
-          </div>
-          <button
-            onClick={() => setSetting('autoTheme_enabled', autoThemeEnabled ? 'false' : 'true')}
-            role="switch"
-            aria-checked={autoThemeEnabled}
-            aria-label="Toggle auto day/night theme"
-            className="relative w-9 h-5 rounded-full flex-shrink-0 transition-colors"
-            style={{
-              backgroundColor: autoThemeEnabled ? 'var(--color-primary)' : 'var(--color-text-muted)',
-              opacity: autoThemeEnabled ? 1 : 0.3,
-            }}
-          >
-            <span
-              className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
-              style={{ transform: autoThemeEnabled ? 'translateX(16px)' : 'translateX(0px)' }}
-            />
-          </button>
-        </div>
-
-        {autoThemeEnabled && (
-          <>
-            {/* Day theme row */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-deep">
-              <span className="text-sm text-body">Day theme</span>
-              <div className="flex items-center gap-2">
-                <select
-                  value={autoThemeDayTheme}
-                  onChange={(e) => setSetting('autoTheme_dayTheme', e.target.value)}
-                  className="bg-surface text-body border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
-                  aria-label="Day theme"
-                >
-                  {themes.map((t) => (
-                    <option key={t.filename} value={t.filename}>{t.name}</option>
-                  ))}
-                </select>
-                <span className="text-xs text-muted">at</span>
-                <input
-                  type="time"
-                  value={autoThemeDayTime}
-                  onChange={(e) => setSetting('autoTheme_dayTime', e.target.value)}
-                  className="bg-surface border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
-                  style={{ color: 'var(--color-text)' }}
-                  aria-label="Day transition time"
-                />
-              </div>
-            </div>
-
-            {/* Night theme row */}
-            <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm text-body">Night theme</span>
-              <div className="flex items-center gap-2">
-                <select
-                  value={autoThemeNightTheme}
-                  onChange={(e) => setSetting('autoTheme_nightTheme', e.target.value)}
-                  className="bg-surface text-body border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
-                  aria-label="Night theme"
-                >
-                  {themes.map((t) => (
-                    <option key={t.filename} value={t.filename}>{t.name}</option>
-                  ))}
-                </select>
-                <span className="text-xs text-muted">at</span>
-                <input
-                  type="time"
-                  value={autoThemeNightTime}
-                  onChange={(e) => setSetting('autoTheme_nightTime', e.target.value)}
-                  className="bg-surface border border-muted rounded px-2 py-1 text-sm outline-none focus:border-primary mobile:text-base"
-                  style={{ color: 'var(--color-text)' }}
-                  aria-label="Night transition time"
-                />
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Theme Selection */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-body">
-            Themes
-          </h3>
-          <div className="flex gap-2">
-            <button
-              onClick={handleOpenFolder}
-              className="px-3 py-1.5 rounded text-xs font-medium transition-opacity hover:opacity-90 bg-deep text-body mobile:px-4 mobile:py-3 mobile:text-sm"
-            >
-              Open Themes Folder
-            </button>
-            <button
-              onClick={handleStartCreate}
-              className="px-3 py-1.5 rounded text-xs font-medium transition-opacity hover:opacity-90 bg-primary text-contrast mobile:px-4 mobile:py-3 mobile:text-sm"
-            >
-              Create New Theme
-            </button>
-          </div>
-        </div>
-        {themesDir && (
-          <p className="text-xs mb-2 font-mono text-muted">
-            {themesDir}
-          </p>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          {themes.map((theme) => {
-            const swatches = extractColors(theme.css)
-            const isActive = theme.filename === activeTheme
-            return (
-              <button
-                key={theme.filename}
-                onClick={() => handleSelectTheme(theme)}
-                className={`relative p-3 rounded-lg text-left transition-colors bg-base ${
-                  isActive
-                    ? 'border-2 border-primary'
-                    : 'border border-muted opacity-[0.85]'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-body">
-                    {theme.name}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {isActive && (
-                      <span className="text-[0.625rem] px-1.5 py-0.5 rounded font-medium bg-primary text-contrast">
-                        Active
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex gap-1.5 mb-2">
-                  {swatches.map((c, i) => (
-                    <span
-                      key={i}
-                      className="w-4 h-4 rounded-full border border-muted"
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-                {!theme.isBuiltin && (
-                  <div className="flex gap-1 absolute top-2 right-2">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleStartEdit(theme) }}
-                      className="w-6 h-6 rounded flex items-center justify-center text-xs hover:bg-surface transition-colors text-muted mobile:w-11 mobile:h-11"
-                      title="Edit theme"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                        <path d="M9.1.9a1.5 1.5 0 012.12 2.12L3.88 10.37l-2.83.71.71-2.83L9.1.9z" />
-                      </svg>
-                    </button>
-                    {deleteConfirm === theme.filename ? (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(theme.filename) }}
-                        className="w-6 h-6 rounded flex items-center justify-center text-xs transition-colors bg-error text-contrast mobile:w-11 mobile:h-11"
-                        title="Confirm delete"
-                      >
-                        !
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteConfirm(theme.filename) }}
-                        className="w-6 h-6 rounded flex items-center justify-center text-xs hover:bg-surface transition-colors text-muted mobile:w-11 mobile:h-11"
-                        title="Delete theme"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                          <path d="M3 3h6v7a1 1 0 01-1 1H4a1 1 0 01-1-1V3zm-1-1h8M5 1h2" stroke="currentColor" fill="none" strokeWidth="1" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Monaco CSS Editor */}
       {editing && (
-        <div className="rounded-lg p-4 flex flex-col gap-4 bg-base">
-          <h3 className="text-sm font-semibold text-body">
-            {editing === 'create' ? 'Create Theme' : `Edit: ${editFilename}`}
-          </h3>
-
-          {editing === 'create' && (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-muted">
-                Filename
-              </label>
-              <input
-                className="w-full max-w-xs bg-surface border border-muted rounded px-3 py-2 text-sm outline-none focus:border-primary mobile:text-base"
-              style={{ color: 'var(--color-text)' }}
-                value={newFilename}
-                onChange={(e) => setNewFilename(e.target.value)}
-                placeholder="my-theme.css"
-              />
-            </div>
-          )}
-
-          <div className="rounded overflow-hidden border border-muted">
-            <Editor
-              height="400px"
-              language="css"
-              theme="vs-dark"
-              value={cssContent}
-              onChange={(val) => setCssContent(val ?? '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: monacoFontSize,
-                lineNumbers: 'on',
-                wordWrap: 'on',
-                scrollBeyondLastLine: false,
-              }}
-            />
-          </div>
-
-          {error && (
-            <p className="text-xs text-error">
-              {error}
-            </p>
-          )}
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleSave}
-              className="px-4 py-2 rounded text-sm font-medium transition-opacity hover:opacity-90 bg-primary text-contrast"
-            >
-              {editing === 'create' ? 'Create Theme' : 'Save Theme'}
-            </button>
-            <button
-              onClick={() => { setEditing(null); setError(null) }}
-              className="px-4 py-2 rounded text-sm font-medium transition-opacity hover:opacity-80 bg-deep text-body"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Auto-theme click dialog */}
-      {autoThemeDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'var(--color-overlay)' }}>
-          <div className="bg-surface rounded-lg p-4 max-w-xs w-full shadow-lg border border-muted">
-            <h3 className="text-sm font-semibold text-body mb-3">
-              Apply &quot;{autoThemeDialog.name}&quot;
-            </h3>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  setSetting('autoTheme_dayTheme', autoThemeDialog.filename)
-                  applyTheme(autoThemeDialog)
-                  setAutoThemeDialog(null)
-                }}
-                className="px-3 py-2 rounded text-sm font-medium text-left transition-colors hover:bg-deep text-body"
-              >
-                Set as day theme
-              </button>
-              <button
-                onClick={() => {
-                  setSetting('autoTheme_nightTheme', autoThemeDialog.filename)
-                  applyTheme(autoThemeDialog)
-                  setAutoThemeDialog(null)
-                }}
-                className="px-3 py-2 rounded text-sm font-medium text-left transition-colors hover:bg-deep text-body"
-              >
-                Set as night theme
-              </button>
-              <button
-                onClick={() => {
-                  setSetting('autoTheme_enabled', 'false')
-                  applyTheme(autoThemeDialog)
-                  setAutoThemeDialog(null)
-                }}
-                className="px-3 py-2 rounded text-sm font-medium text-left transition-colors hover:bg-deep text-muted"
-              >
-                Apply globally (disable auto)
-              </button>
-            </div>
-            <button
-              onClick={() => setAutoThemeDialog(null)}
-              className="mt-3 w-full px-3 py-2 rounded text-sm font-medium transition-colors bg-deep text-body"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+        <CustomCSSSection
+          editing={editing}
+          editFilename={editFilename}
+          cssContent={cssContent}
+          newFilename={newFilename}
+          error={error}
+          onChangeCssContent={setCssContent}
+          onChangeNewFilename={setNewFilename}
+          onSave={handleSave}
+          onCancel={() => { setEditing(null); setError(null) }}
+        />
       )}
     </div>
   )

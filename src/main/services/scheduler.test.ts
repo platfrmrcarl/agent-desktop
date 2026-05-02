@@ -7,7 +7,8 @@ vi.mock('electron', () => ({
   },
 }))
 
-vi.mock('../index', () => ({
+vi.mock('../index', () => ({ getMainWindow: vi.fn(() => null) }))
+vi.mock('../mainContext', () => ({
   getMainWindow: vi.fn(() => null),
 }))
 

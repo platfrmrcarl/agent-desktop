@@ -2,6 +2,9 @@ import type { ExtensionAPI, ExtensionRuntimeContext } from '../../shared/types'
 import { shouldRequireApproval, type PermissionMode } from '../../../../core/services/guards/permissionPolicy'
 import { createHash } from 'node:crypto'
 import { Type } from '@sinclair/typebox'
+import { createLogger } from '../../../../core/utils/logger'
+
+const log = createLogger('permissionModes')
 
 const VALID_MODES = ['bypassPermissions', 'acceptEdits', 'default', 'dontAsk', 'plan'] as const
 
@@ -56,7 +59,7 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
     const lockDown = (): void => {
       try { pi.setActiveTools(PLAN_READONLY_TOOLS) }
       catch (err) {
-        console.warn('[permission-modes] setActiveTools lockdown failed:', err instanceof Error ? err.message : err)
+        log.warn('[permission-modes] setActiveTools lockdown failed', err instanceof Error ? err : String(err))
       }
     }
     const onLifecycle = <E>(event: string): void => {
@@ -134,7 +137,7 @@ export function initPermissionModes(pi: ExtensionAPI, ctx: ExtensionRuntimeConte
       allowed = await ui.confirm(title, message)
     } catch (err) {
       // UI disposed / conversation aborted / PiUIContext gone — default-deny.
-      console.warn('[permission-modes] ui.confirm failed, default-deny:', err instanceof Error ? err.message : err)
+      log.warn('[permission-modes] ui.confirm failed, default-deny', err instanceof Error ? err : String(err))
       return { block: true, reason: 'Approval UI unavailable' }
     }
 

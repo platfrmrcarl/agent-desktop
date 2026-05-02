@@ -1,4 +1,7 @@
 import type Database from 'better-sqlite3'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('migrations')
 
 const CURRENT_VERSION = 4
 
@@ -41,6 +44,8 @@ export function runMigrations(db: Database.Database): void {
 }
 
 /** Strip trailing -YYYYMMDD from Claude model IDs only. Pass-through for other prefixes. */
+// Consumed by migrations.test.ts (excluded from fallow scan).
+// fallow-ignore-next-line unused-export
 export function stripClaudeDateSuffix(id: unknown): unknown {
   if (typeof id !== 'string') return id
   if (!id.startsWith('claude-') && !id.startsWith('anthropic/claude-')) return id
@@ -114,7 +119,7 @@ function normalizeStaleClaudeModelIds(db: Database.Database): void {
   }
 
   if (changes > 0) {
-    console.log(`[migration v3] Normalized ${changes} stale Claude model ID(s).`)
+    log.info('Normalized stale Claude model IDs', { changes })
   }
 }
 

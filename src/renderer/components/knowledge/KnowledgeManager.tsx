@@ -1,5 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useKnowledgeStore } from '../../stores/knowledgeStore'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('KnowledgeManager')
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -33,7 +36,7 @@ export function KnowledgeManager() {
       const files = await window.agent.kb.getCollectionFiles(name)
       setCollectionFiles(files)
     } catch (err) {
-      console.error('[KnowledgeManager] getCollectionFiles failed:', err)
+      log.error('getCollectionFiles failed', err)
       setCollectionFiles([])
     } finally {
       setLoadingFiles(false)

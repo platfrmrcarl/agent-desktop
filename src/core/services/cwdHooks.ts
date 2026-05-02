@@ -44,6 +44,13 @@ type HookCallback = (
   context: { signal: AbortSignal }
 ) => Promise<HookResult>
 
+/** Resolved per-build context shared by all helper checks. */
+interface HookContext {
+  cwd: string
+  whitelist: CwdWhitelistEntry[] | undefined
+  hasWhitelist: boolean
+}
+
 /** Normalize legacy string[] to CwdWhitelistEntry[] (all readwrite) */
 function normalizeWhitelist(input?: CwdWhitelistEntry[] | string[]): CwdWhitelistEntry[] | undefined {
   if (!input || input.length === 0) return undefined
@@ -51,6 +58,77 @@ function normalizeWhitelist(input?: CwdWhitelistEntry[] | string[]): CwdWhitelis
     return (input as string[]).map(p => ({ path: p, access: 'readwrite' as const }))
   }
   return input as CwdWhitelistEntry[]
+}
+
+// ─── Tool-category helpers ───────────────────────────────────
+
+/**
+ * Validate a read-only tool path (Read/Glob/Grep) against the whitelist.
+ * Returns null when the call is allowed, or a HookResult deny otherwise.
+ *
+ * Read restrictions only apply when whitelist is non-empty (CLAUDE.md gotcha:
+ * empty whitelist = backward compat, reads unrestricted).
+ */
+function checkReadTool(
+  hookEventName: string,
+  toolName: string,
+  filePath: string | undefined,
+  ctx: HookContext
+): HookResult | null {
+  if (!ctx.hasWhitelist || !filePath) return null
+  const outside = isPathOutsideReadAllowed(filePath, ctx.cwd, ctx.whitelist!)
+  if (!outside) return null
+  return makeDenyResult(hookEventName, toolName, outside, ctx.cwd, ctx.whitelist)
+}
+
+/**
+ * Validate a write tool path (Write/Edit/NotebookEdit) against the whitelist
+ * (or against CWD if no whitelist set). Returns null when allowed.
+ */
+function checkWriteTool(
+  hookEventName: string,
+  toolName: string,
+  filePath: string | undefined,
+  ctx: HookContext
+): HookResult | null {
+  if (!filePath) return null
+  const outside = ctx.hasWhitelist
+    ? isPathOutsideWriteAllowed(filePath, ctx.cwd, ctx.whitelist!)
+    : isPathOutsideAllowed(filePath, ctx.cwd)
+  if (!outside) return null
+  return makeDenyResult(hookEventName, toolName, outside, ctx.cwd, ctx.hasWhitelist ? ctx.whitelist : undefined)
+}
+
+/**
+ * Validate a Bash command. Walks the parsed write paths first (always checked),
+ * then read paths (only when whitelist is set). Returns null when allowed.
+ */
+function checkBashCommand(
+  hookEventName: string,
+  command: string | undefined,
+  ctx: HookContext
+): HookResult | null {
+  if (!command) return null
+
+  for (const p of extractBashWritePaths(command)) {
+    const outside = ctx.hasWhitelist
+      ? isPathOutsideWriteAllowed(p, ctx.cwd, ctx.whitelist!)
+      : isPathOutsideAllowed(p, ctx.cwd)
+    if (outside) {
+      return makeDenyResult(hookEventName, 'Bash', outside, ctx.cwd, ctx.hasWhitelist ? ctx.whitelist : undefined)
+    }
+  }
+
+  if (ctx.hasWhitelist) {
+    for (const p of extractBashReadPaths(command)) {
+      const outside = isPathOutsideReadAllowed(p, ctx.cwd, ctx.whitelist!)
+      if (outside) {
+        return makeDenyResult(hookEventName, 'Bash', outside, ctx.cwd, ctx.whitelist)
+      }
+    }
+  }
+
+  return null
 }
 
 /**
@@ -68,110 +146,23 @@ function normalizeWhitelist(input?: CwdWhitelistEntry[] | string[]): CwdWhitelis
  */
 export function buildCwdRestrictionHooks(cwd: string, whitelistOrPaths?: CwdWhitelistEntry[] | string[]) {
   const whitelist = normalizeWhitelist(whitelistOrPaths)
-  const hasWhitelist = whitelist && whitelist.length > 0
+  const ctx: HookContext = { cwd, whitelist, hasWhitelist: !!(whitelist && whitelist.length > 0) }
 
   const cwdRestrictionHook: HookCallback = async (input, _toolUseId, _context) => {
-    const toolName = input.tool_name
-    const toolInput = input.tool_input
+    const tool = input.tool_name
+    const event = input.hook_event_name
+    const ti = input.tool_input
 
-    // Read tool: check file_path (only when whitelist is non-empty)
-    if (toolName === 'Read' && hasWhitelist) {
-      const filePath = toolInput.file_path as string | undefined
-      if (filePath) {
-        const outside = isPathOutsideReadAllowed(filePath, cwd, whitelist)
-        if (outside) {
-          return makeDenyResult(input.hook_event_name, toolName, outside, cwd, whitelist)
-        }
-      }
-      return {}
-    }
-
-    // Glob: check path (only when whitelist is non-empty)
-    if (toolName === 'Glob' && hasWhitelist) {
-      const globPath = toolInput.path as string | undefined
-      if (globPath) {
-        const outside = isPathOutsideReadAllowed(globPath, cwd, whitelist)
-        if (outside) {
-          return makeDenyResult(input.hook_event_name, toolName, outside, cwd, whitelist)
-        }
-      }
-      return {}
-    }
-
-    // Grep: check path (only when whitelist is non-empty)
-    if (toolName === 'Grep' && hasWhitelist) {
-      const grepPath = toolInput.path as string | undefined
-      if (grepPath) {
-        const outside = isPathOutsideReadAllowed(grepPath, cwd, whitelist)
-        if (outside) {
-          return makeDenyResult(input.hook_event_name, toolName, outside, cwd, whitelist)
-        }
-      }
-      return {}
-    }
-
-    // Write / Edit: check file_path
-    if (toolName === 'Write' || toolName === 'Edit') {
-      const filePath = toolInput.file_path as string | undefined
-      if (filePath) {
-        const outside = hasWhitelist
-          ? isPathOutsideWriteAllowed(filePath, cwd, whitelist)
-          : isPathOutsideAllowed(filePath, cwd)
-        if (outside) {
-          return makeDenyResult(input.hook_event_name, toolName, outside, cwd, hasWhitelist ? whitelist : undefined)
-        }
-      }
-      return {}
-    }
-
-    // NotebookEdit: check notebook_path
-    if (toolName === 'NotebookEdit') {
-      const nbPath = toolInput.notebook_path as string | undefined
-      if (nbPath) {
-        const outside = hasWhitelist
-          ? isPathOutsideWriteAllowed(nbPath, cwd, whitelist)
-          : isPathOutsideAllowed(nbPath, cwd)
-        if (outside) {
-          return makeDenyResult(input.hook_event_name, 'NotebookEdit', outside, cwd, hasWhitelist ? whitelist : undefined)
-        }
-      }
-      return {}
-    }
-
-    // Bash: best-effort parse for write targets + read targets (when whitelist exists)
-    if (toolName === 'Bash') {
-      const command = toolInput.command as string | undefined
-      if (command) {
-        // Check write paths
-        const writePaths = extractBashWritePaths(command)
-        for (const p of writePaths) {
-          const outside = hasWhitelist
-            ? isPathOutsideWriteAllowed(p, cwd, whitelist)
-            : isPathOutsideAllowed(p, cwd)
-          if (outside) {
-            return makeDenyResult(input.hook_event_name, 'Bash', outside, cwd, hasWhitelist ? whitelist : undefined)
-          }
-        }
-
-        // Check read paths (only when whitelist is non-empty)
-        if (hasWhitelist) {
-          const readPaths = extractBashReadPaths(command)
-          for (const p of readPaths) {
-            const outside = isPathOutsideReadAllowed(p, cwd, whitelist)
-            if (outside) {
-              return makeDenyResult(input.hook_event_name, 'Bash', outside, cwd, whitelist)
-            }
-          }
-        }
-      }
-      return {}
-    }
-
-    // Unknown tools: allow
+    if (tool === 'Read') return checkReadTool(event, tool, ti.file_path as string | undefined, ctx) ?? {}
+    if (tool === 'Glob') return checkReadTool(event, tool, ti.path as string | undefined, ctx) ?? {}
+    if (tool === 'Grep') return checkReadTool(event, tool, ti.path as string | undefined, ctx) ?? {}
+    if (tool === 'Write' || tool === 'Edit') return checkWriteTool(event, tool, ti.file_path as string | undefined, ctx) ?? {}
+    if (tool === 'NotebookEdit') return checkWriteTool(event, 'NotebookEdit', ti.notebook_path as string | undefined, ctx) ?? {}
+    if (tool === 'Bash') return checkBashCommand(event, ti.command as string | undefined, ctx) ?? {}
     return {}
   }
 
-  const matcher = hasWhitelist
+  const matcher = ctx.hasWhitelist
     ? 'Write|Edit|NotebookEdit|Bash|Read|Glob|Grep'
     : 'Write|Edit|NotebookEdit|Bash'
 

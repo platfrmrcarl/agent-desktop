@@ -10,6 +10,8 @@ export interface SummarizeOptions {
 }
 
 /** True if the model id is a Claude family model (routes to Claude SDK). */
+// consumed by summarization.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function isClaudeModel(model: string): boolean {
   return typeof model === 'string' && model.startsWith('claude-')
 }

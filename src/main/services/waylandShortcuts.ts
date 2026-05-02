@@ -4,6 +4,9 @@ import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { findBinaryInPath } from '../utils/env'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('waylandShortcuts')
 
 /** Append a timestamped line to shortcuts.log */
 function logToFile(msg: string): void {
@@ -68,9 +71,9 @@ function resolveHyprctl(): string | null {
   if (hyprctlPath === undefined) {
     hyprctlPath = findBinaryInPath('hyprctl')
     if (hyprctlPath) {
-      console.log('[waylandShortcuts] hyprctl found at:', hyprctlPath)
+      log.debug('hyprctl found', { path: hyprctlPath })
     } else {
-      console.warn('[waylandShortcuts] hyprctl not found in PATH')
+      log.warn('hyprctl not found in PATH')
     }
   }
   return hyprctlPath
@@ -157,12 +160,12 @@ function createShortcutPipe(onActivated: (shortcutId: string) => void): boolean 
           const now = Date.now()
           const last = lastActivation.get(id) || 0
           if (now - last < FIFO_DEBOUNCE_MS) {
-            console.log('[waylandShortcuts] FIFO debounced:', id)
+            log.debug('FIFO debounced', { id })
             logToFile(`FIFO debounced: ${id}`)
             continue
           }
           lastActivation.set(id, now)
-          console.log('[waylandShortcuts] FIFO activated:', id)
+          log.info('FIFO activated', { id })
           logToFile(`FIFO activated: ${id}`)
           onActivated(id)
         }
@@ -170,7 +173,7 @@ function createShortcutPipe(onActivated: (shortcutId: string) => void): boolean 
     })
 
     stream.on('error', (err) => {
-      console.error('[waylandShortcuts] FIFO read error:', err)
+      log.error('FIFO read error', err)
       logToFile(`FIFO error: ${err}`)
     })
 
@@ -181,7 +184,7 @@ function createShortcutPipe(onActivated: (shortcutId: string) => void): boolean 
 
     return true
   } catch (err) {
-    console.error('[waylandShortcuts] Failed to create FIFO:', err)
+    log.error('failed to create FIFO', err)
     logToFile(`FIFO creation FAILED: ${err}`)
     return false
   }
@@ -292,11 +295,11 @@ export async function registerWaylandShortcuts(
     } catch (err) {
       retries++
       if (retries > MAX_RETRIES) {
-        console.warn('[waylandShortcuts] All retries exhausted:', err)
+        log.warn('all retries exhausted', { err: String(err) })
         logToFile(`All ${MAX_RETRIES} retries exhausted: ${err}`)
         return false
       }
-      console.warn(`[waylandShortcuts] Attempt ${retries} failed, retrying in ${RETRY_DELAY_MS}ms...`, err)
+      log.warn('attempt failed, retrying', { attempt: retries, delayMs: RETRY_DELAY_MS, err: String(err) })
       logToFile(`Attempt ${retries} failed: ${err}`)
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
     }
@@ -350,17 +353,17 @@ async function tryRegisterHyprland(
     const out = await hyprctlBatch(batchCmds)
     hyprlandBinds.push(...pendingBinds)
     for (const cmd of batchCmds) {
-      if (cmd.startsWith('keyword bind ')) console.log('[waylandShortcuts] hyprctl bind (exec):', cmd.slice('keyword bind '.length))
+      if (cmd.startsWith('keyword bind ')) log.debug('hyprctl bind (exec)', { bind: cmd.slice('keyword bind '.length) })
     }
     logToFile(`hyprctl batch OK (${batchCmds.length} cmds): ${out}`)
   } catch (err) {
-    console.error('[waylandShortcuts] hyprctl batch failed:', err)
+    log.error('hyprctl batch failed', err)
     logToFile(`hyprctl batch FAILED: ${err}`)
     destroyShortcutPipe()
     return false
   }
 
-  console.log('[waylandShortcuts] Registered via Hyprland exec+FIFO:', shortcuts.map((s) => s.id).join(', '))
+  log.info('registered via Hyprland exec+FIFO', { ids: shortcuts.map((s) => s.id).join(', ') })
   logToFile(`REGISTERED (Hyprland exec+FIFO): ${shortcuts.map((s) => s.id).join(', ')}`)
   return true
 }
@@ -406,7 +409,7 @@ async function tryRegisterPortal(
 
   const createResp = await createResponseP
   if (!createResp || createResp.response !== 0) {
-    console.warn('[waylandShortcuts] CreateSession failed, response:', createResp?.response)
+    log.warn('CreateSession failed', { response: createResp?.response })
     logToFile(`CreateSession FAILED: response=${createResp?.response ?? 'null (timeout)'}`)
     await cleanupBus()
     return false
@@ -414,12 +417,12 @@ async function tryRegisterPortal(
 
   sessionPath = createResp.results?.session_handle?.value as string
   if (!sessionPath) {
-    console.warn('[waylandShortcuts] CreateSession returned no session handle')
+    log.warn('CreateSession returned no session handle')
     logToFile('CreateSession returned no session handle')
     await cleanupBus()
     return false
   }
-  console.log('[waylandShortcuts] Session:', sessionPath)
+  log.info('session created', { sessionPath })
   logToFile(`CreateSession OK: ${sessionPath}`)
 
   // 2. BindShortcuts — do NOT include preferred_trigger (unsupported by Hyprland portal)
@@ -437,12 +440,12 @@ async function tryRegisterPortal(
 
   const bindResp = await bindResponseP
   if (!bindResp || bindResp.response !== 0) {
-    console.warn('[waylandShortcuts] BindShortcuts failed, response:', bindResp?.response)
+    log.warn('BindShortcuts failed', { response: bindResp?.response })
     logToFile(`BindShortcuts FAILED: response=${bindResp?.response ?? 'null (timeout)'}`)
     await cleanupBus()
     return false
   }
-  console.log('[waylandShortcuts] Bound', shortcuts.length, 'shortcuts')
+  log.info('bound shortcuts', { count: shortcuts.length })
   logToFile(`BindShortcuts OK: ${shortcuts.length} shortcuts`)
 
   // 3. Listen for Activated signal via raw bus messages
@@ -469,14 +472,14 @@ async function tryRegisterPortal(
       // Activated(session_handle: o, shortcut_id: s, timestamp: t, options: a{sv})
       const shortcutId = msg.body?.[1] as string
       if (shortcutId) {
-        console.log('[waylandShortcuts] Activated:', shortcutId)
+        log.info('shortcut activated', { shortcutId })
         onActivated(shortcutId)
       }
     }
   }
   bus.on('message', messageHandler)
 
-  console.log('[waylandShortcuts] Registered via XDG Portal:', shortcuts.map((s) => s.id).join(', '))
+  log.info('registered via XDG Portal', { ids: shortcuts.map((s) => s.id).join(', ') })
   logToFile(`REGISTERED (Portal): ${shortcuts.map((s) => s.id).join(', ')}`)
   return true
 }
@@ -588,7 +591,7 @@ export async function rebindWaylandShortcuts(
     logToFile(`hyprctl rebind batch OK (${batchCmds.length} cmds)`)
     return true
   } catch (err) {
-    console.error('[waylandShortcuts] hyprctl rebind batch failed:', err)
+    log.error('hyprctl rebind batch failed', err)
     logToFile(`hyprctl rebind batch FAILED: ${err}`)
     return false
   }

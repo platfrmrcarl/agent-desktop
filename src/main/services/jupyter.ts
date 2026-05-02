@@ -6,7 +6,10 @@ import { findBinaryInPath } from '../utils/env'
 import { broadcast } from '../utils/broadcast'
 import { validateString } from '../utils/validate'
 import { sanitizeError } from '../utils/errors'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('jupyter')
 
 // ─── Types ────────────────────────────────────────────
 
@@ -121,11 +124,11 @@ function startKernel(filePath: string, kernelName?: string): { status: string } 
   // Log stderr (not forwarded to renderer — it's kernel debug info)
   const stderrRl = readline.createInterface({ input: proc.stderr! })
   stderrRl.on('line', (line) => {
-    console.log(`[jupyter:${path.basename(filePath)}] ${line}`)
+    log.debug('kernel stderr', { file: path.basename(filePath), line })
   })
 
   proc.on('exit', (code) => {
-    console.log(`[jupyter] Kernel for ${filePath} exited with code ${code}`)
+    log.info('kernel exited', { filePath, code })
     kernels.delete(filePath)
     sendToRenderer('jupyter:output', {
       filePath,
@@ -136,7 +139,7 @@ function startKernel(filePath: string, kernelName?: string): { status: string } 
   })
 
   proc.on('error', (err) => {
-    console.error(`[jupyter] Kernel spawn error for ${filePath}:`, err.message)
+    log.error('kernel spawn error', err, { filePath })
     kernels.delete(filePath)
     sendToRenderer('jupyter:output', {
       filePath,

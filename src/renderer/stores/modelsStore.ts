@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { MODEL_OPTIONS } from '../../shared/constants'
 
-export interface ModelOption {
+interface ModelOption {
   value: string
   label: string
 }

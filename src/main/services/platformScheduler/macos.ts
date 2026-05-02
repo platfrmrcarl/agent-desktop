@@ -9,6 +9,9 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { promises as fsp } from 'fs'
 import type { PlatformScheduler } from '../../../core/ports/platformScheduler'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('platformScheduler.macos')
 
 const execAsync = promisify(exec)
 
@@ -47,7 +50,7 @@ export class MacOSLaunchdScheduler implements PlatformScheduler {
     await fsp.mkdir(PLIST_DIR, { recursive: true })
     await fsp.writeFile(PLIST_PATH, plist, 'utf-8')
     await execAsync(`launchctl load ${PLIST_PATH}`)
-    console.log('[platform-scheduler] Installed launchd agent')
+    log.info('installed launchd agent')
   }
 
   async uninstall(): Promise<void> {
@@ -57,7 +60,7 @@ export class MacOSLaunchdScheduler implements PlatformScheduler {
     try {
       await fsp.unlink(PLIST_PATH)
     } catch { /* doesn't exist */ }
-    console.log('[platform-scheduler] Removed launchd agent')
+    log.info('removed launchd agent')
   }
 
   async isInstalled(): Promise<boolean> {

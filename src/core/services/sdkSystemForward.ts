@@ -22,6 +22,10 @@
  * local interfaces that are structurally compatible with this — callers pass
  * their own typed values directly without conversion.
  */
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('sdkSystemForward')
+
 export interface SdkSystemMessageForward {
   subtype?: string
   mcp_servers?: Array<{ name: string; status: string; error?: string }>
@@ -57,8 +61,8 @@ export type ChunkSender = (
  * `sysMsg.subtype === 'init' && sysMsg.mcp_servers` before calling — this
  * primitive does no subtype check (cheaper, callers already branch).
  *
- * `logPrefix` distinguishes "[streaming]" vs "[sessionManager]" in the
- * console.error so the source remains greppable.
+ * `logPrefix` is forwarded as `ctx.source` in the structured log entry
+ * so the originating caller remains identifiable in log streams.
  */
 export function forwardInitMcpStatus(
   sysMsg: SdkSystemMessageForward,
@@ -73,9 +77,7 @@ export function forwardInitMcpStatus(
   })
   for (const s of sysMsg.mcp_servers) {
     if (s.status !== 'connected') {
-      console.error(
-        `${logPrefix} MCP "${s.name}" status=${s.status} error=${JSON.stringify(s.error || null)} details=${JSON.stringify(s)}`,
-      )
+      log.error('MCP server connection failed', undefined, { source: logPrefix, name: s.name, status: s.status, error: s.error })
     }
   }
 }

@@ -2,6 +2,12 @@ import * as os from 'os'
 import * as path from 'path'
 import * as fs from 'fs'
 import { execFileSync, spawnSync } from 'child_process'
+import { sanitizeAppImageEnv } from './env/sanitizeAppImage'
+import { sanitizeWaylandEnv } from './env/sanitizeWayland'
+import { loadShellEnv } from './env/loadShellEnv'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('env')
 
 // Re-export from core — canonical source is now src/core/utils/env.ts
 export { findBinaryInPath } from '../../core/utils/env'
@@ -11,53 +17,56 @@ export function isAppImage(): boolean {
   return !!process.env.APPIMAGE
 }
 
+/** Detect whether the current session is Wayland, X11, or unknown. */
+export function getSessionType(): 'wayland' | 'x11' | 'unknown' {
+  if (process.env.XDG_SESSION_TYPE === 'wayland') return 'wayland'
+  // WAYLAND_DISPLAY being set means Wayland is active, even if DISPLAY is
+  // also set (XWayland). Hyprland/Sway/KDE all set both.
+  if (process.env.WAYLAND_DISPLAY) return 'wayland'
+  // Hyprland compositor detected (via env or enrichEnvironment() scan) —
+  // treat as Wayland even if WAYLAND_DISPLAY wasn't inherited (TTY-started sessions)
+  if (process.env.HYPRLAND_INSTANCE_SIGNATURE) return 'wayland'
+  if (process.env.XDG_SESSION_TYPE === 'x11') return 'x11'
+  if (process.env.DISPLAY) return 'x11'
+  return 'unknown'
+}
+
 /**
- * Resolve nvm's default node version bin directory.
- * Reads ~/.nvm/alias/default, follows one level of alias indirection,
- * and returns the matching bin path (or null if nvm is not installed).
+ * Inject the macOS OAuth token from Keychain into process.env so the Claude
+ * Code CLI subprocess can authenticate without doing its own Keychain lookup.
+ * When launched from Finder/Dock, CLAUDE_CODE_OAUTH_TOKEN is not inherited
+ * from the shell — the CLI falls back to Keychain access which fails there.
+ * No-op on non-Darwin or when the env var is already set.
  */
-function resolveNvmNodeBin(nvmDir: string): string | null {
-  const versionsDir = path.join(nvmDir, 'versions', 'node')
+function injectMacOSKeychainToken(): void {
+  if (process.platform !== 'darwin') return
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return
+
   try {
-    // Read the default alias (e.g. "v20.19.4" or "lts/iron")
-    let version = fs.readFileSync(path.join(nvmDir, 'alias', 'default'), 'utf8').trim()
-
-    // If it's an alias (e.g. "lts/iron"), follow one level
-    if (!version.startsWith('v')) {
-      version = fs.readFileSync(path.join(nvmDir, 'alias', version), 'utf8').trim()
-    }
-
-    if (version.startsWith('v')) {
-      const bin = path.join(versionsDir, version, 'bin')
-      fs.accessSync(bin, fs.constants.R_OK)
-      return bin
+    const username = process.env.USER || os.userInfo().username
+    const credJson = execFileSync('security', [
+      'find-generic-password', '-a', username, '-s', 'Claude Code-credentials', '-w'
+    ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
+    const creds = JSON.parse(credJson)
+    const accessToken = creds?.claudeAiOauth?.accessToken
+    if (accessToken) {
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = accessToken
+      log.info('set CLAUDE_CODE_OAUTH_TOKEN from macOS Keychain')
     }
   } catch {
-    // nvm not installed or alias unresolvable — try latest installed version
-    try {
-      const versions = fs.readdirSync(versionsDir).filter(v => v.startsWith('v'))
-      if (versions.length === 0) return null
-      // Semver sort descending, pick latest
-      versions.sort((a, b) => {
-        const pa = a.slice(1).split('.').map(Number)
-        const pb = b.slice(1).split('.').map(Number)
-        for (let i = 0; i < 3; i++) {
-          if (pa[i] !== pb[i]) return pb[i] - pa[i]
-        }
-        return 0
-      })
-      return path.join(versionsDir, versions[0], 'bin')
-    } catch {
-      return null
-    }
+    // Keychain not accessible or no credentials — will be caught at auth check
   }
-  return null
 }
 
 /**
  * Enrich process.env for AppImage and non-standard environments.
  * Additive only — never overwrites existing values.
  * Call once at startup, before app.whenReady().
+ *
+ * Delegates to focused helpers in ./env/:
+ * - loadShellEnv: PATH discovery (system bins, nvm, Homebrew)
+ * - sanitizeWaylandEnv: D-Bus / Wayland / Hyprland env vars
+ * - sanitizeAppImageEnv: strip AppImage-injected LD_LIBRARY_PATH / LD_PRELOAD
  */
 export function enrichEnvironment(): void {
   const home = os.homedir()
@@ -65,161 +74,24 @@ export function enrichEnvironment(): void {
   // Ensure HOME is set (some AppImage environments strip it)
   if (!process.env.HOME) {
     process.env.HOME = home
-    console.log('[env] Set HOME =', home)
+    log.info('set HOME', { value: home })
   }
 
   // Ensure CLAUDE_CONFIG_DIR is set so the SDK finds credentials
   if (!process.env.CLAUDE_CONFIG_DIR) {
     process.env.CLAUDE_CONFIG_DIR = path.join(home, '.claude')
-    console.log('[env] Set CLAUDE_CONFIG_DIR =', process.env.CLAUDE_CONFIG_DIR)
+    log.info('set CLAUDE_CONFIG_DIR', { value: process.env.CLAUDE_CONFIG_DIR })
   }
 
-  // Ensure DBUS_SESSION_BUS_ADDRESS for Wayland portal access (used by global shortcuts).
-  // On modern Arch/systemd, the socket is at $XDG_RUNTIME_DIR/bus.
-  // In AppImage launched from a .desktop file, this env var may not be inherited.
-  if (!process.env.DBUS_SESSION_BUS_ADDRESS) {
-    const xdgRuntime = process.env.XDG_RUNTIME_DIR
-    if (xdgRuntime) {
-      const busSocket = path.join(xdgRuntime, 'bus')
-      try {
-        fs.accessSync(busSocket)
-        process.env.DBUS_SESSION_BUS_ADDRESS = `unix:path=${busSocket}`
-        console.log('[env] Set DBUS_SESSION_BUS_ADDRESS =', process.env.DBUS_SESSION_BUS_ADDRESS)
-      } catch {
-        console.warn('[env] D-Bus session bus socket not found at', busSocket)
-      }
-    } else {
-      console.warn('[env] XDG_RUNTIME_DIR not set — cannot resolve D-Bus session bus address')
-    }
-  }
-
-  // Ensure WAYLAND_DISPLAY when a Wayland compositor is running but the var isn't inherited.
-  // Common when Hyprland is started from a TTY — child processes from other TTYs or services
-  // don't inherit WAYLAND_DISPLAY even though the compositor is active.
-  // Scan $XDG_RUNTIME_DIR for wayland-* sockets.
-  if (!process.env.WAYLAND_DISPLAY) {
-    const xdgRuntime = process.env.XDG_RUNTIME_DIR
-    if (xdgRuntime) {
-      try {
-        const entries = fs.readdirSync(xdgRuntime)
-        const waylandSocket = entries.find(e => e.startsWith('wayland-'))
-        if (waylandSocket) {
-          process.env.WAYLAND_DISPLAY = waylandSocket
-          console.log('[env] Set WAYLAND_DISPLAY =', waylandSocket)
-        }
-      } catch {
-        // can't read XDG_RUNTIME_DIR — skip
-      }
-    }
-  }
-
-  // Ensure HYPRLAND_INSTANCE_SIGNATURE for hyprctl socket discovery.
-  // hyprctl needs this to find the compositor socket at $XDG_RUNTIME_DIR/hypr/{signature}/
-  if (!process.env.HYPRLAND_INSTANCE_SIGNATURE) {
-    const xdgRuntime = process.env.XDG_RUNTIME_DIR
-    if (xdgRuntime) {
-      const hyprDir = path.join(xdgRuntime, 'hypr')
-      try {
-        const entries = fs.readdirSync(hyprDir)
-        if (entries.length > 0) {
-          process.env.HYPRLAND_INSTANCE_SIGNATURE = entries[0]
-          console.log('[env] Set HYPRLAND_INSTANCE_SIGNATURE =', entries[0])
-        }
-      } catch {
-        // hypr directory doesn't exist — not Hyprland or not yet started
-      }
-    }
-  }
-
-  // Append common binary locations to PATH if they exist and aren't already included
-  const extraDirs = [
-    path.join(home, '.local', 'bin'),
-    path.join(home, 'bin'),
-    path.join(home, '.npm-global', 'bin'),
-    '/usr/local/bin',
-    '/usr/bin',
-    '/bin',
-  ]
-
-  // macOS (Apple Silicon): Homebrew installs to /opt/homebrew instead of /usr/local
-  if (process.platform === 'darwin') {
-    extraDirs.push(
-      '/opt/homebrew/bin',
-      '/opt/homebrew/sbin',
-      path.join(home, '.volta', 'bin'),
-    )
-  } else {
-    // Linux-only paths
-    extraDirs.push('/snap/bin')
-  }
-
-  // nvm: resolve and add the default node version's bin directory.
-  // When launched from Finder/Dock, shell init scripts don't run so nvm's
-  // node is never added to PATH. We replicate what `nvm use default` would do.
-  const nvmDir = process.env.NVM_DIR || path.join(home, '.nvm')
-  const nvmNodeBin = resolveNvmNodeBin(nvmDir)
-  if (nvmNodeBin) extraDirs.push(nvmNodeBin)
-
-  const currentPath = process.env.PATH || ''
-  const currentDirs = new Set(currentPath.split(path.delimiter).filter(Boolean))
-  const added: string[] = []
-
-  for (const dir of extraDirs) {
-    if (!currentDirs.has(dir)) {
-      try {
-        fs.accessSync(dir, fs.constants.R_OK)
-        added.push(dir)
-        currentDirs.add(dir)
-      } catch {
-        // directory doesn't exist, skip
-      }
-    }
-  }
-
-  if (added.length > 0) {
-    process.env.PATH = currentPath + path.delimiter + added.join(path.delimiter)
-    console.log('[env] Appended to PATH:', added.join(', '))
-  }
-
-  // macOS: inject OAuth token from Keychain into process.env so the Claude Code
-  // CLI subprocess can authenticate without doing its own Keychain lookup.
-  // When launched from Finder/Dock, CLAUDE_CODE_OAUTH_TOKEN is not inherited from
-  // the shell — the CLI falls back to Keychain access which fails in that context.
-  if (process.platform === 'darwin' && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    try {
-      const username = process.env.USER || os.userInfo().username
-      const credJson = execFileSync('security', [
-        'find-generic-password', '-a', username, '-s', 'Claude Code-credentials', '-w'
-      ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim()
-      const creds = JSON.parse(credJson)
-      const accessToken = creds?.claudeAiOauth?.accessToken
-      if (accessToken) {
-        process.env.CLAUDE_CODE_OAUTH_TOKEN = accessToken
-        console.log('[env] Set CLAUDE_CODE_OAUTH_TOKEN from macOS Keychain')
-      }
-    } catch {
-      // Keychain not accessible or no credentials — will be caught at auth check
-    }
-  }
+  sanitizeWaylandEnv()
+  loadShellEnv()
+  injectMacOSKeychainToken()
 
   // AppImage cleanup: remove bundled library paths so child processes
   // (claude CLI, whisper, etc.) don't load incompatible Electron .so files.
-  // The current process's dynamic linker is already resolved, so this only
-  // affects child processes spawned via child_process.spawn().
   if (isAppImage()) {
-    console.log('[env] Running inside AppImage:', process.env.APPIMAGE)
+    log.info('running inside AppImage', { appimage: process.env.APPIMAGE })
     sanitizeAppImageEnv()
-  }
-
-  // Wayland diagnostic logging — helps debug shortcut issues in AppImage
-  if (getSessionType() === 'wayland') {
-    console.log('[env] Wayland session detected — diagnostic env vars:', {
-      DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '(unset)',
-      XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || '(unset)',
-      WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || '(unset)',
-      HYPRLAND_INSTANCE_SIGNATURE: process.env.HYPRLAND_INSTANCE_SIGNATURE || '(unset)',
-      DISPLAY: process.env.DISPLAY || '(unset)',
-    })
   }
 }
 
@@ -280,11 +152,11 @@ export async function ensureFreshMacOSToken(): Promise<void> {
 
     const refreshToken: string | undefined = oauth.refreshToken
     if (!refreshToken) {
-      console.error('[env] OAuth token expired and no refresh token available')
+      log.error('OAuth token expired and no refresh token available')
       return
     }
 
-    console.log('[env] OAuth token expired, refreshing...')
+    log.info('OAuth token expired, refreshing')
     const { tokenUrl, clientId } = await readCliOAuthConfig()
     // Use the scopes from the stored credentials (exact scopes originally granted)
     const scopes = Array.isArray(oauth.scopes) ? oauth.scopes.join(' ') : ''
@@ -301,7 +173,7 @@ export async function ensureFreshMacOSToken(): Promise<void> {
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
-      console.error(`[env] Token refresh failed: ${res.status} ${body.slice(0, 200)}`)
+      log.error('token refresh failed', undefined, { status: res.status, body: body.slice(0, 200) })
       throw new Error(
         'Claude session expired. Run `claude login` in your terminal to re-authenticate, then try again.'
       )
@@ -309,7 +181,7 @@ export async function ensureFreshMacOSToken(): Promise<void> {
 
     const tokens = await res.json() as { access_token?: string; refresh_token?: string; expires_in?: number }
     if (!tokens.access_token) {
-      console.error('[env] Token refresh response missing access_token')
+      log.error('token refresh response missing access_token')
       return
     }
 
@@ -332,78 +204,13 @@ export async function ensureFreshMacOSToken(): Promise<void> {
     )
 
     process.env.CLAUDE_CODE_OAUTH_TOKEN = tokens.access_token
-    console.log('[env] CLAUDE_CODE_OAUTH_TOKEN refreshed successfully')
+    log.info('CLAUDE_CODE_OAUTH_TOKEN refreshed successfully')
   } catch (err) {
     // Re-throw auth errors (session expired, invalid_grant) so they surface in the UI.
     // Only swallow unexpected failures (network, JSON parsing, Keychain read).
     if (err instanceof Error && err.message.includes('claude login')) {
       throw err
     }
-    console.error('[env] ensureFreshMacOSToken unexpected error:', err)
-  }
-}
-
-/** Detect whether the current session is Wayland, X11, or unknown. */
-export function getSessionType(): 'wayland' | 'x11' | 'unknown' {
-  if (process.env.XDG_SESSION_TYPE === 'wayland') return 'wayland'
-  // WAYLAND_DISPLAY being set means Wayland is active, even if DISPLAY is
-  // also set (XWayland). Hyprland/Sway/KDE all set both.
-  if (process.env.WAYLAND_DISPLAY) return 'wayland'
-  // Hyprland compositor detected (via env or enrichEnvironment() scan) —
-  // treat as Wayland even if WAYLAND_DISPLAY wasn't inherited (TTY-started sessions)
-  if (process.env.HYPRLAND_INSTANCE_SIGNATURE) return 'wayland'
-  if (process.env.XDG_SESSION_TYPE === 'x11') return 'x11'
-  if (process.env.DISPLAY) return 'x11'
-  return 'unknown'
-}
-
-/**
- * Remove AppImage-injected paths from LD_LIBRARY_PATH.
- * AppImage prepends paths like /tmp/.mount_AgentXXX/usr/lib which contain
- * Electron's bundled .so files — these break external binaries (claude CLI, whisper).
- */
-function sanitizeAppImageEnv(): void {
-  const appDir = process.env.APPDIR || ''
-
-  // Clean LD_LIBRARY_PATH
-  const ldPath = process.env.LD_LIBRARY_PATH
-  if (ldPath) {
-    const original = ldPath
-    const cleaned = ldPath
-      .split(':')
-      .filter(p => {
-        if (!p) return false
-        // Remove paths inside the AppImage mount
-        if (appDir && p.startsWith(appDir)) return false
-        // Remove /tmp/.mount_* paths (AppImage runtime mount points)
-        if (p.match(/^\/tmp\/\.mount_[^/]+/)) return false
-        return true
-      })
-      .join(':')
-
-    if (cleaned !== original) {
-      // Save original for debugging, then set cleaned version
-      process.env.LD_LIBRARY_PATH_APPIMAGE = original
-      process.env.LD_LIBRARY_PATH = cleaned || undefined
-      console.log('[env] Cleaned LD_LIBRARY_PATH for child processes')
-      console.log('[env]   Original:', original)
-      console.log('[env]   Cleaned:', cleaned || '(empty)')
-    }
-  }
-
-  // Clean LD_PRELOAD if set by AppImage
-  const ldPreload = process.env.LD_PRELOAD
-  if (ldPreload && appDir && ldPreload.includes(appDir)) {
-    const original = ldPreload
-    const cleaned = ldPreload
-      .split(':')
-      .filter(p => p && !p.startsWith(appDir) && !p.match(/^\/tmp\/\.mount_[^/]+/))
-      .join(':')
-
-    if (cleaned !== original) {
-      process.env.LD_PRELOAD_APPIMAGE = original
-      process.env.LD_PRELOAD = cleaned || undefined
-      console.log('[env] Cleaned LD_PRELOAD for child processes')
-    }
+    log.error('ensureFreshMacOSToken unexpected error', err)
   }
 }

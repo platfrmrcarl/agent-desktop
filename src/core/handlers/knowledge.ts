@@ -15,6 +15,8 @@ const TEXT_EXTENSIONS = new Set([
 
 // ─── Internals ──────────────────────────────────────────────
 
+// consumed by knowledge.test.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export async function findSupportedFiles(dirPath: string): Promise<{ name: string; path: string; size: number }[]> {
   const results: { name: string; path: string; size: number }[] = []
   const fileCount = { value: 0 }

@@ -12,6 +12,9 @@ import { HAIKU_MODEL } from '../types/constants'
 import { loadAgentSDK } from '../services/anthropic'
 import { injectApiKeyEnv } from '../services/streaming'
 import { duckOtherStreams, restoreOtherStreams } from '../utils/volume'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('tts')
 
 // ─── Module state ───────────────────────────────────────────
 
@@ -68,7 +71,7 @@ function getPlayerPath(db: any): string | null {
   if (configured && configured !== 'auto') {
     const resolved = findBinaryInPath(configured)
     if (resolved) return resolved
-    console.warn('[tts] Configured player not found:', configured)
+    log.warn('Configured player not found', { configured })
   }
   return autoDetectPlayer()
 }
@@ -344,10 +347,10 @@ async function generateSummary(
     }
 
     if (summary) return summary
-    console.warn('[tts] Summary generation returned empty, using truncated original')
+    log.warn('Summary generation returned empty, using truncated original')
     return truncatedContent
   } catch (err) {
-    console.warn('[tts] Summary generation failed, using truncated original:', err)
+    log.warn('Summary generation failed, using truncated original', err)
     return truncatedContent
   } finally {
     restoreEnv?.()
@@ -380,7 +383,7 @@ export async function speakResponse(
       }
     }
   } catch (err) {
-    console.error('[tts] speakResponse failed:', err)
+    log.error('speakResponse failed', err)
   }
 }
 

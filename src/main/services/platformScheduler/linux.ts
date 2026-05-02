@@ -10,6 +10,9 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { promises as fsp } from 'fs'
 import type { PlatformScheduler } from '../../../core/ports/platformScheduler'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('platformScheduler.linux')
 
 const execAsync = promisify(exec)
 
@@ -54,7 +57,7 @@ WantedBy=timers.target
 
     await execAsync('systemctl --user daemon-reload')
     await execAsync(`systemctl --user enable --now ${UNIT_NAME}.timer`)
-    console.log('[platform-scheduler] Installed systemd user timer')
+    log.info('installed systemd user timer')
   }
 
   async uninstall(): Promise<void> {
@@ -70,7 +73,7 @@ WantedBy=timers.target
     try {
       await execAsync('systemctl --user daemon-reload')
     } catch { /* ignore */ }
-    console.log('[platform-scheduler] Removed systemd user timer')
+    log.info('removed systemd user timer')
   }
 
   async isInstalled(): Promise<boolean> {
@@ -97,7 +100,7 @@ class CrontabScheduler implements PlatformScheduler {
     const newCrontab = existing ? `${existing}\n${entry}\n` : `${entry}\n`
 
     await execAsync(`echo ${JSON.stringify(newCrontab)} | crontab -`)
-    console.log('[platform-scheduler] Installed crontab entry')
+    log.info('installed crontab entry')
   }
 
   async uninstall(): Promise<void> {
@@ -115,7 +118,7 @@ class CrontabScheduler implements PlatformScheduler {
     } else {
       await execAsync('crontab -r').catch(() => {})
     }
-    console.log('[platform-scheduler] Removed crontab entry')
+    log.info('removed crontab entry')
   }
 
   async isInstalled(): Promise<boolean> {
@@ -163,7 +166,7 @@ export class LinuxCrontabScheduler implements PlatformScheduler {
     } else if (await hasCrontab()) {
       cachedScheduler = new CrontabScheduler()
     } else {
-      console.warn('[platform-scheduler] Neither systemd nor crontab available')
+      log.warn('neither systemd nor crontab available')
       cachedScheduler = { install: async () => {}, uninstall: async () => {}, isInstalled: async () => false }
     }
     return cachedScheduler

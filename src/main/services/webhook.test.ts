@@ -47,25 +47,25 @@ describe('fireCompletionWebhook', () => {
 
   it('logs warning on non-ok response', async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500 })
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Logger writes warn entries to stderr in JSON format under non-TTY
+    const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
     await fireCompletionWebhook('https://example.com/hook', payload)
 
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('returned 500')
+      expect.stringMatching(/"level":"warn".*"status":500/)
     )
     warnSpy.mockRestore()
   })
 
   it('catches and logs network errors without throwing', async () => {
     mockFetch.mockRejectedValue(new Error('ECONNREFUSED'))
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const errorSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
     await expect(fireCompletionWebhook('https://example.com/hook', payload)).resolves.toBeUndefined()
 
     expect(errorSpy).toHaveBeenCalledWith(
-      '[webhook] Error:',
-      'ECONNREFUSED'
+      expect.stringMatching(/"level":"error".*"message":"ECONNREFUSED"/)
     )
     errorSpy.mockRestore()
   })

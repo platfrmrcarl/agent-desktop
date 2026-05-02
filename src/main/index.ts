@@ -1,6 +1,9 @@
 import './utils/coloredConsole'
 import { ErrorBuffer } from '../core/services/errorBuffer'
 import { patchConsoleError } from './bootstrap/mainErrorCapture'
+import { createLogger } from '../core/utils/logger'
+
+const log = createLogger('main')
 
 export const mainErrorBuffer = new ErrorBuffer()
 patchConsoleError(mainErrorBuffer)
@@ -30,6 +33,7 @@ import { startServer, stopServer } from '../core/services/webServer'
 import { loadFromDisk, attachPersistence } from './services/errorBufferPersist'
 import { sendBugReport } from './services/bugReport'
 import { scrub as scrubLog } from './services/logScrubber'
+import { setMainContext } from './mainContext'
 
 // Custom protocol — must be registered before app.ready
 registerPreviewScheme()
@@ -255,13 +259,13 @@ if (!gotLock) {
     if (app.isPackaged) Menu.setApplicationMenu(null)
     app.on('certificate-error', (_e, _wc, _url, _err, _cert, cb) => cb(false))
     app.on('render-process-gone', (_e, _wc, details) => {
-      console.error('[crash] renderer', details)
+      log.error('renderer crashed', undefined, { details })
     })
     app.on('child-process-gone', (_e, details) => {
       // Electron 33 folds the former `gpu-process-crashed` event into
       // child-process-gone with type==='GPU'.
-      if (details.type === 'GPU') console.error('[crash] gpu', details)
-      else console.error('[crash] child-process', details)
+      if (details.type === 'GPU') log.error('gpu crashed', undefined, { details })
+      else log.error('child-process crashed', undefined, { details })
     })
 
     const errorBufferPath = join(app.getPath('userData'), 'error-buffer.json')
@@ -326,6 +330,15 @@ if (!gotLock) {
     setupDeepLinks(app)
     createWindow()
     registerStreamWindow(mainWindow!)
+
+    // Publish the main context for services. The `mainWindow` accessor uses a
+    // closure so a single context object survives window recreation (close +
+    // tray reopen reassigns the module-level `mainWindow` ref).
+    setMainContext({
+      mainWindow: () => mainWindow,
+      ipcMain,
+      db,
+    })
     registerGlobalShortcuts(db, {
       onQuickChat: () => showOverlay('text'),
       onQuickVoice: () => showOverlay('voice'),
@@ -334,7 +347,7 @@ if (!gotLock) {
     })
 
     startBridge(db)
-    startScheduler(db).catch(err => console.error('[scheduler] Start failed:', err))
+    startScheduler(db).catch(err => log.error('scheduler start failed', err))
     createTray(getMainWindow, createWindow)
 
     // Auto-start web server if configured
@@ -350,7 +363,7 @@ if (!gotLock) {
         dispatch: engine.dispatch,
       }).then(() => {
         db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('server_enabled', 'true')").run()
-      }).catch(err => console.error('[webServer] Auto-start failed:', err.message))
+      }).catch(err => log.error('web server auto-start failed', err))
     }
 
     if (app.isPackaged) {
@@ -360,7 +373,7 @@ if (!gotLock) {
   }).catch((err) => {
     // dialog must be required inline — not available if app.ready fails
     const { dialog } = require('electron')
-    console.error('[startup] Fatal:', err)
+    log.error('startup fatal', err)
     dialog.showErrorBox('Startup Failed', err.message || String(err))
     app.quit()
   })

@@ -2,6 +2,9 @@ import { protocol, net } from 'electron'
 import { pathToFileURL } from 'url'
 import path from 'path'
 import { validatePathSafe } from '../utils/validate'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('protocol')
 
 /**
  * Register the agent-preview: scheme as privileged.
@@ -42,7 +45,7 @@ export function registerPreviewProtocol(): void {
       filePath = decodeURIComponent(url.pathname)
       const rawBase = url.searchParams.get('base')
       if (!rawBase) {
-        console.warn('[agent-preview] Rejected: ?base= parameter is required', request.url)
+        log.warn('rejected: ?base= parameter is required', { url: request.url })
         return new Response('Forbidden: ?base= is required', { status: 403 })
       }
       allowedBase = decodeURIComponent(rawBase)
@@ -56,7 +59,7 @@ export function registerPreviewProtocol(): void {
     try {
       validatePathSafe(filePath, allowedBase)
     } catch (err) {
-      console.warn('[agent-preview] Rejected:', (err as Error).message, request.url)
+      log.warn('rejected', { reason: (err as Error).message, url: request.url })
       return new Response('Forbidden', { status: 403 })
     }
 

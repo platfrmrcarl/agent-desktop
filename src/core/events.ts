@@ -18,20 +18,28 @@ export class TypedEventEmitter<T extends EventMap> {
     this.emitter.setMaxListeners(50)
   }
 
+  // public EventEmitter surface inherited by AgentEngine; framework primitive. (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   emit<K extends keyof T & string>(event: K, ...args: T[K]): boolean {
     return this.emitter.emit(event, ...args)
   }
 
+  // public EventEmitter surface inherited by AgentEngine; framework primitive. (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   on<K extends keyof T & string>(event: K, listener: (...args: T[K]) => void): this {
     this.emitter.on(event, listener as (...args: unknown[]) => void)
     return this
   }
 
+  // public EventEmitter surface inherited by AgentEngine; framework primitive. (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   once<K extends keyof T & string>(event: K, listener: (...args: T[K]) => void): this {
     this.emitter.once(event, listener as (...args: unknown[]) => void)
     return this
   }
 
+  // public EventEmitter surface inherited by AgentEngine; framework primitive. (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   off<K extends keyof T & string>(event: K, listener: (...args: T[K]) => void): this {
     this.emitter.off(event, listener as (...args: unknown[]) => void)
     return this

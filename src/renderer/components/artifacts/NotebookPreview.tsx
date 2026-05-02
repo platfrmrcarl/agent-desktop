@@ -115,6 +115,8 @@ function splitSource(source: string): string[] {
 }
 
 /** Serialize notebook back to .ipynb JSON */
+// consumed by NotebookPreview.test.tsx (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export function serializeNotebook(
   cells: EditableCell[],
   meta: NotebookMeta,

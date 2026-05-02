@@ -141,13 +141,19 @@ vi.mock('./anthropic', () => ({
   loadAgentSDK: vi.fn(),
 }))
 
-vi.mock('./streaming', () => ({
+// sendChunk + abortControllers + respondToApproval + buildPromptWithHistory now
+// imported by sessionManager.ts directly from core/services/streaming (Phase 2.B
+// cycle break). Both paths share the SAME mock instances (vi.hoisted) so
+// `vi.mocked(streaming.X)` works regardless of which path the test imports.
+const streamingMockExports = vi.hoisted(() => ({
   sendChunk: vi.fn(),
   abortControllers: new Map(),
   respondToApproval: vi.fn(),
   buildPromptWithHistory: vi.fn((msgs: Array<{ content: string }>) => msgs.map((m) => m.content).join('\n')),
   injectApiKeyEnv: vi.fn(() => null),
 }))
+vi.mock('./streaming', () => streamingMockExports)
+vi.mock('../../core/services/streaming', () => streamingMockExports)
 
 vi.mock('./cwdHooks', () => ({
   buildCwdRestrictionHooks: vi.fn(() => ({})),
@@ -380,7 +386,7 @@ describe('SessionManager API', () => {
   })
 
   it('defers done until background tasks complete and SDK processes results', async () => {
-    const streaming = await import('./streaming')
+    const streaming = await import('../../core/services/streaming')
     const sendChunkMock = vi.mocked(streaming.sendChunk)
 
     // Full flow using SDK native task lifecycle:
@@ -537,7 +543,7 @@ describe('SessionManager API', () => {
   // without re-reading consumeStream's branch table.
 
   it('dispatches task_notification between turns (after currentTurn = null)', async () => {
-    const streaming = await import('./streaming')
+    const streaming = await import('../../core/services/streaming')
     const sendChunkMock = vi.mocked(streaming.sendChunk)
 
     const messages: Array<Record<string, unknown>> = [
@@ -609,7 +615,7 @@ describe('SessionManager API', () => {
   })
 
   it('resolves turn with partial content + error when SDK iterable throws', async () => {
-    const streaming = await import('./streaming')
+    const streaming = await import('../../core/services/streaming')
     const sendChunkMock = vi.mocked(streaming.sendChunk)
 
     // SDK yields some text, then throws a non-abort error

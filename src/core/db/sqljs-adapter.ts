@@ -72,6 +72,8 @@ export class SqlJsAdapter {
     return new Statement(this.db, sql, this)
   }
 
+  // called as `db.exec(...)` via `as any` casts (schema.ts, system handler). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   exec(sql: string): void {
     this.db.run(sql)
     // exec can be DDL or DML — always mark dirty for safety
@@ -99,6 +101,8 @@ export class SqlJsAdapter {
     })
   }
 
+  // called as `db.transaction(...)` via `as any` casts (handlers/messages, services). (suppressed below)
+  // fallow-ignore-next-line unused-class-member
   transaction<T>(fn: (...args: unknown[]) => T): (...args: unknown[]) => T {
     return (...args: unknown[]) => {
       this.db.run('BEGIN')
@@ -183,6 +187,8 @@ export async function initAdapter(dbPath: string, wasmPath?: string): Promise<Sq
  * Initialize an in-memory SQLite adapter (for tests).
  * @param wasmPath Optional path to sql-wasm.wasm
  */
+// consumed by sqljs-adapter.test.ts, schema.test.ts, db-helper.ts (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export async function initMemoryAdapter(wasmPath?: string): Promise<SqlJsAdapter> {
   const SQL = await initSqlJs(wasmPath ? { locateFile: () => wasmPath } : undefined)
   const db = new SQL.Database()

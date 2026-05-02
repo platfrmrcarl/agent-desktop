@@ -4,10 +4,13 @@ import { useConversationsStore } from '../../stores/conversationsStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useSchedulerStore } from '../../stores/schedulerStore'
 import { useMobileMode } from '../../hooks/useMobileMode'
-import { ContextMenu, ContextMenuItem, ContextMenuDivider } from '../shared/ContextMenu'
-import { MoveToFolderModal } from '../shared/MoveToFolderModal'
-import { ColorSwatches, ColorPicker } from '../shared/ColorPicker'
 import { parseDbTimestamp } from '../../utils/dbTime'
+import { ItemPreview } from './conversationItem/ItemPreview'
+import { ItemActions } from './conversationItem/ItemActions'
+
+// ---------------------------------------------------------------------------
+// Color helpers
+// ---------------------------------------------------------------------------
 
 function invertHex(hex: string): string {
   const r = 255 - parseInt(hex.slice(1, 3), 16)
@@ -32,6 +35,10 @@ function getContrastColor(hex: string): string {
   // Light background → dark text; dark background → light text
   return L > 0.35 ? '#1a1a1a' : '#f0f0f0'
 }
+
+// ---------------------------------------------------------------------------
+// Store selector
+// ---------------------------------------------------------------------------
 
 interface Props {
   conversation: Conversation & { folder_name?: string }
@@ -63,9 +70,9 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
   const folders = useConversationsStore((s) => s.folders)
   const selectedIds = useConversationsStore((s) => s.selectedIds)
   const {
-    setActiveConversation, updateConversation, deleteConversation, moveToFolder,
+    updateConversation, deleteConversation, moveToFolder,
     exportConversation, handleSelect, deleteSelected, moveSelectedToFolder,
-    colorSelected, clearSelection,
+    colorSelected,
   } = useActions()
 
   // O(1) scheduled task lookup via derived Set (Task 2.5)
@@ -92,16 +99,15 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
     setShowMenu(false)
   }, [])
 
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    setMenuPos({ x: e.clientX, y: e.clientY })
-    setShowMenu(true)
-  }, [])
-
   const openMenuAt = useCallback((x: number, y: number) => {
     setMenuPos({ x, y })
     setShowMenu(true)
   }, [])
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    openMenuAt(e.clientX, e.clientY)
+  }, [openMenuAt])
 
   const handleThreeDotClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -120,14 +126,7 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
     }, 500)
   }, [isMobile, openMenuAt])
 
-  const handleTouchEnd = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current)
-      longPressTimerRef.current = null
-    }
-  }, [])
-
-  const handleTouchMove = useCallback(() => {
+  const cancelLongPress = useCallback(() => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current)
       longPressTimerRef.current = null
@@ -172,7 +171,6 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
   }, [conversation.id, conversation.title, exportConversation])
 
   const handleMoveToFolder = useCallback((folderId: number | null) => {
-    setShowFolderModal(false)
     moveToFolder(conversation.id, folderId)
   }, [conversation.id, moveToFolder])
 
@@ -180,6 +178,20 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
     setShowMenu(false)
     await window.agent.conversations.generateTitle(conversation.id)
   }, [conversation.id])
+
+  const handleColorChange = useCallback((color: string | null) => {
+    updateConversation(conversation.id, { color })
+  }, [conversation.id, updateConversation])
+
+  const handleBulkDelete = useCallback(() => {
+    if (confirm(`Delete ${selectedIds.size} conversations?`)) {
+      deleteSelected()
+    }
+  }, [selectedIds.size, deleteSelected])
+
+  const handleBulkMoveToFolder = useCallback((folderId: number | null) => {
+    moveSelectedToFolder(folderId)
+  }, [moveSelectedToFolder])
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey) {
@@ -199,6 +211,57 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
   const hasOwnColor = !!conversation.color
   const cardTextColor = hasOwnColor && effectiveColor ? getContrastColor(effectiveColor) : undefined
   const cardTextMutedColor = cardTextColor ? cardTextColor + 'aa' : undefined
+
+  const isBulk = isSelected && selectedIds.size > 1
+
+  const actionsProps = isBulk
+    ? ({
+        bulk: true as const,
+        conversation: { id: conversation.id, title: conversation.title, color: conversation.color },
+        folders: folders as Folder[],
+        selectedCount: selectedIds.size,
+        menuPos,
+        showMenu,
+        showFolderModal,
+        showColorPicker,
+        colorPickerPos,
+        onCloseMenu: closeMenu,
+        onOpenColorPicker: (pos: { x: number; y: number }) => {
+          setColorPickerPos(pos)
+          setShowColorPicker(true)
+        },
+        onCloseColorPicker: () => setShowColorPicker(false),
+        onOpenFolderModal: () => setShowFolderModal(true),
+        onCloseFolderModal: () => setShowFolderModal(false),
+        onBulkDelete: handleBulkDelete,
+        onBulkColor: (c: string | null) => colorSelected(c),
+        onBulkMoveToFolder: handleBulkMoveToFolder,
+      })
+    : ({
+        bulk: false as const,
+        conversation: { id: conversation.id, title: conversation.title, color: conversation.color },
+        folders: folders as Folder[],
+        menuPos,
+        showMenu,
+        showFolderModal,
+        showColorPicker,
+        colorPickerPos,
+        onCloseMenu: closeMenu,
+        onOpenColorPicker: (pos: { x: number; y: number }) => {
+          setColorPickerPos(pos)
+          setShowColorPicker(true)
+        },
+        onCloseColorPicker: () => setShowColorPicker(false),
+        onOpenFolderModal: () => setShowFolderModal(true),
+        onCloseFolderModal: () => setShowFolderModal(false),
+        onRename: () => setIsRenaming(true),
+        onDelete: handleDelete,
+        onExportMarkdown: () => handleExport('markdown'),
+        onExportJson: () => handleExport('json'),
+        onGenerateTitle: handleGenerateTitle,
+        onColorChange: handleColorChange,
+        onMoveToFolder: handleMoveToFolder,
+      })
 
   return (
     <>
@@ -222,8 +285,8 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
         onClick={handleClick}
         onContextMenu={!isMobile ? handleContextMenu : undefined}
         onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchMove}
+        onTouchEnd={cancelLongPress}
+        onTouchMove={cancelLongPress}
         className={`group py-2 cursor-pointer transition-colors rounded mx-1 ${!isActive && !isSelected ? 'hover:bg-[var(--color-bg)]' : ''}`}
         style={{
           paddingLeft: `${depth * 16 + 12}px`,
@@ -260,153 +323,18 @@ export const ConversationItem = memo(function ConversationItem({ conversation, i
             aria-label="Rename conversation"
           />
         ) : (
-          <>
-            <div className="flex items-center gap-1.5">
-              <div
-                className="text-sm truncate font-medium flex-1"
-                style={{ color: cardTextColor ?? 'var(--color-text)' }}
-              >
-                {conversation.title}
-              </div>
-              {hasScheduledTask && (
-                <svg
-                  className="w-3 h-3 flex-shrink-0"
-                  style={{ color: 'var(--color-primary)' }}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-label="Has scheduled task"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              )}
-              <button
-                onClick={handleThreeDotClick}
-                className="hidden mobile:block p-2.5 rounded flex-shrink-0 hover:bg-[var(--color-surface)]"
-                style={{ color: cardTextMutedColor ?? 'var(--color-text-muted)' }}
-                aria-label="Conversation actions"
-              >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <circle cx="10" cy="4" r="1.5" />
-                  <circle cx="10" cy="10" r="1.5" />
-                  <circle cx="10" cy="16" r="1.5" />
-                </svg>
-              </button>
-            </div>
-            <div
-              className="text-xs mt-0.5 truncate"
-              style={{ color: cardTextMutedColor ?? 'var(--color-text-muted)' }}
-            >
-              {timeAgo}
-            </div>
-          </>
+          <ItemPreview
+            title={conversation.title}
+            timeAgo={timeAgo}
+            hasScheduledTask={hasScheduledTask}
+            textColor={cardTextColor}
+            mutedColor={cardTextMutedColor}
+            onThreeDotClick={handleThreeDotClick}
+          />
         )}
       </div>
 
-      {showMenu && isSelected && selectedIds.size > 1 ? (
-        <ContextMenu position={menuPos} onClose={closeMenu} className="min-w-[160px]" aria-label="Bulk conversation actions">
-          <ContextMenuItem
-            onClick={() => { closeMenu(); setShowFolderModal(true) }}
-          >
-            Move {selectedIds.size} to folder
-          </ContextMenuItem>
-          <ColorSwatches
-            currentColor={null}
-            onColorChange={(c) => {
-              colorSelected(c)
-              setShowMenu(false)
-            }}
-            onOpenPicker={() => {
-              setColorPickerPos({ x: menuPos.x, y: menuPos.y })
-              setShowColorPicker(true)
-              setShowMenu(false)
-            }}
-          />
-          <ContextMenuDivider />
-          <ContextMenuItem
-            danger
-            onClick={() => {
-              setShowMenu(false)
-              if (confirm(`Delete ${selectedIds.size} conversations?`)) {
-                deleteSelected()
-              }
-            }}
-          >
-            Delete {selectedIds.size} conversations
-          </ContextMenuItem>
-        </ContextMenu>
-      ) : showMenu && (
-        <ContextMenu position={menuPos} onClose={closeMenu} className="min-w-[160px]" aria-label="Conversation actions">
-          <ContextMenuItem
-            onClick={() => { setShowMenu(false); setIsRenaming(true) }}
-            aria-label="Rename conversation"
-          >
-            Rename
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => { closeMenu(); setShowFolderModal(true) }}
-          >
-            Move to folder
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => handleExport('markdown')} aria-label="Export conversation as Markdown">
-            Export as Markdown
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => handleExport('json')} aria-label="Export conversation as JSON">
-            Export as JSON
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handleGenerateTitle} aria-label="Generate title with AI">
-            Generate Title
-          </ContextMenuItem>
-          <ContextMenuDivider />
-          <ColorSwatches
-            currentColor={conversation.color}
-            onColorChange={(c) => {
-              updateConversation(conversation.id, { color: c })
-              setShowMenu(false)
-            }}
-            onOpenPicker={() => {
-              setColorPickerPos({ x: menuPos.x, y: menuPos.y })
-              setShowColorPicker(true)
-              setShowMenu(false)
-            }}
-          />
-          <ContextMenuDivider />
-          <ContextMenuItem danger onClick={handleDelete} aria-label="Delete conversation">
-            Delete
-          </ContextMenuItem>
-        </ContextMenu>
-      )}
-
-      {showFolderModal && (
-        <MoveToFolderModal
-          folders={folders}
-          onSelect={(folderId) => {
-            if (isSelected && selectedIds.size > 1) {
-              moveSelectedToFolder(folderId)
-            } else {
-              handleMoveToFolder(folderId)
-            }
-            setShowFolderModal(false)
-          }}
-          onClose={() => setShowFolderModal(false)}
-          title={isSelected && selectedIds.size > 1 ? `Move ${selectedIds.size} to folder` : 'Move to folder'}
-        />
-      )}
-
-      {showColorPicker && (
-        <ColorPicker
-          currentColor={conversation.color}
-          onColorChange={(c) => {
-            if (selectedIds.size > 1) {
-              colorSelected(c)
-            } else {
-              updateConversation(conversation.id, { color: c })
-            }
-          }}
-          onClose={() => setShowColorPicker(false)}
-          position={colorPickerPos}
-        />
-      )}
+      <ItemActions {...actionsProps} />
     </>
   )
 })

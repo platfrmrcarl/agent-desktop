@@ -10,9 +10,15 @@ import type { HandleRegistrar } from '../dispatch'
 import { ensureSelfSignedCert } from '../utils/cert'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createRateLimiter, type RateLimiter, type WebPasswordService } from '../auth'
-import { renderLoginPage } from './webServer/loginPage'
 import { addBroadcastHandler } from '../utils/broadcast'
 import { assertOriginAllowed, isWsBlocked, OriginDeniedError } from '../dispatch-allowlist'
+import { cookieIsValid, type RouteContext } from './web/middleware'
+import { handleLoginPost, handleLogout, handleLoginGet } from './web/routes/login'
+import { handleShimJs, handleShortCode, handleStatic } from './web/routes/static'
+import { handleWsUpgrade } from './web/routes/wsUpgrade'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('webServer')
 
 // ─── State ───────────────────────────────────────────
 
@@ -38,24 +44,6 @@ let unsubBroadcast: (() => void) | null = null
 // Injectable state set when startServer() is called
 let serverDispatch: DispatchRegistry | null = null
 let rendererDir: string = ''
-
-// ─── MIME types ──────────────────────────────────────
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.ttf': 'font/ttf',
-  '.wasm': 'application/wasm',
-  '.map': 'application/json',
-}
 
 // ─── Shim generator ─────────────────────────────────
 
@@ -481,53 +469,6 @@ function getHostname(): string {
   return os.hostname()
 }
 
-// ─── Static file serving ────────────────────────────
-
-function serveStaticFile(
-  reqPath: string,
-  res: http.ServerResponse,
-  shimScript: string,
-): void {
-  // Normalize and prevent directory traversal
-  const safePath = path.normalize(reqPath).replace(/^(\.\.[/\\])+/, '')
-  const filePath = path.join(rendererDir, safePath === '/' ? 'index.html' : safePath)
-
-  // Security: must be within renderer dir
-  if (!filePath.startsWith(rendererDir)) {
-    res.writeHead(403)
-    res.end('Forbidden')
-    return
-  }
-
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      // SPA fallback: serve index.html for non-file paths
-      if (safePath !== '/' && !path.extname(safePath)) {
-        serveStaticFile('/', res, shimScript)
-        return
-      }
-      res.writeHead(404)
-      res.end('Not found')
-      return
-    }
-
-    const ext = path.extname(filePath)
-    const contentType = MIME[ext] || 'application/octet-stream'
-
-    // Inject shim script into index.html before </head>
-    if (ext === '.html') {
-      let html = data.toString('utf-8')
-      html = html.replace('</head>', `<script>${shimScript}</script>\n</head>`)
-      res.writeHead(200, { 'Content-Type': contentType })
-      res.end(html)
-      return
-    }
-
-    res.writeHead(200, { 'Content-Type': contentType })
-    res.end(data)
-  })
-}
-
 // ─── Safe WebSocket send ─────────────────────────
 
 function safeSend(ws: WebSocket, payload: string): void {
@@ -538,57 +479,6 @@ function safeSend(ws: WebSocket, payload: string): void {
   } catch {
     authenticatedClients.delete(ws)
   }
-}
-
-// ─── Auth helpers ────────────────────────────────────
-
-function getCookieValue(cookieHeader: string | undefined, name: string): string | null {
-  if (!cookieHeader) return null
-  for (const part of cookieHeader.split(';')) {
-    const [k, ...rest] = part.trim().split('=')
-    if (k === name) return rest.join('=')
-  }
-  return null
-}
-
-async function readRequestBody(req: http.IncomingMessage, maxBytes = 4096): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    let total = 0
-    req.on('data', (c: Buffer) => {
-      total += c.length
-      if (total > maxBytes) {
-        reject(new Error('body too large'))
-        req.destroy()
-        return
-      }
-      chunks.push(c)
-    })
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
-    req.on('error', reject)
-  })
-}
-
-function parseFormBody(body: string): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const part of body.split('&')) {
-    if (!part) continue
-    const [k, v = ''] = part.split('=')
-    try { out[decodeURIComponent(k.replace(/\+/g, ' '))] = decodeURIComponent(v.replace(/\+/g, ' ')) }
-    catch { /* skip malformed */ }
-  }
-  return out
-}
-
-function cookieIsValid(req: http.IncomingMessage): boolean {
-  if (!webPassword || !webPassword.isPasswordSet()) return true
-  const raw = getCookieValue(req.headers.cookie, COOKIE_NAME)
-  if (!raw) return false
-  return webPassword.validateCookie(raw)
-}
-
-function remoteIp(req: http.IncomingMessage): string {
-  return req.socket.remoteAddress || ''
 }
 
 // ─── WebSocket message handling ─────────────────────
@@ -680,15 +570,6 @@ function broadcastEvent(channel: string, ...args: unknown[]): void {
   }
 }
 
-/**
- * Returns the broadcast function for wiring into the broadcast utility,
- * or null if there are no authenticated clients.
- */
-export function getWsBroadcaster(): ((channel: string, ...args: unknown[]) => void) | null {
-  if (authenticatedClients.size === 0) return null
-  return broadcastEvent
-}
-
 // ─── Server lifecycle ───────────────────────────────
 
 export interface ServerStartOptions {
@@ -725,8 +606,8 @@ export async function startServer(port: number, options?: ServerStartOptions): P
     sslCert = result.cert
     serverProtocol = 'https'
   } catch (err) {
-    console.warn(`[webServer] SSL unavailable — falling back to HTTP (less secure)`)
-    console.warn(`[webServer] ${err instanceof Error ? err.message : String(err)}`)
+    log.warn('SSL unavailable — falling back to HTTP (less secure)')
+    log.warn('SSL error detail', err)
     serverProtocol = 'http'
   }
 
@@ -745,6 +626,19 @@ export async function startServer(port: number, options?: ServerStartOptions): P
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
 
+  const routeCtx: RouteContext = {
+    shimScript,
+    devUrl,
+    port,
+    rendererDir,
+    serverProtocol,
+    serverShortCode,
+    serverToken,
+    webPassword,
+    rateLimiter,
+    cookieName: COOKIE_NAME,
+  }
+
   // Shared request handler — works identically for HTTP and HTTPS
   const requestHandler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     if (!isAllowedRemote(req.socket.remoteAddress)) {
@@ -756,125 +650,40 @@ export async function startServer(port: number, options?: ServerStartOptions): P
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
 
     const url = new URL(req.url || '/', `http://localhost:${port}`)
+
+    // Served before cookie gate — clients need the shim to bootstrap WS
+    if (url.pathname === '/agent-ws-shim.js') return handleShimJs(req, res, routeCtx)
+
+    // Login/logout routes handle their own auth (rate limit + scrypt)
+    if (url.pathname === '/login' && req.method === 'POST') return handleLoginPost(req, res, routeCtx)
+    if (url.pathname === '/logout' && req.method === 'POST') return handleLogout(req, res, routeCtx)
+    if (url.pathname === '/login') return handleLoginGet(req, res, routeCtx)
+
+    // Cookie gate: all other routes require auth when password is set
     const passwordSet = !!webPassword && webPassword.isPasswordSet()
-
-    if (url.pathname === '/agent-ws-shim.js') {
-      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' })
-      res.end(shimScript)
-      return
-    }
-
-    if (url.pathname === '/login' && req.method === 'POST') {
-      const ip = remoteIp(req)
-      const rl = rateLimiter.check(ip)
-      if (!rl.allowed) {
-        res.writeHead(429, { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': String(rl.retryAfterSeconds ?? 60) })
-        res.end(renderLoginPage({ error: 'Too many attempts', retryAfter: rl.retryAfterSeconds }))
-        return
-      }
-      let body = ''
-      try { body = await readRequestBody(req) } catch { res.writeHead(413); res.end(); return }
-      const form = parseFormBody(body)
-      const ok = webPassword ? await webPassword.verifyPassword(form.password || '') : false
-      rateLimiter.recordAttempt(ip, ok)
-      if (!ok) {
-        res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' })
-        res.end(renderLoginPage({ error: 'Invalid password' }))
-        return
-      }
-      const cookie = webPassword!.issueCookie(form.remember === '1')
-      const days = form.remember === '1' ? webPassword!.getRememberDurationDays() : webPassword!.getSessionDurationDays()
-      const maxAge = days * 24 * 60 * 60
-      const secureFlag = serverProtocol === 'https' ? ' Secure;' : ''
-      res.writeHead(302, {
-        'Set-Cookie': `${COOKIE_NAME}=${cookie}; HttpOnly;${secureFlag} SameSite=Strict; Path=/; Max-Age=${maxAge}`,
-        Location: serverShortCode ? `/s/${serverShortCode}` : '/',
-      })
-      res.end()
-      return
-    }
-
-    if (url.pathname === '/logout' && req.method === 'POST') {
-      res.writeHead(302, {
-        'Set-Cookie': `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
-        Location: '/login',
-      })
-      res.end()
-      return
-    }
-
-    if (url.pathname === '/login') {
-      res.writeHead(passwordSet ? 200 : 404, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(passwordSet ? renderLoginPage({}) : 'Not found')
-      return
-    }
-
-    if (passwordSet && !cookieIsValid(req)) {
+    if (passwordSet && !cookieIsValid(req, routeCtx)) {
       res.writeHead(302, { Location: '/login' })
       res.end()
       return
     }
 
+    // Short-code entry point
     const shortMatch = url.pathname.match(/^\/s\/([a-zA-Z0-9]+)$/)
-    if (shortMatch) {
-      if (shortMatch[1] !== serverShortCode) {
-        res.writeHead(403); res.end('Invalid short code'); return
-      }
-      const tokenScript = passwordSet ? '' : `<script>window.__AGENT_TOKEN__=${JSON.stringify(serverToken)};</script>`
-      if (devUrl) proxyToDevWithTokenInjection(devUrl, req, res, shimScript, tokenScript)
-      else serveStaticFileWithTokenInjection('/', res, shimScript, tokenScript)
-      return
-    }
+    if (shortMatch) return handleShortCode(shortMatch[1], req, res, routeCtx)
 
-    if (devUrl) proxyToDev(devUrl, url.pathname, req, res, shimScript)
-    else serveStaticFile(url.pathname, res, shimScript)
+    // Static assets / dev proxy fallback
+    handleStatic(url.pathname, req, res, routeCtx)
   }
 
   // Shared upgrade handler — works identically for HTTP and HTTPS
   const upgradeHandler = (req: http.IncomingMessage, socket: import('stream').Duplex, head: Buffer) => {
-    if (!isAllowedRemote(req.socket.remoteAddress)) { socket.destroy(); return }
-
-    const passwordSet = !!webPassword && webPassword.isPasswordSet()
-    if (passwordSet && !cookieIsValid(req)) { socket.destroy(); return }
-
-    const url = new URL(req.url || '/', `http://localhost:${port}`)
-    if (url.pathname === '/ws') {
-      wss!.handleUpgrade(req, socket, head, (wsClient) => {
-        if (passwordSet) {
-          authenticatedClients.add(wsClient)
-          const cookieVal = getCookieValue(req.headers.cookie, COOKIE_NAME)
-          if (cookieVal) clientCookies.set(wsClient, cookieVal)
-        }
-        wss!.emit('connection', wsClient, req)
-      })
-    } else if (devUrl) {
-      const target = new URL(devUrl)
-      const proxyReq = http.request({
-        hostname: target.hostname,
-        port: target.port,
-        path: req.url,
-        headers: req.headers,
-        method: req.method,
-      })
-      proxyReq.on('upgrade', (_proxyRes, proxySocket, proxyHead) => {
-        let response = 'HTTP/1.1 101 Switching Protocols\r\n'
-        for (let i = 0; i < _proxyRes.rawHeaders.length; i += 2) {
-          response += _proxyRes.rawHeaders[i] + ': ' + _proxyRes.rawHeaders[i + 1] + '\r\n'
-        }
-        response += '\r\n'
-        socket.write(response)
-        if (proxyHead.length) socket.write(proxyHead)
-        if (head.length) proxySocket.write(head)
-        proxySocket.pipe(socket)
-        socket.pipe(proxySocket)
-        socket.on('error', () => proxySocket.destroy())
-        proxySocket.on('error', () => socket.destroy())
-      })
-      proxyReq.on('error', () => socket.destroy())
-      proxyReq.end()
-    } else {
-      socket.destroy()
-    }
+    handleWsUpgrade(req, socket, head, {
+      ...routeCtx,
+      wss: wss!,
+      authenticatedClients,
+      clientCookies,
+      isAllowedRemote,
+    })
   }
 
   return new Promise((resolve, reject) => {
@@ -936,7 +745,7 @@ export async function startServer(port: number, options?: ServerStartOptions): P
     }, HEARTBEAT_INTERVAL)
 
     httpServer.on('error', (err) => {
-      console.error('[webServer] Server error:', err.message)
+      log.error('Server error', err)
       reject(err)
     })
 
@@ -961,14 +770,14 @@ export async function startServer(port: number, options?: ServerStartOptions): P
       })
 
       tcpServer.on('error', (err) => {
-        console.error('[webServer] TCP server error:', err.message)
+        log.error('TCP server error', err)
         reject(err)
       })
 
       tcpServer.listen(port, '0.0.0.0', () => {
         const ip = getLanIp()
         const shortUrl = `https://${ip}:${port}/s/${serverShortCode}`
-        console.log(`[webServer] Listening on ${shortUrl} (HTTPS, HTTP→HTTPS redirect enabled)`)
+        log.info('Listening', { url: shortUrl, protocol: 'HTTPS' })
         resolve({ url: shortUrl, token: serverToken! })
       })
     } else {
@@ -976,7 +785,7 @@ export async function startServer(port: number, options?: ServerStartOptions): P
       httpServer.listen(port, '0.0.0.0', () => {
         const ip = getLanIp()
         const shortUrl = `http://${ip}:${port}/s/${serverShortCode}`
-        console.log(`[webServer] Listening on ${shortUrl} (HTTP — install OpenSSL for HTTPS)`)
+        log.info('Listening', { url: shortUrl, protocol: 'HTTP' })
         resolve({ url: shortUrl, token: serverToken! })
       })
     }
@@ -1037,6 +846,8 @@ export async function stopServer(): Promise<void> {
   }
 }
 
+// consumed by webServer.test.ts (excluded) and via dispatch handler (server:getStatus). (suppressed below)
+// fallow-ignore-next-line unused-export
 export async function getServerStatus(): Promise<{
   running: boolean
   port: number | null
@@ -1146,98 +957,6 @@ async function detectFirewallBlockUncached(port: number): Promise<string | null>
   }
 
   return null
-}
-
-// ─── Short URL serving (index.html with token injection) ─────
-
-// Inject <base href="/"> so relative asset paths resolve from root (not /s/)
-const BASE_TAG = '<base href="/">'
-
-function serveStaticFileWithTokenInjection(
-  _reqPath: string,
-  res: http.ServerResponse,
-  shimScript: string,
-  tokenScript: string,
-): void {
-  const filePath = path.join(rendererDir, 'index.html')
-
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404)
-      res.end('Not found')
-      return
-    }
-    let html = data.toString('utf-8')
-    html = html.replace('<head>', `<head>${BASE_TAG}`)
-    html = html.replace('</head>', `${tokenScript}<script>${shimScript}</script>\n</head>`)
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-    res.end(html)
-  })
-}
-
-function proxyToDevWithTokenInjection(
-  devUrl: string,
-  _req: http.IncomingMessage,
-  res: http.ServerResponse,
-  shimScript: string,
-  tokenScript: string,
-): void {
-  const target = new URL('/', devUrl)
-  const proto = target.protocol === 'https:' ? require('https') : require('http')
-
-  proto.get(target.href, (proxyRes: http.IncomingMessage) => {
-    const chunks: Buffer[] = []
-    proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk))
-    proxyRes.on('end', () => {
-      const body = Buffer.concat(chunks)
-      let html = body.toString('utf-8')
-      html = html.replace('<head>', `<head>${BASE_TAG}`)
-      html = html.replace('</head>', `${tokenScript}<script>${shimScript}</script>\n</head>`)
-      res.writeHead(proxyRes.statusCode || 200, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(html)
-    })
-  }).on('error', (err: Error) => {
-    console.error('[webServer] Dev proxy error:', err.message)
-    res.writeHead(502)
-    res.end('Dev server not reachable')
-  })
-}
-
-// ─── Dev proxy ──────────────────────────────────────
-
-function proxyToDev(
-  devUrl: string,
-  pathname: string,
-  _req: http.IncomingMessage,
-  res: http.ServerResponse,
-  shimScript: string,
-): void {
-  const target = new URL(pathname, devUrl)
-  const proto = target.protocol === 'https:' ? require('https') : require('http')
-
-  proto.get(target.href, (proxyRes: http.IncomingMessage) => {
-    const chunks: Buffer[] = []
-    proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk))
-    proxyRes.on('end', () => {
-      const body = Buffer.concat(chunks)
-      const contentType = proxyRes.headers['content-type'] || ''
-
-      // Inject shim into HTML responses
-      if (contentType.includes('text/html')) {
-        let html = body.toString('utf-8')
-        html = html.replace('</head>', `<script>${shimScript}</script>\n</head>`)
-        res.writeHead(proxyRes.statusCode || 200, { 'Content-Type': contentType })
-        res.end(html)
-      } else {
-        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)
-        res.end(body)
-      }
-    })
-  }).on('error', (err: Error) => {
-    console.error('[webServer] Dev proxy error:', err.message)
-    res.writeHead(502)
-    res.end('Dev server not reachable')
-  })
 }
 
 // ─── IPC handlers ───────────────────────────────────

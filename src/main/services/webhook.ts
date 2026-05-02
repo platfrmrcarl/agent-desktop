@@ -1,5 +1,8 @@
 import { net } from 'electron'
 import { validateWebhookUrl, validateWebhookUrlAsync } from '../../core/utils/webhookValidation'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('webhook')
 
 export type { WebhookValidationResult } from '../../core/utils/webhookValidation'
 export { validateWebhookUrl } from '../../core/utils/webhookValidation'
@@ -22,7 +25,7 @@ export async function fireCompletionWebhook(
 ): Promise<void> {
   const validation = await validateWebhookUrlAsync(url)
   if (!validation.ok) {
-    console.warn(`[webhook] rejected URL: ${validation.reason}`)
+    log.warn('rejected URL', { reason: validation.reason })
     return
   }
 
@@ -35,9 +38,9 @@ export async function fireCompletionWebhook(
       redirect: 'error',
     })
     if (!res.ok) {
-      console.warn(`[webhook] POST ${url} returned ${res.status}`)
+      log.warn('webhook returned non-ok status', { url, status: res.status })
     }
   } catch (err) {
-    console.error('[webhook] Error:', err instanceof Error ? err.message : String(err))
+    log.error('webhook error', err)
   }
 }

@@ -1,4 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+// Mock the structured logger module so tests can spy on log.warn / log.error.
+// Hoisted because vi.mock factories are hoisted to top of file.
+const mockLog = vi.hoisted(() => ({
+  trace: vi.fn(),
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  child: vi.fn(),
+}))
+mockLog.child.mockReturnValue(mockLog)
+vi.mock('../utils/logger', () => ({
+  createLogger: () => mockLog,
+}))
+
 import { executeTask, type TaskRunContext, type StreamResult } from './taskExecutor'
 import type { SchedulerService } from './scheduler'
 import type { ScheduledTask } from '../types'
@@ -261,7 +277,8 @@ describe('executeTask', () => {
 
     it("falls back to clearConversation when compactConversation rejects, and still completes the run", async () => {
       scheduler.get.mockReturnValue(makeTask())
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockLog.warn.mockClear()
+      mockLog.error.mockClear()
       ctx.compactConversation.mockRejectedValue(new Error('haiku down'))
 
       await executeTask(scheduler as any, ctx, makeTask({ pre_run_action: 'compact' }))
@@ -269,7 +286,8 @@ describe('executeTask', () => {
       expect(ctx.compactConversation).toHaveBeenCalledOnce()
       expect(ctx.clearConversation).toHaveBeenCalledWith(10)
       expect(ctx.streamMessage).toHaveBeenCalledOnce() // run still executed
-      expect(warn).toHaveBeenCalled()
+      // Migrated to structured logger — capture either warn or error level
+      expect(mockLog.warn.mock.calls.length + mockLog.error.mock.calls.length).toBeGreaterThan(0)
     })
   })
 })

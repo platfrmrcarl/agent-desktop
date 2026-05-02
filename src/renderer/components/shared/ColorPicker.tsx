@@ -38,6 +38,8 @@ function hexToHsv(hex: string): { h: number; s: number; v: number } {
   return { h, s: max === 0 ? 0 : (d / max) * 100, v: max * 100 }
 }
 
+// PRESET_COLORS/hexToHsv consumed by ColorPicker.test.tsx (excluded). (suppressed below)
+// fallow-ignore-next-line unused-export
 export { PRESET_COLORS, hsvToHex, hexToHsv }
 
 interface SwatchesProps {

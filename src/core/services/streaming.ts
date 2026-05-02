@@ -8,6 +8,9 @@ import {
 } from './sdkSystemForward'
 import { findBinaryInPath } from '../utils/env'
 import { broadcast } from '../utils/broadcast'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('streaming')
 import type { ToolApprovalResponse, AskUserResponse, ToolCall, CwdWhitelistEntry } from '../types'
 
 // ─── Injectable dependencies (set by the adapter layer) ─────
@@ -685,7 +688,7 @@ async function streamMessageOneShot(
       sendChunk('done', undefined, { ...convExtra, stopReason: 'aborted' })
     } else {
       streamError = err instanceof Error ? err.message : 'Unknown streaming error'
-      console.error('[streaming] Error:', err)
+      log.error('Stream error', err)
       sendChunk('error', streamError, convExtra)
     }
   } finally {

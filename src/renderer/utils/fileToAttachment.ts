@@ -1,4 +1,7 @@
 import type { Attachment } from '../../shared/types'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('fileToAttachment')
 
 const MAX_WEB_IMAGE_SIZE = 50 * 1024 * 1024 // 50MB
 const MAX_WEB_TEXT_SIZE = 10 * 1024 * 1024  // 10MB
@@ -41,7 +44,7 @@ export async function fileToAttachment(file: File): Promise<Attachment | null> {
     const maxSize = IMAGE_EXTS.has(ext) ? MAX_WEB_IMAGE_SIZE : MAX_WEB_TEXT_SIZE
     if (file.size > maxSize) {
       const limitMB = maxSize / 1024 / 1024
-      console.error(`[fileToAttachment] File too large: ${(file.size / 1024 / 1024).toFixed(1)}MB exceeds ${limitMB}MB limit`)
+      log.error(`File too large: ${(file.size / 1024 / 1024).toFixed(1)}MB exceeds ${limitMB}MB limit`)
       throw new Error(`File "${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum size: ${limitMB}MB`)
     }
 
@@ -51,7 +54,7 @@ export async function fileToAttachment(file: File): Promise<Attachment | null> {
       const path = await window.agent.files.savePastedFile(new Uint8Array(buffer), mime)
       return { name: file.name, path, type: mime, size: file.size }
     } catch (err) {
-      console.error('[fileToAttachment] Upload failed:', err)
+      log.error('Upload failed', err)
       return null
     }
   }

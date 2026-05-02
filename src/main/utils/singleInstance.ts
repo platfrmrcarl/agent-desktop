@@ -2,6 +2,9 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { app } from 'electron'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('singleInstance')
 
 /**
  * Read the main PID from Electron's SingletonLock symlink.
@@ -117,6 +120,6 @@ export function killExistingInstances(): void {
   }
 
   if (killed > 0) {
-    console.log(`[singleInstance] Killed ${killed} process(es) (main pid=${mainPid})`)
+    log.info('killed existing instances', { count: killed, mainPid })
   }
 }

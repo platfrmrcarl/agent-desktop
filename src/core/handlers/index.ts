@@ -23,6 +23,9 @@ import { registerSystemHandlers } from './system'
 import { registerGitHandlers } from './git'
 import { registerBugReportHandlers, type BugReportHandlerOptions } from './bugReport'
 import { registerWebServerAuthHandlers } from './webServerAuth'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('messages')
 
 interface CoreHandlerOptions {
   broadcaster: Broadcaster
@@ -57,7 +60,7 @@ export function registerCoreHandlers(
     // (full / summary / auto / off), so off-providers no-op cleanly.
     onTtsSpeak: (content, convId, aiSettings) => {
       speakResponse(content, db, convId, aiSettings).catch(err =>
-        console.error('[messages] auto-tts error:', err))
+        log.error('auto-tts error', err))
     },
     onTtsStop: () => ttsStop(),
   })

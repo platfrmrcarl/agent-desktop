@@ -1,5 +1,5 @@
 import type { App } from 'electron'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
 import { broadcast } from '../utils/broadcast'
 import { log } from './system'
 

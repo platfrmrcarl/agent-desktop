@@ -7,7 +7,8 @@ vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/mock/app' },
 }))
 
-vi.mock('../index', () => ({
+vi.mock('../index', () => ({ getMainWindow: vi.fn(() => null) }))
+vi.mock('../mainContext', () => ({
   getMainWindow: vi.fn(() => null),
 }))
 
@@ -52,7 +53,7 @@ vi.mock('child_process', () => ({
 
 import { registerHandlers, shutdownAllKernels } from './jupyter'
 import { findBinaryInPath } from '../utils/env'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
 
 const mockFindBinary = vi.mocked(findBinaryInPath)
 const mockGetMainWindow = vi.mocked(getMainWindow)

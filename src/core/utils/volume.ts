@@ -1,5 +1,8 @@
 import { execFile } from 'child_process'
 import { findBinaryInPath } from './env'
+import { createLogger } from './logger'
+
+const log = createLogger('volume')
 
 interface BackendInfo {
   name: 'wpctl' | 'pactl' | 'amixer'
@@ -78,7 +81,7 @@ export function duckVolume(reductionPercent: number): Promise<void> {
 
   const backend = detectBackend()
   if (!backend) {
-    console.warn('[volume] No audio backend found (wpctl/pactl/amixer)')
+    log.warn('No audio backend found (wpctl/pactl/amixer)')
     return Promise.resolve()
   }
 
@@ -88,10 +91,10 @@ export function duckVolume(reductionPercent: number): Promise<void> {
       savedVolume = current
       const target = Math.max(0, current - reductionPercent)
       await setVolume(backend, target)
-      console.log(`[volume] Ducked: ${current}% -> ${target}% (reduction: ${reductionPercent}%)`)
+      log.debug('Volume ducked', { current, target, reductionPercent })
     } catch (err) {
       savedVolume = null
-      console.warn('[volume] Duck failed:', err)
+      log.warn('Duck failed', err)
     }
   })()
   return duckPromise
@@ -113,9 +116,9 @@ export async function restoreVolume(): Promise<void> {
 
   try {
     await setVolume(backend, vol)
-    console.log(`[volume] Restored to ${vol}%`)
+    log.debug('Volume restored', { vol })
   } catch (err) {
-    console.warn('[volume] Restore failed:', err)
+    log.warn('Restore failed', err)
   }
 }
 
@@ -154,7 +157,7 @@ export function duckOtherStreams(reductionPercent: number): Promise<void> {
 
   const pactlPath = findBinaryInPath('pactl')
   if (!pactlPath) {
-    console.warn('[volume] pactl not found — per-stream ducking unavailable')
+    log.warn('pactl not found — per-stream ducking unavailable')
     return Promise.resolve()
   }
 
@@ -168,10 +171,10 @@ export function duckOtherStreams(reductionPercent: number): Promise<void> {
         const target = Math.max(0, input.volume - reductionPercent)
         await exec(pactlPath, ['set-sink-input-volume', String(input.index), `${target}%`])
       }
-      console.log(`[volume] Ducked ${inputs.length} stream(s) by ${reductionPercent}%`)
+      log.debug('Streams ducked', { count: inputs.length, reductionPercent })
     } catch (err) {
       savedStreams = null
-      console.warn('[volume] Duck streams failed:', err)
+      log.warn('Duck streams failed', err)
     }
   })()
   return duckStreamsPromise
@@ -208,7 +211,7 @@ export async function restoreOtherStreams(): Promise<void> {
         // Stream may have ended
       }
     }
-    console.log(`[volume] Restored ${streams.length} stream(s) (index-only fallback)`)
+    log.debug('Streams restored (index-only fallback)', { count: streams.length })
     return
   }
 
@@ -240,7 +243,7 @@ export async function restoreOtherStreams(): Promise<void> {
     }
   }
 
-  console.log(`[volume] Restored ${matched.size} stream(s)`)
+  log.debug('Streams restored', { count: matched.size })
 }
 
 /** Reset module state for testing */

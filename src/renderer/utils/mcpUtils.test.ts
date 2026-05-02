@@ -180,4 +180,119 @@ describe('parseMcpJson', () => {
   it('returns error for empty object', () => {
     expect(parseMcpJson('{}')).toBe('Empty JSON object')
   })
+
+  // --- additional branch coverage ---
+
+  it('returns error for null JSON value', () => {
+    expect(parseMcpJson('null')).toBe('Expected a JSON object')
+  })
+
+  it('returns error for string JSON value', () => {
+    expect(parseMcpJson('"hello"')).toBe('Expected a JSON object')
+  })
+
+  it('returns error for numeric JSON value', () => {
+    expect(parseMcpJson('42')).toBe('Expected a JSON object')
+  })
+
+  it('returns error for boolean JSON value', () => {
+    expect(parseMcpJson('true')).toBe('Expected a JSON object')
+  })
+
+  it('returns error when mcpServers is null (treated as naked config)', () => {
+    // mcpServers: null fails the object guard, falls to naked format detection,
+    // key "mcpServers" is not in CONFIG_KEYS → naked path → val=null → Invalid server config
+    expect(parseMcpJson('{"mcpServers":null}')).toBe('Invalid server config')
+  })
+
+  it('returns error when mcpServers is a string (treated as naked config)', () => {
+    // Same path: mcpServers: "foo" not an object → naked path → val="foo" → Invalid server config
+    expect(parseMcpJson('{"mcpServers":"foo"}')).toBe('Invalid server config')
+  })
+
+  it('returns error when wrapped server value is null', () => {
+    const json = JSON.stringify({ mcpServers: { myserver: null } })
+    expect(parseMcpJson(json)).toBe('Invalid server config')
+  })
+
+  it('returns error when wrapped server value is an array', () => {
+    const json = JSON.stringify({ mcpServers: { myserver: [] } })
+    expect(parseMcpJson(json)).toBe('Invalid server config')
+  })
+
+  it('returns error when naked first value is null', () => {
+    const json = JSON.stringify({ myserver: null })
+    expect(parseMcpJson(json)).toBe('Invalid server config')
+  })
+
+  it('returns error when naked first value is an array', () => {
+    const json = JSON.stringify({ myserver: [] })
+    expect(parseMcpJson(json)).toBe('Invalid server config')
+  })
+
+  it('ignores non-array args silently (no args field on result)', () => {
+    const json = JSON.stringify({
+      mcpServers: { s: { command: 'cmd', args: 'not-an-array' } },
+    })
+    const result = parseMcpJson(json)
+    expect(typeof result).not.toBe('string')
+    if (typeof result !== 'string') {
+      expect(result.args).toBeUndefined()
+      expect(result.command).toBe('cmd')
+    }
+  })
+
+  it('ignores array env silently (no env field on result)', () => {
+    const json = JSON.stringify({
+      mcpServers: { s: { command: 'cmd', env: ['not', 'an', 'object'] } },
+    })
+    const result = parseMcpJson(json)
+    expect(typeof result).not.toBe('string')
+    if (typeof result !== 'string') {
+      expect(result.env).toBeUndefined()
+    }
+  })
+
+  it('ignores array headers silently (no headers field on result)', () => {
+    const json = JSON.stringify({
+      mcpServers: { s: { url: 'https://x.com', headers: ['bad'] } },
+    })
+    const result = parseMcpJson(json)
+    expect(typeof result).not.toBe('string')
+    if (typeof result !== 'string') {
+      expect(result.headers).toBeUndefined()
+    }
+  })
+
+  it('command wins when both command and url are present (ultra-naked)', () => {
+    const json = JSON.stringify({ command: 'my-cmd', url: 'https://x.com' })
+    const result = parseMcpJson(json)
+    expect(typeof result).not.toBe('string')
+    if (typeof result !== 'string') {
+      expect(result.type).toBe('stdio')
+      expect(result.command).toBe('my-cmd')
+      expect(result.url).toBeUndefined()
+    }
+  })
+
+  it('parses ultra-naked url server without name', () => {
+    const json = JSON.stringify({ url: 'https://remote.example.com/mcp' })
+    const result = parseMcpJson(json)
+    expect(result).toEqual({
+      name: '',
+      type: 'http',
+      url: 'https://remote.example.com/mcp',
+    })
+  })
+
+  it('explicit type http on wrapped config produces http type', () => {
+    const json = JSON.stringify({
+      mcpServers: { s: { type: 'http', url: 'https://x.com' } },
+    })
+    const result = parseMcpJson(json)
+    expect(typeof result).not.toBe('string')
+    if (typeof result !== 'string') {
+      expect(result.type).toBe('http')
+    }
+  })
 })

@@ -5,7 +5,7 @@ import { Notification } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
 import { promises as fsp } from 'fs'
-import { getMainWindow } from '../index'
+import { getMainWindow } from '../mainContext'
 import {
   buildMessageHistory,
   getAISettings,
@@ -29,6 +29,9 @@ import type { ScheduledTask } from '../../core/types'
 import { createPlatformScheduler } from './platformScheduler'
 import { findBinaryInPath } from '../utils/env'
 import { getBackgroundSchedulerEnabled } from '../../core/db/queries'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('scheduler')
 
 // Re-export core functions for backward compatibility with existing importers
 export { computeNextRun, getExpectedThemeFilename } from '../../core/services/scheduler'
@@ -150,15 +153,15 @@ export async function executeTask(db: SqlJsAdapter, task: ScheduledTask): Promis
         if (lastMsg?.content) {
           const aiSettings = ctx.getAISettings(targetConvId)
           speakResponse(lastMsg.content, db, targetConvId, aiSettings).catch(err =>
-            console.error('[scheduler] Voice notification error:', err))
+            log.error('voice notification error', err))
         }
       } catch (err) {
-        console.error('[scheduler] Failed to fetch last assistant message for TTS:', err)
+        log.error('failed to fetch last assistant message for TTS', err)
       }
     } else {
       // On failure, keep a short audible cue so the user knows.
       ttsSpeak('Task failed', db).catch(err =>
-        console.error('[scheduler] Voice notification error:', err))
+        log.error('voice notification error', err))
     }
   }
 }
@@ -187,7 +190,7 @@ function tick(): void {
   const dueTasks = schedulerService.getDueTasks()
   for (const task of dueTasks) {
     executeTask(schedulerDb, task).catch((err) => {
-      console.error(`[scheduler] Unexpected error in task ${task.id}:`, err)
+      log.error('unexpected error in task', err, { taskId: task.id })
     })
   }
 }
@@ -206,11 +209,11 @@ export async function startScheduler(db: SqlJsAdapter): Promise<void> {
     schedulerService.recoverStuckTasks()
 
     const taskCount = schedulerService.list().filter(t => t.enabled).length
-    console.log('[scheduler] Background mode — in-memory tick disabled, OS timer active.', taskCount, 'enabled tasks')
+    log.info('background mode — in-memory tick disabled, OS timer active', { taskCount })
 
     // Verify platform scheduler is installed
     verifyPlatformScheduler(db).catch(err =>
-      console.error('[scheduler] Platform scheduler verification failed:', err)
+      log.error('platform scheduler verification failed', err)
     )
   } else {
     // Standard mode: in-memory tick loop. OS timer is not installed, so no lock needed.
@@ -227,7 +230,7 @@ export async function startScheduler(db: SqlJsAdapter): Promise<void> {
     tickInterval = setInterval(tick, 60_000)
 
     const taskCount = schedulerService.list().filter(t => t.enabled).length
-    console.log('[scheduler] Standard mode — in-memory tick active.', taskCount, 'enabled tasks')
+    log.info('standard mode — in-memory tick active', { taskCount })
   }
 }
 
@@ -238,7 +241,7 @@ export async function stopScheduler(): Promise<void> {
   }
   schedulerService = null
   schedulerDb = null
-  console.log('[scheduler] Stopped')
+  log.info('stopped')
 }
 
 // ─── Platform scheduler management ─────────────────────────
@@ -252,7 +255,7 @@ async function verifyPlatformScheduler(db: SqlJsAdapter): Promise<void> {
   // Find node executable
   const nodePath = findBinaryInPath('node') ?? process.execPath
   if (!nodePath) {
-    console.warn('[scheduler] Cannot find node binary — platform scheduler not installed')
+    log.warn('cannot find node binary — platform scheduler not installed')
     return
   }
 
@@ -292,14 +295,14 @@ async function verifyPlatformScheduler(db: SqlJsAdapter): Promise<void> {
       await fsp.writeFile(join(HEADLESS_DIR, 'node_path.txt'), nodeModulesPath, 'utf-8')
     }
   } catch (err) {
-    console.error('[scheduler] Failed to extract headless script:', err)
+    log.error('failed to extract headless script', err)
     return
   }
 
   // Install if not already installed
   if (!(await platformScheduler.isInstalled())) {
     await platformScheduler.install(nodePath, scriptPath)
-    console.log('[scheduler] Platform scheduler installed')
+    log.info('platform scheduler installed')
   }
 }
 
@@ -311,7 +314,7 @@ export async function togglePlatformScheduler(db: SqlJsAdapter, enabled: boolean
     await verifyPlatformScheduler(db)
   } else {
     await platformScheduler.uninstall()
-    console.log('[scheduler] Platform scheduler uninstalled')
+    log.info('platform scheduler uninstalled')
   }
 }
 
@@ -356,7 +359,7 @@ export function registerHandlers(ipcMain: IpcMain, db: SqlJsAdapter): void {
     if (!task) throw new Error('Task not found')
     if (task.last_status === 'running') throw new Error('Task is already running')
     executeTask(db, task).catch((err) => {
-      console.error(`[scheduler] Manual run of task ${id} failed:`, err)
+      log.error('manual run of task failed', err, { taskId: id })
     })
   })
 

@@ -1,6 +1,9 @@
 import type Database from 'better-sqlite3'
 import type { SqlJsAdapter } from './sqljs-adapter'
 import { getDefaultFolderId } from './queries'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('schema')
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS settings (
@@ -140,160 +143,96 @@ export function createTables(db: Database.Database): void {
   runMigrations(db)
 }
 
+/** Apply a single ADD COLUMN migration if the column does not yet exist. Idempotent. */
+function applyMigration(
+  db: Database.Database,
+  columnsByTable: Map<string, Set<string>>,
+  table: string,
+  col: string,
+  sqlPart: string
+): void {
+  if (columnsByTable.get(table)?.has(col)) return
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${sqlPart}`)
+    columnsByTable.get(table)?.add(col)
+  } catch (e) {
+    log.warn(`Migration skipped: ${table}.${col}`, e)
+  }
+}
+
 function runMigrations(db: Database.Database): void {
-  // Add cwd column to conversations (working directory per conversation)
-  const convCols = db.pragma('table_info(conversations)') as { name: string }[]
-  if (!convCols.some((c) => c.name === 'cwd')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN cwd TEXT') } catch (e) { console.warn('[migration] conversations.cwd:', e) }
+  // Read schema once per table before any mutations
+  const MIGRATION_TABLES = ['conversations', 'folders', 'messages', 'mcp_servers', 'scheduled_tasks'] as const
+  const columnsByTable = new Map<string, Set<string>>()
+  for (const table of MIGRATION_TABLES) {
+    columnsByTable.set(
+      table,
+      new Set((db.pragma(`table_info(${table})`) as Array<{ name: string }>).map((c) => c.name))
+    )
   }
 
-  // Add ai_overrides column to conversations and folders (cascading settings)
-  if (!convCols.some((c) => c.name === 'ai_overrides')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN ai_overrides TEXT') } catch (e) { console.warn('[migration] conversations.ai_overrides:', e) }
-  }
-  const folderCols = db.pragma('table_info(folders)') as { name: string }[]
-  if (!folderCols.some((c) => c.name === 'ai_overrides')) {
-    try { db.exec('ALTER TABLE folders ADD COLUMN ai_overrides TEXT') } catch (e) { console.warn('[migration] folders.ai_overrides:', e) }
-  }
+  db.transaction(() => {
+    // conversations: core per-conversation settings
+    applyMigration(db, columnsByTable, 'conversations', 'cwd', 'TEXT')
+    applyMigration(db, columnsByTable, 'conversations', 'ai_overrides', 'TEXT')
+    applyMigration(db, columnsByTable, 'conversations', 'cleared_at', 'TEXT')
+    applyMigration(db, columnsByTable, 'conversations', 'compact_summary', 'TEXT')
+    applyMigration(db, columnsByTable, 'conversations', 'sdk_session_id', 'TEXT')
+    applyMigration(db, columnsByTable, 'conversations', 'pi_session_file', 'TEXT')
+    applyMigration(db, columnsByTable, 'conversations', 'color', 'TEXT')
+    applyMigration(db, columnsByTable, 'conversations', 'last_opened_at', 'TEXT')
 
-  // Add tool_calls column to messages (persisted tool call data)
-  const msgCols = db.pragma('table_info(messages)') as { name: string }[]
-  if (!msgCols.some((c) => c.name === 'tool_calls')) {
-    try { db.exec('ALTER TABLE messages ADD COLUMN tool_calls TEXT') } catch (e) { console.warn('[migration] messages.tool_calls:', e) }
-  }
+    // conversations: context window usage tracking (for /context)
+    applyMigration(db, columnsByTable, 'conversations', 'last_input_tokens', 'INTEGER')
+    applyMigration(db, columnsByTable, 'conversations', 'last_output_tokens', 'INTEGER')
+    applyMigration(db, columnsByTable, 'conversations', 'last_cache_read_tokens', 'INTEGER')
+    applyMigration(db, columnsByTable, 'conversations', 'last_cache_creation_tokens', 'INTEGER')
+    applyMigration(db, columnsByTable, 'conversations', 'last_usage_updated_at', 'TEXT')
+    applyMigration(db, columnsByTable, 'conversations', 'last_context_window', 'INTEGER')
+    // Content-only token count (system prompt + messages + compact + tool exchanges + skills),
+    // matches the /context bubble headline so the status-line bar and bubble stay consistent.
+    // Populated alongside last_*_tokens on every turn end in handlers/messages.ts.
+    applyMigration(db, columnsByTable, 'conversations', 'last_content_tokens', 'INTEGER')
 
-  // Add HTTP/SSE transport columns to mcp_servers
-  const mcpCols = db.pragma('table_info(mcp_servers)') as { name: string }[]
-  if (!mcpCols.some((c) => c.name === 'type')) {
-    try { db.exec("ALTER TABLE mcp_servers ADD COLUMN type TEXT DEFAULT 'stdio'") } catch (e) { console.warn('[migration] mcp_servers.type:', e) }
-  }
-  if (!mcpCols.some((c) => c.name === 'url')) {
-    try { db.exec('ALTER TABLE mcp_servers ADD COLUMN url TEXT') } catch (e) { console.warn('[migration] mcp_servers.url:', e) }
-  }
-  if (!mcpCols.some((c) => c.name === 'headers')) {
-    try { db.exec("ALTER TABLE mcp_servers ADD COLUMN headers TEXT DEFAULT '{}'") } catch (e) { console.warn('[migration] mcp_servers.headers:', e) }
-  }
+    // folders
+    applyMigration(db, columnsByTable, 'folders', 'ai_overrides', 'TEXT')
+    applyMigration(db, columnsByTable, 'folders', 'default_cwd', 'TEXT')
+    applyMigration(db, columnsByTable, 'folders', 'color', 'TEXT')
+    applyMigration(db, columnsByTable, 'folders', 'is_default', 'INTEGER DEFAULT 0')
 
-  // Drop unused artifacts table (legacy from old Artifacts Pipeline)
-  try { db.exec('DROP TABLE IF EXISTS artifacts') } catch (e) { console.warn('[migration] artifacts drop:', e) }
+    // messages
+    applyMigration(db, columnsByTable, 'messages', 'tool_calls', 'TEXT')
 
-  // Drop themes table (themes now stored as CSS files in ~/.agent-desktop/themes/)
-  try { db.exec('DROP TABLE IF EXISTS themes') } catch (e) { console.warn('[migration] themes drop:', e) }
+    // mcp_servers: HTTP/SSE transport columns
+    applyMigration(db, columnsByTable, 'mcp_servers', 'type', "TEXT DEFAULT 'stdio'")
+    applyMigration(db, columnsByTable, 'mcp_servers', 'url', 'TEXT')
+    applyMigration(db, columnsByTable, 'mcp_servers', 'headers', "TEXT DEFAULT '{}'")
 
-  // Add default_cwd column to folders (default working directory for new conversations)
-  const folderCols2 = db.pragma('table_info(folders)') as { name: string }[]
-  if (!folderCols2.some((c) => c.name === 'default_cwd')) {
-    try { db.exec('ALTER TABLE folders ADD COLUMN default_cwd TEXT') } catch (e) { console.warn('[migration] folders.default_cwd:', e) }
-  }
-
-  // Add color column to folders (visual folder tinting in sidebar)
-  const folderCols3 = db.pragma('table_info(folders)') as { name: string }[]
-  if (!folderCols3.some((c) => c.name === 'color')) {
-    try { db.exec('ALTER TABLE folders ADD COLUMN color TEXT') } catch (e) { console.warn('[migration] folders.color:', e) }
-  }
-
-  // Add cleared_at column to conversations (context boundary for /clear command)
-  if (!convCols.some((c) => c.name === 'cleared_at')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN cleared_at TEXT') } catch (e) { console.warn('[migration] conversations.cleared_at:', e) }
-  }
-
-  // Add compact_summary column to conversations (AI-generated context summary from /compact)
-  const convCols3 = db.pragma('table_info(conversations)') as { name: string }[]
-  if (!convCols3.some((c) => c.name === 'compact_summary')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN compact_summary TEXT') } catch (e) { console.warn('[migration] conversations.compact_summary:', e) }
-  }
-
-  // Add one_shot column to scheduled_tasks (auto-disable after single execution)
-  const schedCols = db.pragma('table_info(scheduled_tasks)') as { name: string }[]
-  if (!schedCols.some((c) => c.name === 'one_shot')) {
-    try { db.exec('ALTER TABLE scheduled_tasks ADD COLUMN one_shot INTEGER DEFAULT 0') } catch (e) { console.warn('[migration] scheduled_tasks.one_shot:', e) }
-  }
-
-  // Add max_runs column to scheduled_tasks (replaces one_shot with N-run limit)
-  if (!schedCols.some((c) => c.name === 'max_runs')) {
-    try {
-      db.exec('ALTER TABLE scheduled_tasks ADD COLUMN max_runs INTEGER DEFAULT NULL')
-      // Backfill: convert one_shot=1 rows to max_runs=1
-      db.exec('UPDATE scheduled_tasks SET max_runs = 1 WHERE one_shot = 1')
-    } catch (e) { console.warn('[migration] scheduled_tasks.max_runs:', e) }
-  }
-
-  // Add pre_run_action column to scheduled_tasks (conversation preparation before each run)
-  if (!schedCols.some((c) => c.name === 'pre_run_action')) {
-    try {
-      db.exec("ALTER TABLE scheduled_tasks ADD COLUMN pre_run_action TEXT NOT NULL DEFAULT 'none'")
-    } catch (e) {
-      console.warn('[migration] scheduled_tasks.pre_run_action:', e)
+    // scheduled_tasks
+    applyMigration(db, columnsByTable, 'scheduled_tasks', 'one_shot', 'INTEGER DEFAULT 0')
+    // max_runs replaces one_shot with N-run limit; backfill converts one_shot=1 rows
+    if (!columnsByTable.get('scheduled_tasks')?.has('max_runs')) {
+      try {
+        db.exec('ALTER TABLE scheduled_tasks ADD COLUMN max_runs INTEGER DEFAULT NULL')
+        db.exec('UPDATE scheduled_tasks SET max_runs = 1 WHERE one_shot = 1')
+        columnsByTable.get('scheduled_tasks')?.add('max_runs')
+      } catch (e) { log.warn('Migration skipped: scheduled_tasks.max_runs', e) }
     }
-  }
+    applyMigration(db, columnsByTable, 'scheduled_tasks', 'pre_run_action', "TEXT NOT NULL DEFAULT 'none'")
 
-  // Add is_default column to folders (marks the auto-created default folder)
-  const folderCols4 = db.pragma('table_info(folders)') as { name: string }[]
-  if (!folderCols4.some((c) => c.name === 'is_default')) {
-    try { db.exec('ALTER TABLE folders ADD COLUMN is_default INTEGER DEFAULT 0') } catch (e) { console.warn('[migration] folders.is_default:', e) }
-  }
+    // Drop legacy tables no longer in use
+    try { db.exec('DROP TABLE IF EXISTS artifacts') } catch (e) { log.warn('Migration skipped: artifacts drop', e) }
+    try { db.exec('DROP TABLE IF EXISTS themes') } catch (e) { log.warn('Migration skipped: themes drop', e) }
 
-  // Add sdk_session_id column to conversations (SDK native session resumption)
-  const convCols4 = db.pragma('table_info(conversations)') as { name: string }[]
-  if (!convCols4.some((c) => c.name === 'sdk_session_id')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN sdk_session_id TEXT') } catch (e) { console.warn('[migration] conversations.sdk_session_id:', e) }
-  }
+    // Ensure exactly one default folder exists (is_default must be added before this INSERT)
+    if (getDefaultFolderId(db as unknown as SqlJsAdapter) === null) {
+      db.prepare(
+        `INSERT INTO folders (name, is_default, position, updated_at) VALUES ('Unsorted', 1, -1, datetime('now'))`
+      ).run()
+    }
 
-  // Add pi_session_file column to conversations (PI native session resumption via JSONL files under ~/.pi/agent/sessions/)
-  const convColsPi = db.pragma('table_info(conversations)') as { name: string }[]
-  if (!convColsPi.some((c) => c.name === 'pi_session_file')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN pi_session_file TEXT') } catch (e) { console.warn('[migration] conversations.pi_session_file:', e) }
-  }
-
-  // Add color column to conversations (visual conversation tinting in sidebar)
-  const convCols5 = db.pragma('table_info(conversations)') as { name: string }[]
-  if (!convCols5.some((c) => c.name === 'color')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN color TEXT') } catch (e) { console.warn('[migration] conversations.color:', e) }
-  }
-
-  // Add last_opened_at column to conversations (tracks user activation in sidebar for QuickChat resume)
-  const convCols6 = db.pragma('table_info(conversations)') as { name: string }[]
-  if (!convCols6.some((c) => c.name === 'last_opened_at')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN last_opened_at TEXT') } catch (e) { console.warn('[migration] conversations.last_opened_at:', e) }
-  }
-
-  // Add last_*_tokens + last_usage_updated_at to conversations (context window usage tracking for /contexte)
-  const convCols7 = db.pragma('table_info(conversations)') as { name: string }[]
-  if (!convCols7.some((c) => c.name === 'last_input_tokens')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN last_input_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_input_tokens:', e) }
-  }
-  if (!convCols7.some((c) => c.name === 'last_output_tokens')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN last_output_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_output_tokens:', e) }
-  }
-  if (!convCols7.some((c) => c.name === 'last_cache_read_tokens')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN last_cache_read_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_cache_read_tokens:', e) }
-  }
-  if (!convCols7.some((c) => c.name === 'last_cache_creation_tokens')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN last_cache_creation_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_cache_creation_tokens:', e) }
-  }
-  if (!convCols7.some((c) => c.name === 'last_usage_updated_at')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN last_usage_updated_at TEXT') } catch (e) { console.warn('[migration] conversations.last_usage_updated_at:', e) }
-  }
-  if (!convCols7.some((c) => c.name === 'last_context_window')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN last_context_window INTEGER') } catch (e) { console.warn('[migration] conversations.last_context_window:', e) }
-  }
-
-  // Content-only token count (system prompt + messages + compact + tool exchanges + skills),
-  // matches the /context bubble headline so the status-line bar and bubble stay consistent.
-  // Populated alongside last_*_tokens on every turn end in handlers/messages.ts.
-  const convCols8 = db.pragma('table_info(conversations)') as { name: string }[]
-  if (!convCols8.some((c) => c.name === 'last_content_tokens')) {
-    try { db.exec('ALTER TABLE conversations ADD COLUMN last_content_tokens INTEGER') } catch (e) { console.warn('[migration] conversations.last_content_tokens:', e) }
-  }
-
-  // Ensure exactly one default folder exists
-  if (getDefaultFolderId(db as unknown as SqlJsAdapter) === null) {
-    db.prepare(
-      `INSERT INTO folders (name, is_default, position, updated_at) VALUES ('Unsorted', 1, -1, datetime('now'))`
-    ).run()
-  }
-
-  // Migrate all NULL folder_id conversations to the default folder
-  const defaultFolderId = getDefaultFolderId(db as unknown as SqlJsAdapter)!
-  db.prepare('UPDATE conversations SET folder_id = ? WHERE folder_id IS NULL').run(defaultFolderId)
+    // Migrate all NULL folder_id conversations to the default folder
+    const defaultFolderId = getDefaultFolderId(db as unknown as SqlJsAdapter)!
+    db.prepare('UPDATE conversations SET folder_id = ? WHERE folder_id IS NULL').run(defaultFolderId)
+  })()
 }
