@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import type { ThemeFile } from '../../shared/types'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('settingsStore')
 
 function syncStreamingTimeout(settings: Record<string, string>): void {
   const seconds = parseInt(settings.streamingTimeoutSeconds ?? '300', 10)
@@ -32,7 +35,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       syncStreamingTimeout(settings)
       set({ settings, activeTheme, isLoading: false })
     } catch (err) {
-      console.error('[settings] Failed to load settings:', err)
+      log.error('Failed to load settings', err)
       set({ isLoading: false })
     }
   },
@@ -49,7 +52,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         activeTheme: key === 'activeTheme' ? value : state.activeTheme,
       }))
     } catch (err) {
-      console.error('[settings] Failed to set setting:', err)
+      log.error('Failed to set setting', err)
     }
   },
 
@@ -58,7 +61,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const themes = await window.agent.themes.list()
       set({ themes })
     } catch (err) {
-      console.error('[settings] Failed to load themes:', err)
+      log.error('Failed to load themes', err)
     }
   },
 

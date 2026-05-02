@@ -3,6 +3,9 @@ import type { StreamPart, Conversation, AIOverrides } from '../../../shared/type
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { useChatStore } from '../../stores/chatStore'
 import { useConversationsStore } from '../../stores/conversationsStore'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('PlanApprovalBlock')
 
 type PlanApprovalPart = Extract<StreamPart, { type: 'plan_approval_request' }>
 
@@ -48,7 +51,7 @@ export function PlanApprovalBlock({ approval }: PlanApprovalBlockProps) {
     try {
       await updateConversation(approval.conversationId, { ai_overrides: JSON.stringify(next) } as Partial<Conversation>)
     } catch (err) {
-      console.warn('[PlanApprovalBlock] failed to flip permissionMode:', err)
+      log.error('failed to flip permissionMode', err)
     }
     await sendMessage(approval.conversationId, 'Plan approved — proceed with execution.')
   }

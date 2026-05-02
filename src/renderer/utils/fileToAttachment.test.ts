@@ -1,4 +1,14 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
+
+// Mock logger so tests can spy on log.error after Phase 4.B migration.
+const mockLog = vi.hoisted(() => ({
+  trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn(),
+}))
+mockLog.child.mockReturnValue(mockLog)
+vi.mock('../../core/utils/logger', () => ({
+  createLogger: () => mockLog,
+}))
+
 import { fileToAttachment } from './fileToAttachment'
 
 afterEach(() => {
@@ -252,12 +262,14 @@ describe('fileToAttachment', () => {
       const error = new Error('Network error')
       vi.mocked(window.agent.files.savePastedFile).mockRejectedValue(error)
       const file = makeWebFile('content', 'test.txt', 'text/plain')
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      mockLog.error.mockClear()
 
       await fileToAttachment(file)
 
-      expect(consoleSpy).toHaveBeenCalledWith('[fileToAttachment] Upload failed:', error)
-      consoleSpy.mockRestore()
+      expect(mockLog.error).toHaveBeenCalled()
+      // The error must be carried through (as 2nd arg per logger API)
+      const [, err] = mockLog.error.mock.calls[0]
+      expect(err).toBe(error)
     })
 
     it('preserves file size even when uploading', async () => {

@@ -2,6 +2,9 @@ import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { RouteContext } from '../middleware'
+import { createLogger } from '../../../utils/logger'
+
+const log = createLogger('webServer.static')
 
 // ─── MIME types ───────────────────────────────────────────────────────────────
 
@@ -118,7 +121,7 @@ function proxyToDev(
       }
     })
   }).on('error', (err: Error) => {
-    console.error('[webServer] Dev proxy error:', err.message)
+    log.error('Dev proxy error', err)
     res.writeHead(502)
     res.end('Dev server not reachable')
   })
@@ -146,7 +149,7 @@ function proxyToDevWithTokenInjection(
       res.end(html)
     })
   }).on('error', (err: Error) => {
-    console.error('[webServer] Dev proxy error:', err.message)
+    log.error('Dev proxy error', err)
     res.writeHead(502)
     res.end('Dev server not reachable')
   })

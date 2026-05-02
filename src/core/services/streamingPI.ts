@@ -28,6 +28,9 @@ import type { ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { buildSessionConfig } from './pi/buildSessionConfig'
 import { buildCustomTools } from './pi/buildCustomTools'
 import { runSession } from './pi/runSession'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('streamingPI')
 
 // Tool parameters schema for scheduler tool
 const SchedulerToolParams = /* #__PURE__ */ (() =>
@@ -237,10 +240,7 @@ async function resolveSessionManager(
       const sm = pi.SessionManager.open(existingFile)
       return { sessionManager: sm, persistAfterCreate: () => {} }
     } catch (err) {
-      console.warn(
-        '[streamingPI] SessionManager.open failed, falling back to create:',
-        err instanceof Error ? err.message : err,
-      )
+      log.warn('SessionManager.open failed, falling back to create', err)
       setConversationPiSessionFile(db, conversationId, null)
       // fall through to create
     }
@@ -272,7 +272,7 @@ export async function streamMessagePI(
   aiSettings: AISettings | undefined,
   conversationId: number | undefined,
 ): Promise<{ content: string; toolCalls: ToolCall[]; aborted: boolean; sessionId: string | null; stopReason?: string }> {
-  console.log(`[streamingPI] Using PI-SDK backend for conversation ${conversationId}`)
+  log.debug('Using PI-SDK backend', { conversationId })
   const pi = await loadPISdk()
 
   const convKey = conversationId ?? -1
@@ -337,7 +337,7 @@ export async function streamMessagePI(
       sendChunk('done', undefined, { ...convExtra, stopReason: 'aborted' })
     } else {
       const errorMsg = err instanceof Error ? err.message : 'Unknown PI-SDK streaming error'
-      console.error('[streamingPI] Error:', err)
+      log.error('Stream error', err)
       sendChunk('error', errorMsg, convExtra)
     }
   } finally {

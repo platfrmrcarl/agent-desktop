@@ -5,6 +5,9 @@ import type {
   BugReportPayload,
   SendResult,
 } from '../../shared/bugReport'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('bugReport')
 
 export interface BugReportHandlerOptions {
   mainBuffer: ErrorBuffer
@@ -22,7 +25,7 @@ export function registerBugReportHandlers(
     try {
       return opts.mainBuffer.getAll()
     } catch (err) {
-      console.warn('[bug-report-internal] getMainErrors failed:', err)
+      log.warn('getMainErrors failed', err)
       return []
     }
   })
@@ -32,7 +35,7 @@ export function registerBugReportHandlers(
     try {
       return opts.scrub(text)
     } catch (err) {
-      console.warn('[bug-report-internal] scrub failed:', err)
+      log.warn('scrub failed', err)
       return text
     }
   })
@@ -55,12 +58,12 @@ export function registerBugReportHandlers(
         try {
           opts.mainBuffer.clear()
         } catch (err) {
-          console.warn('[bug-report-internal] clear after send failed:', err)
+          log.warn('clear after send failed', err)
         }
       }
       return result
     } catch (err) {
-      console.warn('[bug-report-internal] send failed:', err)
+      log.warn('send failed', err)
       return { ok: false, error: 'unknown' as const }
     }
   })

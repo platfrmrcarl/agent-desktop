@@ -1,6 +1,9 @@
 import * as os from 'os'
 import * as path from 'path'
 import * as fs from 'fs'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('env.loadShellEnv')
 
 /**
  * Resolve nvm's default node version bin directory.
@@ -103,6 +106,6 @@ export function loadShellEnv(): void {
 
   if (added.length > 0) {
     process.env.PATH = currentPath + path.delimiter + added.join(path.delimiter)
-    console.log('[env] Appended to PATH:', added.join(', '))
+    log.info('appended to PATH', { added })
   }
 }

@@ -32,7 +32,8 @@ describe('killExistingInstances', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    // Spy on stdout.write — the structured logger writes JSON entries there in non-TTY mode
+    logSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   })
 
   afterEach(() => {
@@ -116,8 +117,9 @@ describe('killExistingInstances', () => {
     killExistingInstances()
 
     expect(killSpy).toHaveBeenCalledWith(4242, 'SIGTERM')
+    // Logger emits JSON line containing the killed message + count=1
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Killed 1 process(es)')
+      expect.stringMatching(/"msg":"killed existing instances".*"count":1/)
     )
   })
 
@@ -187,7 +189,7 @@ describe('killExistingInstances', () => {
 
     expect(killSpy).toHaveBeenCalledWith(1000, 'SIGTERM')
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Killed 3 process(es)')
+      expect.stringMatching(/"msg":"killed existing instances".*"count":3/)
     )
   })
 

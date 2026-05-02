@@ -1,4 +1,7 @@
 import type Database from 'better-sqlite3'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('migrations')
 
 const CURRENT_VERSION = 4
 
@@ -116,7 +119,7 @@ function normalizeStaleClaudeModelIds(db: Database.Database): void {
   }
 
   if (changes > 0) {
-    console.log(`[migration v3] Normalized ${changes} stale Claude model ID(s).`)
+    log.info('Normalized stale Claude model IDs', { changes })
   }
 }
 

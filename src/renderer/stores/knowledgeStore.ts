@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import type { KnowledgeCollection } from '../../shared/types'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('knowledgeStore')
 
 interface KnowledgeState {
   collections: KnowledgeCollection[]
@@ -18,7 +21,7 @@ export const useKnowledgeStore = create<KnowledgeState>((set) => ({
       const collections = await window.agent.kb.listCollections()
       set({ collections, loading: false })
     } catch (err) {
-      console.error('[knowledgeStore] loadCollections failed:', err)
+      log.error('loadCollections failed', err)
       set({ loading: false, error: err instanceof Error ? err.message : 'Failed to load collections' })
     }
   },

@@ -10,6 +10,9 @@ import { subscribeEvents } from './subscribeEvents'
 import { buildPrompt } from './buildPrompt'
 import type { ToolCall } from '../../../shared/types'
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('runSession')
 
 interface RunSessionOptions {
   pi: {
@@ -78,7 +81,7 @@ export async function runSession(opts: RunSessionOptions): Promise<boolean> {
   try {
     await session.bindExtensions({ uiContext: uiContext as never })
   } catch {
-    console.log('[streamingPI] bindExtensions not available (PI SDK version may not support it)')
+    log.debug('bindExtensions not available (PI SDK version may not support it)')
   }
 
   const onAbort = () => {

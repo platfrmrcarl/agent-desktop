@@ -1,6 +1,9 @@
 import type Database from 'better-sqlite3'
 import type { SqlJsAdapter } from './sqljs-adapter'
 import { getDefaultFolderId } from './queries'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('schema')
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS settings (
@@ -153,7 +156,7 @@ function applyMigration(
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${sqlPart}`)
     columnsByTable.get(table)?.add(col)
   } catch (e) {
-    console.warn(`[migration] ${table}.${col}:`, e)
+    log.warn(`Migration skipped: ${table}.${col}`, e)
   }
 }
 
@@ -213,13 +216,13 @@ function runMigrations(db: Database.Database): void {
         db.exec('ALTER TABLE scheduled_tasks ADD COLUMN max_runs INTEGER DEFAULT NULL')
         db.exec('UPDATE scheduled_tasks SET max_runs = 1 WHERE one_shot = 1')
         columnsByTable.get('scheduled_tasks')?.add('max_runs')
-      } catch (e) { console.warn('[migration] scheduled_tasks.max_runs:', e) }
+      } catch (e) { log.warn('Migration skipped: scheduled_tasks.max_runs', e) }
     }
     applyMigration(db, columnsByTable, 'scheduled_tasks', 'pre_run_action', "TEXT NOT NULL DEFAULT 'none'")
 
     // Drop legacy tables no longer in use
-    try { db.exec('DROP TABLE IF EXISTS artifacts') } catch (e) { console.warn('[migration] artifacts drop:', e) }
-    try { db.exec('DROP TABLE IF EXISTS themes') } catch (e) { console.warn('[migration] themes drop:', e) }
+    try { db.exec('DROP TABLE IF EXISTS artifacts') } catch (e) { log.warn('Migration skipped: artifacts drop', e) }
+    try { db.exec('DROP TABLE IF EXISTS themes') } catch (e) { log.warn('Migration skipped: themes drop', e) }
 
     // Ensure exactly one default folder exists (is_default must be added before this INSERT)
     if (getDefaultFolderId(db as unknown as SqlJsAdapter) === null) {

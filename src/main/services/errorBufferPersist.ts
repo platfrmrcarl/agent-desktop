@@ -1,5 +1,8 @@
 import { readFile, writeFile, rename, unlink } from 'fs/promises'
 import type { ErrorBuffer, ErrorEntry } from '../../core/services/errorBuffer'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('errorBufferPersist')
 
 const FLUSH_DEBOUNCE_MS = 2000
 
@@ -9,14 +12,14 @@ export async function loadFromDisk(buffer: ErrorBuffer, path: string): Promise<v
     raw = await readFile(path, 'utf8')
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
-    console.warn('[bug-report-internal] read failed, starting empty:', err)
+    log.warn('read failed, starting empty', { err })
     return
   }
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    console.warn('[bug-report-internal] corrupt persist file, discarding')
+    log.warn('corrupt persist file, discarding')
     await unlink(path).catch(() => {})
     return
   }
@@ -45,7 +48,7 @@ export function attachPersistence(buffer: ErrorBuffer, path: string): () => void
       await writeFile(tmp, payload, 'utf8')
       await rename(tmp, path)
     } catch (err) {
-      console.warn('[bug-report-internal] flush failed:', err)
+      log.warn('flush failed', { err })
       try {
         await unlink(tmp)
       } catch {

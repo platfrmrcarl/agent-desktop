@@ -14,6 +14,9 @@ import { configureMcp } from './sessionManager/configureMcp'
 import { wireAbort } from './sessionManager/wireAbort'
 import type { AISettings } from '../../core/services/streaming'
 import type { ToolCall, ToolApprovalResponse, AskUserResponse } from '../../shared/types'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('sessionManager')
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -149,7 +152,7 @@ function startIdleTimer(): void {
     const now = Date.now()
     for (const [convId, session] of sessions) {
       if (now - session.lastActivity > IDLE_TIMEOUT_MS && !session.currentTurn) {
-        console.log(`[sessionManager] Idle cleanup: conversation ${convId}`)
+        log.info('idle cleanup', { conversationId: convId })
         invalidateSession(convId)
       }
     }
@@ -243,7 +246,7 @@ function sendOrBuffer(
   extra?: Record<string, string | number>
 ): void {
   if (session.pendingApprovalCount > 0) {
-    console.log(`[sessionManager] ⚠ BUFFERING chunk type="${type}" (pendingApprovalCount=${session.pendingApprovalCount}, bufferSize=${session.chunkBuffer.length + 1}) conv=${session.conversationId}`)
+    log.debug('buffering chunk', { type, pendingApprovalCount: session.pendingApprovalCount, bufferSize: session.chunkBuffer.length + 1, conversationId: session.conversationId })
     session.chunkBuffer.push({ type, content, extra })
   } else {
     sendChunk(type, content, extra)
@@ -252,7 +255,7 @@ function sendOrBuffer(
 
 function flushBuffer(session: ActiveSession): void {
   if (session.chunkBuffer.length > 0) {
-    console.log(`[sessionManager] Flushing ${session.chunkBuffer.length} buffered chunks for conv ${session.conversationId}`)
+    log.debug('flushing buffered chunks', { count: session.chunkBuffer.length, conversationId: session.conversationId })
   }
   while (session.chunkBuffer.length > 0) {
     const chunk = session.chunkBuffer.shift()!
@@ -284,7 +287,7 @@ async function reconnectOrBreak(
   // A new subprocess (via reconnect) won't have them. The safety-net timeout will handle it.
   const pendingTurn = session.currentTurn
   if (pendingTurn && pendingTurn.pendingTaskCount > 0 && pendingTurn.turnEndDeferred) {
-    console.log(`[sessionManager] SDK iterable ended with ${pendingTurn.pendingTaskCount} pending tasks — NOT reconnecting (would orphan agents), conv ${session.conversationId}`)
+    log.info('SDK iterable ended with pending tasks — not reconnecting (would orphan agents)', { pendingTaskCount: pendingTurn.pendingTaskCount, conversationId: session.conversationId })
     return { shouldBreak: true, consecutiveEmptyExits }
   }
 
@@ -295,7 +298,7 @@ async function reconnectOrBreak(
   }
 
   // Reconnect with resume (only when no pending background tasks)
-  console.log(`[sessionManager] SDK iterable ended, reconnecting for conv ${session.conversationId}`)
+  log.info('SDK iterable ended, reconnecting', { conversationId: session.conversationId })
   const sdk = await loadAgentSDK()
   const abortController = new AbortController()
   abortControllers.set(session.conversationId, abortController)
@@ -360,7 +363,7 @@ function handleResultMessage(
 
   // Check for turn end
   if (result.subtype && TURN_END_SUBTYPES.has(result.subtype)) {
-    console.log(`[sessionManager] Turn end: subtype=${result.subtype} pendingTasks=${turn.pendingTaskCount} pendingApprovalCount=${session.pendingApprovalCount} bufferSize=${session.chunkBuffer.length} contentLen=${turn.content.length} conv=${session.conversationId}`)
+    log.debug('turn end', { subtype: result.subtype, pendingTasks: turn.pendingTaskCount, pendingApprovalCount: session.pendingApprovalCount, bufferSize: session.chunkBuffer.length, contentLen: turn.content.length, conversationId: session.conversationId })
     if (turn.pendingTaskCount > 0) {
       // Background tasks still running — defer done
       if (!turn.turnEndDeferred) {
@@ -369,7 +372,7 @@ function handleResultMessage(
         let pollCount = 0
         turn.pollInterval = setInterval(() => {
           pollCount++
-          console.log(`[sessionManager] 🔄 Poll #${pollCount}: ${turn.pendingTaskCount} tasks pending, pushing status check prompt, conv ${session.conversationId}`)
+          log.debug('poll: pushing status check prompt', { pollCount, pendingTaskCount: turn.pendingTaskCount, conversationId: session.conversationId })
           turn.pollContentOffset = turn.content.length
           session.promptController.push({
             type: 'user',
@@ -378,13 +381,13 @@ function handleResultMessage(
             session_id: session.sessionId || '',
           })
         }, 30_000)
-        console.log(`[sessionManager] Turn end deferred: ${turn.pendingTaskCount} background tasks pending, polling every 30s, conv ${session.conversationId}`)
+        log.info('turn end deferred: background tasks pending, polling every 30s', { pendingTaskCount: turn.pendingTaskCount, conversationId: session.conversationId })
       } else {
         // Already deferred — poll prompt triggered this result/success
         const pollResponse = turn.content.slice(turn.pollContentOffset).trim().toLowerCase()
         if (pollResponse === 'fini') {
           // Claude confirmed all agents are done — force completion even if task_notification was missed
-          console.log(`[sessionManager] 🏁 Poll response "fini" — forcing turn completion (pendingTasks=${turn.pendingTaskCount} may be stale), conv ${session.conversationId}`)
+          log.info('poll response "fini" — forcing turn completion (pendingTasks may be stale)', { pendingTaskCount: turn.pendingTaskCount, conversationId: session.conversationId })
           if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
           sendChunk('done', undefined, {
             ...convExtra,
@@ -402,7 +405,7 @@ function handleResultMessage(
           session.currentTurn = null
           session.lastActivity = Date.now()
         } else {
-          console.log(`[sessionManager] Turn end (poll response): pendingTasks=${turn.pendingTaskCount}, still waiting, conv ${session.conversationId}`)
+          log.debug('turn end (poll response): still waiting', { pendingTaskCount: turn.pendingTaskCount, conversationId: session.conversationId })
         }
       }
     } else {
@@ -490,7 +493,7 @@ function handleStreamEvent(
             const parsed = JSON.parse(inputJson)
             if (parsed.run_in_background) {
               turn.pendingTaskCount++
-              console.log(`[sessionManager] ⏳ Background Task detected via tool input: ${turn.currentToolBlockId} — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
+              log.debug('background task detected via tool input', { toolBlockId: turn.currentToolBlockId, pendingTaskCount: turn.pendingTaskCount, conversationId: session.conversationId })
             }
           } catch { /* ignore parse errors */ }
         }
@@ -525,11 +528,11 @@ function handleSystemMessage(
     return
   }
   if (sysMsg.subtype === 'task_started' && sysMsg.task_id) {
-    console.log(`[sessionManager] ▶ task_started: ${sysMsg.task_id} (${sysMsg.description || '?'}) — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
+    log.debug('task_started', { taskId: sysMsg.task_id, description: sysMsg.description || '?', pendingTaskCount: turn.pendingTaskCount, conversationId: session.conversationId })
     return
   }
   if (sysMsg.subtype === 'task_progress' && sysMsg.task_id) {
-    console.log(`[sessionManager] ♥ task_progress: ${sysMsg.task_id} (${sysMsg.last_tool_name || '?'}) — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
+    log.debug('task_progress', { taskId: sysMsg.task_id, lastToolName: sysMsg.last_tool_name || '?', pendingTaskCount: turn.pendingTaskCount, conversationId: session.conversationId })
     return
   }
   if (sysMsg.subtype === 'task_notification') {
@@ -539,12 +542,12 @@ function handleSystemMessage(
 
     // Simple decrement — no ID matching needed
     if (turn.pendingTaskCount > 0) turn.pendingTaskCount--
-    console.log(`[sessionManager] ■ task_notification: ${sysMsg.task_id} status=${sysMsg.status} — ${turn.pendingTaskCount} pending, conv ${session.conversationId}`)
+    log.debug('task_notification', { taskId: sysMsg.task_id, status: sysMsg.status, pendingTaskCount: turn.pendingTaskCount, conversationId: session.conversationId })
 
     if (turn.pendingTaskCount === 0 && turn.turnEndDeferred) {
       if (turn.pollInterval) { clearInterval(turn.pollInterval); turn.pollInterval = null }
       turn.turnEndDeferred = false
-      console.log(`[sessionManager] All background tasks done — prompting agent to aggregate results, conv ${session.conversationId}`)
+      log.info('all background tasks done — prompting agent to aggregate results', { conversationId: session.conversationId })
       // Push a prompt so the main agent can aggregate sub-agent results.
       // The turn stays open — the next result/success (with pendingTaskCount=0)
       // will send done via the normal path.
@@ -633,7 +636,7 @@ function finalizeStreamError(session: ActiveSession, err: unknown): void {
     turn.resolve({ content: turn.content, toolCalls: Array.from(turn.toolCallsMap.values()), aborted: true, sessionId: session.sessionId, stopReason: 'aborted', usage: turn.lastUsage })
   } else {
     const errorMsg = err instanceof Error ? err.message : 'Unknown streaming error'
-    console.error('[sessionManager] Stream error:', err)
+    log.error('stream error', err)
     sendChunk('error', errorMsg, { conversationId: session.conversationId })
     // Resolve with partial content + error instead of rejecting — allows
     // streamAndSave to save whatever the AI already generated
@@ -749,7 +752,7 @@ function wireCanUseTool(
     },
   })
   queryOptions.canUseTool = async (toolName: string, input: Record<string, unknown>) => {
-    console.log(`[sessionManager] canUseTool called: tool="${toolName}" permMode="${permMode}" pendingApprovalCount=${session.pendingApprovalCount} conv=${conversationId}`)
+    log.debug('canUseTool called', { toolName, permMode, pendingApprovalCount: session.pendingApprovalCount, conversationId })
     return sessionCanUseTool(toolName, input)
   }
 }
@@ -783,7 +786,7 @@ function evictOldestIfOverLimit(currentConvId: number): void {
     }
   }
   if (oldestConvId !== null) {
-    console.log(`[sessionManager] LRU eviction: conversation ${oldestConvId}`)
+    log.info('LRU eviction', { conversationId: oldestConvId })
     invalidateSession(oldestConvId)
   }
 }
@@ -856,7 +859,7 @@ export async function sendTurn(
   if (session && session.status === 'active') {
     const newFingerprint = computeSettingsFingerprint(aiSettings)
     if (newFingerprint !== session.settingsFingerprint) {
-      console.log(`[sessionManager] Settings changed, invalidating session for conversation ${conversationId}`)
+      log.info('settings changed, invalidating session', { conversationId })
       invalidateSession(conversationId)
       session = undefined
     }
@@ -864,7 +867,7 @@ export async function sendTurn(
 
   // Invalidate if DB session was cleared (clear/compact/regenerate/edit)
   if (session && session.status === 'active' && sdkSessionId === null) {
-    console.log(`[sessionManager] SDK session cleared in DB, invalidating in-memory session for conversation ${conversationId}`)
+    log.info('SDK session cleared in DB, invalidating in-memory session', { conversationId })
     invalidateSession(conversationId)
     session = undefined
   }
@@ -963,7 +966,7 @@ export function invalidateSession(conversationId: number): void {
     session.turnLockRelease = null
   }
 
-  console.log(`[sessionManager] Session invalidated for conversation ${conversationId}`)
+  log.info('session invalidated', { conversationId })
 }
 
 export function abortSession(conversationId: number): void {

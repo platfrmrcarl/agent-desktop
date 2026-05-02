@@ -26,6 +26,9 @@ import {
   fireTts,
 } from './messages/streamPhases'
 import type { MessageStreamContext } from './messages/types'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('messages')
 
 // ─── Options ──────────────────────────────────────────────────
 
@@ -401,12 +404,12 @@ async function streamAndSave(
       // SDK session resume failure on the first attempt — clear the saved
       // session id and let the loop rebuild full history on attempt 2.
       if (attempt === 1 && ctx.sdkSessionId) {
-        console.warn('[messages] SDK session resume failed, retrying with full history:', err instanceof Error ? err.message : String(err))
+        log.warn('SDK session resume failed, retrying with full history', err)
         invalidateAllSessions(db, conversationId)
         options.onSessionInvalidate?.(conversationId)
         continue
       }
-      console.error('[messages] Stream error:', err instanceof Error ? err.message : String(err))
+      log.error('Stream error', err)
       return null
     }
   }
@@ -447,11 +450,11 @@ async function generateConversationTitle(
     const title = rawTitle.trim().replace(/^["']|["']$/g, '').slice(0, 80)
 
     if (!title) {
-      console.warn('[messages] Auto-title: empty title generated for conversation', conversationId)
+      log.warn('Auto-title: empty title generated', { conversationId })
       return
     }
 
-    console.log('[messages] Auto-title:', title, 'for conversation', conversationId)
+    log.info('Auto-title', { title, conversationId })
     ;(db as any).prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId)
 
     options.broadcaster.broadcast('conversations:titleUpdated', { id: conversationId, title })
@@ -543,7 +546,7 @@ export function registerMessagesHandlers(
           ).get(validConvId) as { c: number }
           if (assistantCount.c === 1) {
             generateConversationTitle(db, validConvId, validContent, assistantMsg.content, options)
-              .catch(err => console.error('[messages] Auto-title error:', err))
+              .catch(err => log.error('Auto-title error', err))
           }
         }
       }

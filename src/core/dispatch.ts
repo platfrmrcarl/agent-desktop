@@ -1,3 +1,7 @@
+import { createLogger } from './utils/logger'
+
+const log = createLogger('dispatch')
+
 /**
  * Interface for registering IPC-style handlers.
  * Satisfied by both DispatchRegistry (headless) and Electron's IpcMain (via bridge).
@@ -16,10 +20,7 @@ export class DispatchRegistry implements HandleRegistrar {
 
   handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void {
     if (this.handlers.has(channel)) {
-      console.warn(
-        `[dispatch] duplicate handler registration for "${channel}" — second registration overrides first.`,
-        new Error('duplicate dispatch.handle'),
-      )
+      log.warn(`duplicate handler registration for "${channel}" — second registration overrides first`, { channel })
     }
     this.handlers.set(channel, async (...args: unknown[]) => listener(null, ...args))
   }

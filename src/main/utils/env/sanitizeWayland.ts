@@ -1,5 +1,8 @@
 import * as path from 'path'
 import * as fs from 'fs'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('env.sanitizeWayland')
 
 /**
  * Discover and inject Wayland-related environment variables that may be absent
@@ -24,12 +27,12 @@ export function sanitizeWaylandEnv(): void {
       try {
         fs.accessSync(busSocket)
         process.env.DBUS_SESSION_BUS_ADDRESS = `unix:path=${busSocket}`
-        console.log('[env] Set DBUS_SESSION_BUS_ADDRESS =', process.env.DBUS_SESSION_BUS_ADDRESS)
+        log.info('set DBUS_SESSION_BUS_ADDRESS', { value: process.env.DBUS_SESSION_BUS_ADDRESS })
       } catch {
-        console.warn('[env] D-Bus session bus socket not found at', busSocket)
+        log.warn('D-Bus session bus socket not found', { busSocket })
       }
     } else {
-      console.warn('[env] XDG_RUNTIME_DIR not set — cannot resolve D-Bus session bus address')
+      log.warn('XDG_RUNTIME_DIR not set — cannot resolve D-Bus session bus address')
     }
   }
 
@@ -45,7 +48,7 @@ export function sanitizeWaylandEnv(): void {
         const waylandSocket = entries.find(e => e.startsWith('wayland-'))
         if (waylandSocket) {
           process.env.WAYLAND_DISPLAY = waylandSocket
-          console.log('[env] Set WAYLAND_DISPLAY =', waylandSocket)
+          log.info('set WAYLAND_DISPLAY', { value: waylandSocket })
         }
       } catch {
         // can't read XDG_RUNTIME_DIR — skip
@@ -63,7 +66,7 @@ export function sanitizeWaylandEnv(): void {
         const entries = fs.readdirSync(hyprDir)
         if (entries.length > 0) {
           process.env.HYPRLAND_INSTANCE_SIGNATURE = entries[0]
-          console.log('[env] Set HYPRLAND_INSTANCE_SIGNATURE =', entries[0])
+          log.info('set HYPRLAND_INSTANCE_SIGNATURE', { value: entries[0] })
         }
       } catch {
         // hypr directory doesn't exist — not Hyprland or not yet started
@@ -73,7 +76,7 @@ export function sanitizeWaylandEnv(): void {
 
   // Diagnostic logging — helps debug shortcut issues in AppImage
   if (isWaylandSession()) {
-    console.log('[env] Wayland session detected — diagnostic env vars:', {
+    log.info('Wayland session detected — diagnostic env vars', {
       DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || '(unset)',
       XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || '(unset)',
       WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || '(unset)',

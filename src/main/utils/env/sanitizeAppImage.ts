@@ -1,4 +1,7 @@
 import * as fs from 'fs'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('env.sanitizeAppImage')
 
 /**
  * Remove AppImage-injected paths from LD_LIBRARY_PATH and LD_PRELOAD.
@@ -35,9 +38,7 @@ export function sanitizeAppImageEnv(): void {
       // Save original for debugging, then set cleaned version
       process.env.LD_LIBRARY_PATH_APPIMAGE = original
       process.env.LD_LIBRARY_PATH = cleaned || undefined
-      console.log('[env] Cleaned LD_LIBRARY_PATH for child processes')
-      console.log('[env]   Original:', original)
-      console.log('[env]   Cleaned:', cleaned || '(empty)')
+      log.info('cleaned LD_LIBRARY_PATH for child processes', { original, cleaned: cleaned || '(empty)' })
     }
   }
 
@@ -53,7 +54,7 @@ export function sanitizeAppImageEnv(): void {
     if (cleaned !== original) {
       process.env.LD_PRELOAD_APPIMAGE = original
       process.env.LD_PRELOAD = cleaned || undefined
-      console.log('[env] Cleaned LD_PRELOAD for child processes')
+      log.info('cleaned LD_PRELOAD for child processes')
     }
   }
 }

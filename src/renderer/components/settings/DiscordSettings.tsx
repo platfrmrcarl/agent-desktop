@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { Toggle } from '../shared/Toggle'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('DiscordSettings')
 
 interface DiscordStatus {
   connected: boolean
@@ -53,7 +56,7 @@ export function DiscordSettings() {
       try {
         await window.agent.discord.connect()
       } catch (err) {
-        console.error('[discord] Connect failed:', err)
+        log.error('Connect failed', err)
       }
     }
     fetchStatus()
@@ -75,7 +78,7 @@ export function DiscordSettings() {
     try {
       await window.agent.discord.connect()
     } catch (err) {
-      console.error('[discord] Connect failed:', err)
+      log.error('Connect failed', err)
     }
     fetchStatus()
   }
@@ -84,7 +87,7 @@ export function DiscordSettings() {
     try {
       await window.agent.discord.disconnect()
     } catch (err) {
-      console.error('[discord] Disconnect failed:', err)
+      log.error('Disconnect failed', err)
     }
     fetchStatus()
   }

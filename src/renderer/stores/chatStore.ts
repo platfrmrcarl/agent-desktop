@@ -4,6 +4,9 @@ import { DEFAULT_NOTIFICATION_CONFIG, NOTIFICATION_EVENTS } from '../../shared/c
 import { useSettingsStore } from './settingsStore'
 import { playCompletionSound, playErrorSound } from '../utils/notificationSound'
 import type { ContextBreakdown } from '../../core/services/contextBreakdown'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('chatStore')
 
 export interface QueuedMessage {
   id: string
@@ -438,7 +441,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }, 20_000)
     } catch (err) {
-      console.error('[chatStore] showContextInfo failed:', err)
+      log.error('showContextInfo failed', err)
     }
   },
 

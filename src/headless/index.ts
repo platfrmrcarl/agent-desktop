@@ -21,6 +21,9 @@ import { setPIBackend } from '../core/services/streaming'
 import { streamMessagePI } from '../core/services/streamingPI'
 import { enrichHeadlessEnv } from './headlessEnv'
 import { loadAndRegisterSDK } from './loadSdk'
+import { createLogger } from '../core/utils/logger'
+
+const log = createLogger('index')
 
 // ─── CLI parsing ─────────────────────────────────────
 
@@ -47,12 +50,12 @@ const isLongRunning = flags.server || flags.discord
 const isOneShot = flags.tick || flags.runTask || flags.setPassword || flags.clearPassword
 
 function fatal(err: unknown): never {
-  console.error('[headless] Fatal:', err)
+  log.error('[headless] Fatal:', err)
   process.exit(1)
 }
 
 if (isLongRunning && isOneShot) {
-  console.error('[headless] Error: --server/--discord cannot be combined with --tick/--run-task')
+  log.error('[headless] Error: --server/--discord cannot be combined with --tick/--run-task')
   process.exit(1)
 }
 
@@ -90,8 +93,8 @@ async function runServices(): Promise<void> {
   const sslDir = DEFAULT_SSL_DIR
   const rendererDir = resolve(__dirname, '../renderer')
 
-  console.log(`[headless] Starting Agent Engine...`)
-  console.log(`[headless] DB: ${dbPath}`)
+  log.info(`[headless] Starting Agent Engine...`)
+  log.info(`[headless] DB: ${dbPath}`)
 
   const cleanups: Array<() => void> = []
 
@@ -114,7 +117,7 @@ async function runServices(): Promise<void> {
   })
 
   await engine.init()
-  console.log(`[headless] Engine initialized. ${engine.conversations.list().length} conversations in DB.`)
+  log.info(`[headless] Engine initialized. ${engine.conversations.list().length} conversations in DB.`)
 
   const dispatch = engine.dispatch
 
@@ -140,19 +143,19 @@ async function runServices(): Promise<void> {
       webPassword: engine.webPassword,
     })
 
-    console.log(`[headless] Web server running at ${result.url}`)
-    console.log(`[headless] Access token: ${result.token}`)
+    log.info(`[headless] Web server running at ${result.url}`)
+    log.info(`[headless] Access token: ${result.token}`)
   }
 
   if (flags.discord) {
     const { startBot } = await import('../core/services/discord')
     await startBot({ dispatch })
-    console.log(`[headless] Discord bot started`)
+    log.info(`[headless] Discord bot started`)
   }
 
   // Graceful shutdown
   const shutdown = async () => {
-    console.log(`[headless] Shutting down...`)
+    log.info(`[headless] Shutting down...`)
     for (const cleanup of cleanups) cleanup()
     await engine.shutdown()
     process.exit(0)
@@ -162,7 +165,7 @@ async function runServices(): Promise<void> {
   process.on('SIGTERM', shutdown)
 
   const running = [flags.server && 'server', flags.discord && 'discord'].filter(Boolean).join(' + ')
-  console.log(`[headless] Running: ${running}. Press Ctrl+C to exit.`)
+  log.info(`[headless] Running: ${running}. Press Ctrl+C to exit.`)
 }
 
 // ─── Password mode ────────────────────────────────────
@@ -184,19 +187,19 @@ async function runPasswordMode(): Promise<void> {
   try {
     if (flags.clearPassword) {
       await engine.webPassword.clearPassword()
-      console.log('Password cleared. Server reverted to token-based authentication.')
+      log.info('Password cleared. Server reverted to token-based authentication.')
     } else {
       if (!process.stdin.isTTY) {
-        console.error('--set-password requires a TTY (interactive terminal).')
+        log.error('--set-password requires a TTY (interactive terminal).')
         process.exit(1)
       }
       const { promptMasked, validatePair } = await import('./passwordPrompt')
       const pwd = await promptMasked({ prompt: 'New password: ', stdin: process.stdin, stdout: process.stdout })
       const confirm = await promptMasked({ prompt: 'Confirm: ', stdin: process.stdin, stdout: process.stdout })
       const err = validatePair(pwd, confirm)
-      if (err) { console.error(err); process.exit(1) }
+      if (err) { log.error(err); process.exit(1) }
       await engine.webPassword.setPassword(pwd)
-      console.log('Password set. Existing sessions invalidated.')
+      log.info('Password set. Existing sessions invalidated.')
     }
   } finally {
     await engine.shutdown()
@@ -207,7 +210,7 @@ async function runPasswordMode(): Promise<void> {
 
 const consoleBroadcaster: Broadcaster = {
   broadcast(channel: string, data: unknown): void {
-    console.log(`[broadcast] ${channel}:`, JSON.stringify(data, null, 2).slice(0, 200))
+    log.debug(`[broadcast] ${channel}: ${JSON.stringify(data, null, 2).slice(0, 200)}`)
   },
 }
 
@@ -215,9 +218,9 @@ async function runInteractive(): Promise<void> {
   const dbPath = process.env.AGENT_DB_PATH || DEFAULT_DB_PATH
   const themesDir = process.env.AGENT_THEMES_DIR || DEFAULT_THEMES_DIR
 
-  console.log(`[headless] Starting Agent Engine...`)
-  console.log(`[headless] DB: ${dbPath}`)
-  console.log(`[headless] Themes: ${themesDir}`)
+  log.info(`[headless] Starting Agent Engine...`)
+  log.info(`[headless] DB: ${dbPath}`)
+  log.info(`[headless] Themes: ${themesDir}`)
 
   const engine = new AgentEngine({
     dbPath: resolve(dbPath),
@@ -228,11 +231,11 @@ async function runInteractive(): Promise<void> {
   })
 
   await engine.init()
-  console.log(`[headless] Engine initialized. ${engine.conversations.list().length} conversations in DB.`)
+  log.info(`[headless] Engine initialized. ${engine.conversations.list().length} conversations in DB.`)
 
   // Graceful shutdown
   const shutdown = async () => {
-    console.log(`[headless] Shutting down...`)
+    log.info(`[headless] Shutting down...`)
     await engine.shutdown()
     process.exit(0)
   }
@@ -240,6 +243,6 @@ async function runInteractive(): Promise<void> {
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
 
-  console.log(`[headless] Engine ready. Press Ctrl+C to exit.`)
-  console.log(`[headless] Available services: settings, folders, conversations, messages, tools, shortcuts, themes, mcp, scheduler`)
+  log.info(`[headless] Engine ready. Press Ctrl+C to exit.`)
+  log.info(`[headless] Available services: settings, folders, conversations, messages, tools, shortcuts, themes, mcp, scheduler`)
 }

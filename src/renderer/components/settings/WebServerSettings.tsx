@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { PasswordAuthSection } from './PasswordAuthSection'
 import { Toggle } from '../shared/Toggle'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('WebServerSettings')
 
 interface ServerStatus {
   running: boolean
@@ -71,7 +74,7 @@ export function WebServerSettings() {
       try {
         await window.agent.server.start(port, { shortCode: code, accessMode })
       } catch (err) {
-        console.error('[webServer] Start failed:', err)
+        log.error('Start failed', err)
         return
       }
       await setSetting('server_enabled', 'true')

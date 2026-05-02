@@ -200,12 +200,13 @@ describe('env utility', () => {
     it('warns when XDG_RUNTIME_DIR not available for D-Bus resolution', () => {
       delete process.env.DBUS_SESSION_BUS_ADDRESS
       delete process.env.XDG_RUNTIME_DIR
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      // Logger writes warn entries to stderr as JSON under non-TTY
+      const warnSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
       enrichEnvironment()
 
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('XDG_RUNTIME_DIR not set')
+        expect.stringMatching(/"level":"warn".*XDG_RUNTIME_DIR not set/)
       )
       expect(process.env.DBUS_SESSION_BUS_ADDRESS).toBeUndefined()
       warnSpy.mockRestore()

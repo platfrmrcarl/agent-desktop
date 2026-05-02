@@ -11,6 +11,9 @@ import { broadcast } from '../utils/broadcast'
 import { sanitizeError } from '../utils/errors'
 import { findBinaryInPath } from '../utils/env'
 import { getMainWindow } from '../mainContext'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('schedulerBridge')
 
 let server: net.Server | null = null
 let socketPath: string | null = null
@@ -25,7 +28,8 @@ function getLogPath(): string {
 
 function bridgeLog(level: string, msg: string): void {
   const line = `${new Date().toISOString()} [schedulerBridge] [${level}] ${msg}`
-  console.log(line)
+  // Mirror to structured logger at info level (file logging is the primary sink)
+  log.info(msg, { bridgeLevel: level })
   try {
     fs.appendFileSync(getLogPath(), line + '\n')
   } catch { /* best effort */ }

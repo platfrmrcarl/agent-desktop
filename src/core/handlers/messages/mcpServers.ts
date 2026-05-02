@@ -13,6 +13,9 @@
 import type { SqlJsAdapter } from '../../db/sqljs-adapter'
 import type { AISettings } from '../../services/streaming'
 import { safeJsonParse } from '../../utils/json'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('mcpServers')
 
 export type McpServerMap = AISettings['mcpServers']
 
@@ -54,7 +57,7 @@ export function loadMcpServersFromDb(db: SqlJsAdapter): McpServerMap {
         }
       }
     } catch (err) {
-      console.error(`[messages] Invalid MCP config for ${row.name}:`, err)
+      log.error('Invalid MCP config', err, { name: row.name })
     }
   }
   return servers

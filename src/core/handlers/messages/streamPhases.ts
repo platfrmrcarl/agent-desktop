@@ -18,6 +18,9 @@ import type { SqlJsAdapter } from '../../db/sqljs-adapter'
 import type { Message } from '../../types/types'
 import type { AISettings } from '../../services/streaming'
 import { streamMessage, sendChunk, notifyConversationUpdated } from '../../services/streaming'
+import { createLogger } from '../../utils/logger'
+
+const log = createLogger('streamPhases')
 import type { MessageStreamContext, RetrySettings } from './types'
 import type { MessagesHandlerOptions } from '../messages'
 
@@ -176,7 +179,7 @@ export function fireWebhookCompletion(
       ...(payload.error ? { error: payload.error } : {}),
     })
   } catch (err) {
-    console.error('[messages] Webhook error:', err)
+    log.error('Webhook error', err)
   }
 }
 
@@ -189,7 +192,7 @@ export function fireTts(
   try {
     options.onTtsSpeak(payload.responseContent, conversationId, aiSettings)
   } catch (err) {
-    console.error('[tts] Response TTS error:', err)
+    log.error('Response TTS error', err)
   }
 }
 
@@ -233,10 +236,10 @@ export async function persistTurnUsage(
     // Persist content-only total BEFORE notifying the client, so the
     // refetch triggered by `notifyConversationUpdated` already sees it.
     await saveConversationContentTokens(db, ctx.conversationId, ctx.systemPrompt, ctx.aiSettings)
-      .catch((e) => console.warn('[messages] saveConversationContentTokens:', e))
+      .catch((e) => log.warn('saveConversationContentTokens failed', e))
     notifyConversationUpdated(ctx.conversationId)
   } catch (e) {
-    console.warn('[messages] saveConversationUsage:', e)
+    log.warn('saveConversationUsage failed', e)
   }
 }
 
@@ -264,7 +267,7 @@ export function emitRetryChunk(
   delay: number,
   error: string,
 ): void {
-  console.warn(`[messages] Attempt ${attempt}/${maxAttempts} failed, retrying in ${delay}ms:`, error)
+  log.warn('Attempt failed, retrying', { attempt, maxAttempts, delayMs: delay, error })
   sendChunk('retry', `Retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1}/${maxAttempts})...`, {
     conversationId,
     retryAttempt: attempt + 1,

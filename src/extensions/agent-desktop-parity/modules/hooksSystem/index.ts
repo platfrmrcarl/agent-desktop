@@ -2,6 +2,9 @@ import type { ExtensionAPI, ExtensionRuntimeContext } from '../../shared/types'
 import { runHooks, type HookSystemMessage } from '../../../../core/services/hooks/hookRunner'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { createLogger } from '../../../../core/utils/logger'
+
+const log = createLogger('hooksSystem')
 
 /**
  * Phase 3 — hooks system adapter.
@@ -53,7 +56,7 @@ export function initHooksSystem(pi: ExtensionAPI, ctx: ExtensionRuntimeContext):
       // Never propagate bridge failures out of async PI handlers — PI treats
       // a thrown handler as a block, which would produce false denies on
       // UI-layer bugs. Log and continue.
-      console.warn('[hooks-system] emit failed:', err instanceof Error ? err.message : err)
+      log.warn('[hooks-system] emit failed', err instanceof Error ? err : String(err))
     }
   }
 
@@ -127,7 +130,7 @@ export function initHooksSystem(pi: ExtensionAPI, ctx: ExtensionRuntimeContext):
           }),
         })
       } catch (err) {
-        console.warn('[hooks-system] webhook POST failed:', err instanceof Error ? err.message : err)
+        log.warn('[hooks-system] webhook POST failed', err instanceof Error ? err : String(err))
       }
     }
     return undefined

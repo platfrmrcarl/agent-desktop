@@ -4,6 +4,9 @@ import { initPermissionModes } from './modules/permissionModes'
 import { initHooksSystem } from './modules/hooksSystem'
 import { initSkillsBridge } from './modules/skillsBridge'
 import { initBudgetTracker } from './modules/budgetTracker'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('agent-desktop-parity')
 
 /**
  * Default extension factory for the Agent Desktop PI parity extension.
@@ -14,7 +17,7 @@ import { initBudgetTracker } from './modules/budgetTracker'
  */
 export default function (pi: ExtensionAPI, ctx: ExtensionRuntimeContext): void {
   if (ctx.version !== 1) {
-    console.warn(`[agent-desktop-parity] unexpected ctx.version ${ctx.version}, expected 1`)
+    log.warn(`[agent-desktop-parity] unexpected ctx.version ${ctx.version}, expected 1`)
     return
   }
 

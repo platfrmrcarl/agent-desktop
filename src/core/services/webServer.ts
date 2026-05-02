@@ -16,6 +16,9 @@ import { cookieIsValid, type RouteContext } from './web/middleware'
 import { handleLoginPost, handleLogout, handleLoginGet } from './web/routes/login'
 import { handleShimJs, handleShortCode, handleStatic } from './web/routes/static'
 import { handleWsUpgrade } from './web/routes/wsUpgrade'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('webServer')
 
 // ─── State ───────────────────────────────────────────
 
@@ -603,8 +606,8 @@ export async function startServer(port: number, options?: ServerStartOptions): P
     sslCert = result.cert
     serverProtocol = 'https'
   } catch (err) {
-    console.warn(`[webServer] SSL unavailable — falling back to HTTP (less secure)`)
-    console.warn(`[webServer] ${err instanceof Error ? err.message : String(err)}`)
+    log.warn('SSL unavailable — falling back to HTTP (less secure)')
+    log.warn('SSL error detail', err)
     serverProtocol = 'http'
   }
 
@@ -742,7 +745,7 @@ export async function startServer(port: number, options?: ServerStartOptions): P
     }, HEARTBEAT_INTERVAL)
 
     httpServer.on('error', (err) => {
-      console.error('[webServer] Server error:', err.message)
+      log.error('Server error', err)
       reject(err)
     })
 
@@ -767,14 +770,14 @@ export async function startServer(port: number, options?: ServerStartOptions): P
       })
 
       tcpServer.on('error', (err) => {
-        console.error('[webServer] TCP server error:', err.message)
+        log.error('TCP server error', err)
         reject(err)
       })
 
       tcpServer.listen(port, '0.0.0.0', () => {
         const ip = getLanIp()
         const shortUrl = `https://${ip}:${port}/s/${serverShortCode}`
-        console.log(`[webServer] Listening on ${shortUrl} (HTTPS, HTTP→HTTPS redirect enabled)`)
+        log.info('Listening', { url: shortUrl, protocol: 'HTTPS' })
         resolve({ url: shortUrl, token: serverToken! })
       })
     } else {
@@ -782,7 +785,7 @@ export async function startServer(port: number, options?: ServerStartOptions): P
       httpServer.listen(port, '0.0.0.0', () => {
         const ip = getLanIp()
         const shortUrl = `http://${ip}:${port}/s/${serverShortCode}`
-        console.log(`[webServer] Listening on ${shortUrl} (HTTP — install OpenSSL for HTTPS)`)
+        log.info('Listening', { url: shortUrl, protocol: 'HTTP' })
         resolve({ url: shortUrl, token: serverToken! })
       })
     }

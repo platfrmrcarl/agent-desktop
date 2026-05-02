@@ -16,6 +16,9 @@
 import { randomUUID } from 'crypto'
 import type { PiUIResponse } from '../../shared/piUITypes'
 import { ansiLinesToHtml } from '../utils/ansiToHtml'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('piUIContext')
 
 interface PendingDialog {
   resolve: (value: unknown) => void
@@ -158,7 +161,7 @@ export class PiUIContext {
     if (factory == null) {
       this.send('pi:uiEvent', { method: 'setHeader', component: undefined })
     } else {
-      console.log('[PiUIContext] setHeader called with TUI factory — not renderable in Electron')
+      log.warn('setHeader called with TUI factory — not renderable in Electron')
     }
   }
 
@@ -166,7 +169,7 @@ export class PiUIContext {
     if (factory == null) {
       this.send('pi:uiEvent', { method: 'setFooter', component: undefined })
     } else {
-      console.log('[PiUIContext] setFooter called with TUI factory — not renderable in Electron')
+      log.warn('setFooter called with TUI factory — not renderable in Electron')
     }
   }
 

@@ -6,6 +6,9 @@
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import type { PlatformScheduler } from '../../../core/ports/platformScheduler'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('platformScheduler.windows')
 
 const execAsync = promisify(exec)
 
@@ -19,14 +22,14 @@ export class WindowsTaskScheduler implements PlatformScheduler {
     await execAsync(
       `schtasks /create /tn "${TASK_NAME}" /tr ${JSON.stringify(command)} /sc minute /mo 1 /f`
     )
-    console.log('[platform-scheduler] Installed Windows scheduled task')
+    log.info('installed Windows scheduled task')
   }
 
   async uninstall(): Promise<void> {
     try {
       await execAsync(`schtasks /delete /tn "${TASK_NAME}" /f`)
     } catch { /* task doesn't exist */ }
-    console.log('[platform-scheduler] Removed Windows scheduled task')
+    log.info('removed Windows scheduled task')
   }
 
   async isInstalled(): Promise<boolean> {

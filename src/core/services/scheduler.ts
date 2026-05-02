@@ -7,6 +7,9 @@ import type { SqlJsAdapter } from '../db/sqljs-adapter'
 import { validatePreRunAction, validateIntervalUnit, validateScheduleTime } from './scheduler/validation'
 import { executeTaskUpdate, executeTaskDelete, executeTaskToggle } from './scheduler/persistence'
 import { computeNextRun } from './scheduler/compute'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('scheduler')
 
 // Re-exported for existing callers (tests, main/services/scheduler.ts).
 export { computeNextRun }
@@ -366,7 +369,7 @@ export class SchedulerService {
       ).run(task.name, defaultFolderId ?? null, model)
       this.db.prepare('UPDATE scheduled_tasks SET conversation_id = ?, updated_at = ? WHERE id = ?')
         .run(convResult.lastInsertRowid as number, now, task.id)
-      console.log(`[scheduler] Task "${task.name}" (id=${task.id}): conversation ${conversationId} deleted, reassigned to new conversation ${convResult.lastInsertRowid}`)
+      log.info('Task conversation reassigned', { taskName: task.name, taskId: task.id, oldConvId: conversationId, newConvId: convResult.lastInsertRowid })
     }
   }
 
@@ -386,7 +389,7 @@ export class SchedulerService {
     this.db.prepare('UPDATE scheduled_tasks SET conversation_id = ?, updated_at = ? WHERE id = ?')
       .run(newConvId, now, task.id)
 
-    console.log(`[scheduler] Task "${task.name}" (id=${task.id}): conversation ${task.conversation_id} deleted, created new conversation ${newConvId}`)
+    log.info('Task conversation recreated', { taskName: task.name, taskId: task.id, oldConvId: task.conversation_id, newConvId })
     return { ...task, conversation_id: newConvId }
   }
 

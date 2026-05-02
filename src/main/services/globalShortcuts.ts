@@ -4,6 +4,9 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { getSessionType } from '../utils/env'
 import { registerWaylandShortcuts, rebindWaylandShortcuts, unregisterWaylandShortcuts } from './waylandShortcuts'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('globalShortcuts')
 
 interface ShortcutCallbacks {
   onQuickChat: () => void
@@ -38,11 +41,11 @@ export function registerGlobalShortcuts(database: Database.Database, cbs: Shortc
   db = database
   callbacks = cbs
   sessionType = getSessionType()
-  console.log('[globalShortcuts] Session type:', sessionType)
+  log.info('session type', { sessionType })
   logToFile(`Session type: ${sessionType}`)
   logToFile(`Env: DBUS=${process.env.DBUS_SESSION_BUS_ADDRESS || '(unset)'} WAYLAND=${process.env.WAYLAND_DISPLAY || '(unset)'} XDG_SESSION=${process.env.XDG_SESSION_TYPE || '(unset)'} HYPRLAND_SIG=${process.env.HYPRLAND_INSTANCE_SIGNATURE || '(unset)'}`)
   reregister().catch((err) => {
-    console.error('[globalShortcuts] Failed to register shortcuts:', err)
+    log.error('failed to register shortcuts', err)
     logToFile(`FAILED: ${err}`)
   })
 }
@@ -100,7 +103,7 @@ async function doReregister(): Promise<void> {
     waylandActive = ok
     logToFile(`Wayland registration result: ${ok}`)
     if (!ok) {
-      console.warn('[globalShortcuts] Wayland portal unavailable — global shortcuts disabled')
+      log.warn('Wayland portal unavailable — global shortcuts disabled')
       logToFile('Wayland portal unavailable — global shortcuts disabled')
     }
   } else {
@@ -109,22 +112,22 @@ async function doReregister(): Promise<void> {
     try {
       globalShortcut.register(chatKey, callbacks.onQuickChat)
     } catch (e) {
-      console.warn('[globalShortcuts] Failed to register', chatKey, e)
+      log.warn('failed to register shortcut', { key: chatKey, error: String(e) })
     }
     try {
       globalShortcut.register(voiceKey, callbacks.onQuickVoice)
     } catch (e) {
-      console.warn('[globalShortcuts] Failed to register', voiceKey, e)
+      log.warn('failed to register shortcut', { key: voiceKey, error: String(e) })
     }
     try {
       globalShortcut.register(showKey, callbacks.onShowApp)
     } catch (e) {
-      console.warn('[globalShortcuts] Failed to register', showKey, e)
+      log.warn('failed to register shortcut', { key: showKey, error: String(e) })
     }
     try {
       globalShortcut.register(stopTtsKey, callbacks.onStopTts)
     } catch (e) {
-      console.warn('[globalShortcuts] Failed to register', stopTtsKey, e)
+      log.warn('failed to register shortcut', { key: stopTtsKey, error: String(e) })
     }
   }
 }

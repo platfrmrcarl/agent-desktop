@@ -30,6 +30,9 @@ import type { DispatchRegistry } from '../dispatch'
 import type { HandleRegistrar } from '../dispatch'
 import type { AskUserQuestion, AskUserResponse } from '../types'
 import { addBroadcastHandler } from '../utils/broadcast'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('discord')
 
 // ─── State ───────────────────────────────────────────
 
@@ -61,7 +64,7 @@ async function persistBindings(): Promise<void> {
     for (const [k, v] of channelConversations) obj[k] = v
     await botDispatch!.get('settings:set')!('discord_channelBindings', JSON.stringify(obj))
   } catch (err) {
-    console.error('[discord] Failed to persist channel bindings:', err)
+    log.error('Failed to persist channel bindings', err)
   }
 }
 
@@ -163,7 +166,7 @@ async function handleConversationAutocomplete(interaction: AutocompleteInteracti
       .map((c) => ({ name: c.title.slice(0, 100), value: String(c.id) }))
     await interaction.respond(filtered)
   } catch (err) {
-    console.error('[discord] Autocomplete error:', err)
+    log.error('Autocomplete error', err)
     await interaction.respond([])
   }
 }
@@ -181,7 +184,7 @@ async function handleFolderAutocomplete(interaction: AutocompleteInteraction): P
       .map((f) => ({ name: f.name.slice(0, 100), value: String(f.id) }))
     await interaction.respond(filtered)
   } catch (err) {
-    console.error('[discord] Folder autocomplete error:', err)
+    log.error('Folder autocomplete error', err)
     await interaction.respond([])
   }
 }
@@ -403,12 +406,12 @@ function handleAskUserChunk(payload: Record<string, unknown>): void {
   try {
     questions = JSON.parse(payload.questions as string) as AskUserQuestion[]
   } catch {
-    console.error('[discord] Failed to parse ask_user questions')
+    log.error('Failed to parse ask_user questions')
     return
   }
 
   presentAskUser(targetChannelId, requestId, questions).catch((err) => {
-    console.error('[discord] Failed to present ask_user:', err)
+    log.error('Failed to present ask_user', err)
   })
 }
 
@@ -519,7 +522,7 @@ async function presentAskUser(
     try {
       await botDispatch!.get('messages:respondToApproval')!(requestId, { answers } as AskUserResponse)
     } catch (err) {
-      console.error('[discord] Failed to submit ask_user response:', err)
+      log.error('Failed to submit ask_user response', err)
     }
 
     // Edit message to show submitted answers and remove components
@@ -752,16 +755,16 @@ export async function startBot(options: BotStartOptions): Promise<void> {
   })
 
   client.once(Events.ClientReady, async (readyClient) => {
-    console.log(`[discord] Bot logged in as ${readyClient.user.tag}`)
+    log.info('Bot logged in', { tag: readyClient.user.tag })
 
     // Register global slash commands
     const rest = new REST({ version: '10' }).setToken(token)
     const commands = buildSlashCommands().map((c) => c.toJSON())
     try {
       await rest.put(Routes.applicationCommands(readyClient.user.id), { body: commands })
-      console.log(`[discord] Registered ${commands.length} slash commands`)
+      log.info('Registered slash commands', { count: commands.length })
     } catch (err) {
-      console.error('[discord] Failed to register slash commands:', err)
+      log.error('Failed to register slash commands', err)
     }
   })
 

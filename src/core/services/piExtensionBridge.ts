@@ -1,5 +1,8 @@
 import type { AISettings } from './streaming'
 import { getConversationOverridesWriter } from './streaming'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('piExtensionBridge')
 
 // `better-sqlite3` is imported only as a TYPE — avoids a runtime dep surface
 // in the renderer bundle. Actual DB interactions happen in main-process code.
@@ -119,7 +122,7 @@ export function createBridge(conversationId: number, deps: BridgeDeps): PiExtens
     updateConversationSetting(key, value) {
       const writer = getConversationOverridesWriter()
       if (!writer) {
-        console.warn('[piExtensionBridge] updateConversationSetting called before writer injection; skipping')
+        log.warn('updateConversationSetting called before writer injection; skipping')
         return
       }
       writer(conversationId, { [key]: value })

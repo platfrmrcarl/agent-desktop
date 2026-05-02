@@ -3,6 +3,9 @@ import { app, BrowserWindow, shell, Notification } from 'electron'
 import type { IpcMain } from 'electron'
 import { broadcast } from '../utils/broadcast'
 import type { UpdateInfo, UpdateStatus } from '../../shared/types'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('updater')
 
 let checkInterval: ReturnType<typeof setInterval> | null = null
 let lastStatus: UpdateStatus = { state: 'idle' }
@@ -83,11 +86,11 @@ export function initAutoUpdater(
       || err.message?.includes('latest-mac.yml')
       || err.message?.includes('latest.yml')
     if (isMetadataNotFound) {
-      console.log('[updater] Update metadata not found:', err.message)
+      log.debug('update metadata not found', { message: err.message })
       sendStatus({ state: 'not-available' })
       return
     }
-    console.error('[updater] Update error:', err.message)
+    log.error('update error', err)
     sendStatus({ state: 'error', message: err.message })
   })
 

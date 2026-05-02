@@ -3,6 +3,9 @@ import { initAdapter, SqlJsAdapter } from './sqljs-adapter'
 import { createTables } from './schema'
 import { runMigrations } from './migrations'
 import { seedDefaults } from './seed'
+import { createLogger } from '../utils/logger'
+
+const log = createLogger('database')
 
 let db: SqlJsAdapter | null = null
 
@@ -30,7 +33,7 @@ export async function initDatabase(dbPath: string, wasmPath?: string): Promise<v
     db.pragma('foreign_keys = ON')
     createTables(db as any)
     seedDefaults(db as any)
-    console.error('[database] Recreated after corruption. Backup:', backupPath)
+    log.error('Recreated after corruption', undefined, { backupPath })
   }
 }
 

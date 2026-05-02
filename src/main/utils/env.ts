@@ -5,6 +5,9 @@ import { execFileSync, spawnSync } from 'child_process'
 import { sanitizeAppImageEnv } from './env/sanitizeAppImage'
 import { sanitizeWaylandEnv } from './env/sanitizeWayland'
 import { loadShellEnv } from './env/loadShellEnv'
+import { createLogger } from '../../core/utils/logger'
+
+const log = createLogger('env')
 
 // Re-export from core — canonical source is now src/core/utils/env.ts
 export { findBinaryInPath } from '../../core/utils/env'
@@ -48,7 +51,7 @@ function injectMacOSKeychainToken(): void {
     const accessToken = creds?.claudeAiOauth?.accessToken
     if (accessToken) {
       process.env.CLAUDE_CODE_OAUTH_TOKEN = accessToken
-      console.log('[env] Set CLAUDE_CODE_OAUTH_TOKEN from macOS Keychain')
+      log.info('set CLAUDE_CODE_OAUTH_TOKEN from macOS Keychain')
     }
   } catch {
     // Keychain not accessible or no credentials — will be caught at auth check
@@ -71,13 +74,13 @@ export function enrichEnvironment(): void {
   // Ensure HOME is set (some AppImage environments strip it)
   if (!process.env.HOME) {
     process.env.HOME = home
-    console.log('[env] Set HOME =', home)
+    log.info('set HOME', { value: home })
   }
 
   // Ensure CLAUDE_CONFIG_DIR is set so the SDK finds credentials
   if (!process.env.CLAUDE_CONFIG_DIR) {
     process.env.CLAUDE_CONFIG_DIR = path.join(home, '.claude')
-    console.log('[env] Set CLAUDE_CONFIG_DIR =', process.env.CLAUDE_CONFIG_DIR)
+    log.info('set CLAUDE_CONFIG_DIR', { value: process.env.CLAUDE_CONFIG_DIR })
   }
 
   sanitizeWaylandEnv()
@@ -87,7 +90,7 @@ export function enrichEnvironment(): void {
   // AppImage cleanup: remove bundled library paths so child processes
   // (claude CLI, whisper, etc.) don't load incompatible Electron .so files.
   if (isAppImage()) {
-    console.log('[env] Running inside AppImage:', process.env.APPIMAGE)
+    log.info('running inside AppImage', { appimage: process.env.APPIMAGE })
     sanitizeAppImageEnv()
   }
 }
@@ -149,11 +152,11 @@ export async function ensureFreshMacOSToken(): Promise<void> {
 
     const refreshToken: string | undefined = oauth.refreshToken
     if (!refreshToken) {
-      console.error('[env] OAuth token expired and no refresh token available')
+      log.error('OAuth token expired and no refresh token available')
       return
     }
 
-    console.log('[env] OAuth token expired, refreshing...')
+    log.info('OAuth token expired, refreshing')
     const { tokenUrl, clientId } = await readCliOAuthConfig()
     // Use the scopes from the stored credentials (exact scopes originally granted)
     const scopes = Array.isArray(oauth.scopes) ? oauth.scopes.join(' ') : ''
@@ -170,7 +173,7 @@ export async function ensureFreshMacOSToken(): Promise<void> {
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
-      console.error(`[env] Token refresh failed: ${res.status} ${body.slice(0, 200)}`)
+      log.error('token refresh failed', undefined, { status: res.status, body: body.slice(0, 200) })
       throw new Error(
         'Claude session expired. Run `claude login` in your terminal to re-authenticate, then try again.'
       )
@@ -178,7 +181,7 @@ export async function ensureFreshMacOSToken(): Promise<void> {
 
     const tokens = await res.json() as { access_token?: string; refresh_token?: string; expires_in?: number }
     if (!tokens.access_token) {
-      console.error('[env] Token refresh response missing access_token')
+      log.error('token refresh response missing access_token')
       return
     }
 
@@ -201,13 +204,13 @@ export async function ensureFreshMacOSToken(): Promise<void> {
     )
 
     process.env.CLAUDE_CODE_OAUTH_TOKEN = tokens.access_token
-    console.log('[env] CLAUDE_CODE_OAUTH_TOKEN refreshed successfully')
+    log.info('CLAUDE_CODE_OAUTH_TOKEN refreshed successfully')
   } catch (err) {
     // Re-throw auth errors (session expired, invalid_grant) so they surface in the UI.
     // Only swallow unexpected failures (network, JSON parsing, Keychain read).
     if (err instanceof Error && err.message.includes('claude login')) {
       throw err
     }
-    console.error('[env] ensureFreshMacOSToken unexpected error:', err)
+    log.error('ensureFreshMacOSToken unexpected error', err)
   }
 }

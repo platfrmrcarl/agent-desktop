@@ -3,6 +3,9 @@ import { FileDropZone } from '../../components/file-attach/FileDropZone'
 import { FileUploadButton } from '../../components/file-attach/FileUploadButton'
 import { AttachmentPreview } from '../../components/file-attach/AttachmentPreview'
 import type { Attachment } from '../../../shared/types'
+import { createLogger } from '../../../core/utils/logger'
+
+const log = createLogger('ChatAttachments')
 
 /**
  * Presentational wrapper for chat attachment UI.
@@ -76,7 +79,7 @@ export function useAttachmentPaste(addAttachments: (atts: Attachment[]) => void)
           : `pasted-${Date.now()}.${ext}`
         collected.push({ name, path, type: blob.type, size: blob.size })
       } catch (err) {
-        console.error('Failed to save pasted file:', err)
+        log.error('Failed to save pasted file', err)
       }
     }
     if (collected.length > 0) addAttachments(collected)
