@@ -1,154 +1,143 @@
-# Agent Desktop — Project Instructions
+# CLAUDE.md
 
-## Build & Run
-- `npm run dev` — start dev server with hot reload
-- `npm run build` — compile TypeScript (output: `out/`)
-- `npm run dist:linux` — package AppImage + deb (output: `release/`)
-- `npm run dist:win` — package NSIS installer + portable exe (output: `release/`, requires Wine on Linux)
-- `npm run publish:linux` — build + publish Linux to GitHub Releases with `--publish always` (requires `GH_TOKEN`)
-- `npm run publish:win` — build + publish Windows to GitHub Releases with `--publish always` (requires `GH_TOKEN` + Wine on Linux)
-- `npm test` — Vitest (main: node, renderer: jsdom); `@testing-library/react` pinned to v15 (v16 requires React 19)
-- `npm run build:headless` — bundle headless entry point (output: `out/headless/index.js`)
-- `npm run start:server` — headless web server on default port
-- `npm run start:discord` — headless Discord bot
-- `npm run start:headless` — headless web server + Discord bot
-- `npm run audit:dedup` — list function/SQL clone clusters (TS AST)
-- `npm run audit:check` — fail if dedup metrics regressed vs `scripts/.dedup-baseline.json`
-- `npm run audit:baseline` — refresh the baseline after intentional improvement
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-## Architecture Decisions
-- **`core/` vs `main/services/` boundary** — `core/` holds shared logic that runs in BOTH Electron and headless (CLI/web/Discord); `core/` MUST NOT import `'electron'`. `main/services/` holds Electron-only wiring: `ipcMain.handle` registrations, `BrowserWindow`, native `Notification`, `app.getPath`, `dialog`, `shell`. When in doubt, ask "would the headless runtime need this?" — if yes → `core/`. Cross-boundary callbacks (e.g. `MessagesHandlerOptions.broadcaster`, `setSpeakingStateListener`) are the seam: core exposes a hook, main fills it. Don't reimplement in main what core already exports.
-- Electron + React + Zustand + Tailwind + sql.js (WASM SQLite)
-- **Dual SDK backend** — `ai_sdkBackend` selects Claude Agent SDK (default) or PI Coding Agent; 4-line branch in `streamMessage()` delegates to `streamMessagePI()`; no abstraction layer (only 2 backends)
-- **electron-vite** outputs to `out/`, not `dist-electron/`
-- **asar: false** — SDK `import.meta.url` resolves inside `app.asar`; system `node` can't read asar archives
-- **sql.js (WASM)** — no native ABI swap needed; same binary in tests and prod
-- **Fonts bundled** — box-drawing chars in ASCII diagrams need guaranteed monospace
-- **No minWidth/minHeight** — Wayland compositors force windows smaller than declared minimums; Electron overflows at `minWidth` pixels
-- **Per-conversation AbortController** (`Map<number, ...>`) — concurrent streams require per-conversation abort
-- **MCP disable is negative list** — new servers auto-active unless explicitly disabled
-- **Hybrid shortcuts** — X11: Electron `globalShortcut`, Wayland: XDG Desktop Portal
-- **Hyprland uses FIFO not D-Bus** — `dbus-next` signal delivery broken in Electron's event loop
-- **Session detection** — `XDG_SESSION_TYPE` > `WAYLAND_DISPLAY` > `DISPLAY` (both can be set under XWayland)
-- **SDK session resume** — `sdk_session_id` on conversations; normal messages use `resume`, regenerate/edit/compact/clear reset to full history fallback; one-shot queries use `persistSession: false`
-- **CWD whitelist** — `hooks_cwdWhitelist` (JSON `CwdWhitelistEntry[]`) replaces `writableKnowledgePaths`; CWD auto-included as readwrite, knowledge paths auto-merged
-- **Engine-owned dispatch** — `AgentEngine.dispatch` (DispatchRegistry) is the canonical handler registry; Electron's `ipcMain` is a consumer via `bridgeDispatchToIpc()`; headless CLI uses dispatch directly
-- **Headless CLI** — `node out/headless/index.js --server [--port N] [--access-mode lan|all] [--discord]` runs web server and/or Discord bot without Electron
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-## Conventions & Cascade
-- **New IPC handlers**: register in `src/core/handlers/`, not `src/main/services/` — unless Electron-only (Category C: updater, quickChat, globalShortcuts, system, openscad, jupyter, tray, deeplink, protocol, waylandShortcuts, schedulerBridge, webhook)
-- **DB query helpers**: use `getSetting(db, key)` from `src/core/utils/db.ts` and the named helpers in `src/core/db/queries.ts` (`getDefaultFolderId`, `countConversations`, `getBackgroundSchedulerEnabled`, `getDefaultModel`, `conversationExists`); inline `db.prepare("SELECT...").get()` is OK only for one-off queries with no callers elsewhere
-- **Dedup baseline**: `npm run audit:check` after refactors; the committed baseline in `scripts/.dedup-baseline.json` is the floor — running `npm run audit:baseline` after an intentional improvement is encouraged, but PRs that increase clone counts should fix the cause or document why
-- **CSS**: `@import` before `@tailwind` directives
-- **Auth**: OAuth from `claude login`, NOT api_key
-- **Themes**: CSS custom properties only — no hardcoded hex in renderer
-- **Theme naming**: `base`/`body`/`contrast` (not `bg`/`text`/`text-contrast`) — avoids Tailwind collisions like `bg-bg`
-- **Tinting**: `color-mix(in srgb, ...)` — Tailwind opacity modifiers don't work with raw CSS var values
-- **Settings cascade**: Conversation > Folder > Global; `null`/`{}` = inherited
-- **`hooks_cwdWhitelist` cascade**: replace semantics (most specific level wins); empty whitelist = backward compat (reads unrestricted, writes restricted to CWD)
-- **NOT cascaded** (per-conversation only): `cwd`, `kb_enabled`, `cleared_at`
-- **NOT cascaded** (global only): `tts_summaryModel` — model selection for TTS summary generation; UI provides Haiku/Sonnet/Opus presets + Custom free text; backend defaults to Haiku if unset
-- **NOT cascaded** (global only): `ai_compactModel`, `ai_titleModel` — model overrides for `/compact` and auto-title; empty = Auto (inherits conversation's active model → `HAIKU_MODEL` fallback)
-- **NOT cascaded** (global only): `server_passwordHash`, `server_sessionSecret`, `server_sessionDurationDays`, `server_rememberDurationDays` — server-scoped, not per-conversation
-- **Folder color**: nullable TEXT `#rrggbb` validated server-side; `null` = no tint; applied via `color-mix` like theme tinting
-- **Default folder**: `is_default = 1` on `folders`; auto-created at startup as "Unsorted" with `position = -1`; non-deletable, renamable; all new/imported conversations assigned to it; no `folder_id = NULL` in system
-- **Heatmap**: `heatmap_enabled`, `heatmap_mode` (`'relative'`|`'fixed'`), `heatmap_min`, `heatmap_max` stored as strings; color via `hsvToHex(120 * (1-t), 70, 80)` applied same way; manual color takes precedence
-- **Bulk IPC ops**: `deleteMany`/`moveMany` wrap per-row statements in `db.transaction()` — no `WHERE id IN (...)` (sql.js parameter binding limitation)
-- **Multi-select `visibleOrder`**: store receives flat ID array from component — store cannot compute it (doesn't know folder expansion state)
-- **`/compact`**: summarizes via `summarizeWithModel` helper — routes `claude-*` to Claude SDK, others to PI SDK; model resolved as `ai_compactModel` → `aiSettings.model` → `HAIKU_MODEL`; summary stored in `compact_summary` column on conversations table
-- **`/clear`**: just sets `cleared_at` with no AI call
-- **`allowedTools` wildcards** (`mcp__<name>__*`) REQUIRED — MCP tools unusable without them, even with bypass
-- **`bypassPermissions`** is the only mode that sets `allowDangerouslySkipPermissions`
-- **Tests**: `createTestDb()` is async — all `beforeEach` must `await`; tests colocated as `*.test.ts`; coverage thresholds enforced (70% lines, 60% branches) via v8 provider
-- **Tailwind variant**: prefer `compact:` over `mobile:` for new code
-- **Async I/O only**: all main-thread file I/O uses `fs.promises.*` — no sync methods
-- **ContextMenu**: shared `ContextMenu`/`ContextMenuItem`/`ContextMenuDivider` in `src/renderer/components/shared/` — all context menus use this; draggable by default
+## 1. Think Before Coding
 
-## Ordering Constraints
-1. `enrichEnvironment()` before `app.whenReady()` — sanitizes AppImage env
-2. `getAISettings()` BEFORE `getSystemPrompt()` — CWD needed for prompt injection
-3. `initDatabase()` is async — must `await` in `app.whenReady()`
-4. `ensureThemeDir()` seeds built-in themes at startup
-5. `unbind` before `bind` in hyprctl — bindings accumulate; stale ones survive compositor restarts
-6. TTS `stop()` before starting new streams
-7. Server shutdown: WS clients → `wss.close()` → `httpServer.close()` (chained, not parallel)
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-## Window & Layout Gotchas
-- **No-minWidth fix**: root element `w-full overflow-hidden` + html/body `height: 100%`/`overflow: hidden`
-- **Overlay height**: `h-screen` not `h-full` — html/body/#root lack `height: 100%`, so `h-full` → auto → broken scroll
-- **`ready-to-show`**: never fires for transparent BrowserWindows on Linux/Wayland — use `did-finish-load`
-- **`hideOverlay()`**: must `destroy()` not `hide()` — `hide()` creates zombie windows blocking shortcut reactivation
-- **Mobile mode**: binary flag (`__AGENT_WEB_MODE__`), not screen size — desktop browser via web server intentionally gets mobile layout
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-## CSS & Rendering Gotchas
-- **Block vs inline code**: detection MUST happen in `pre` handler, not `code` — fences without language have no `className` on `code`
-- **Mermaid v11 + DOMPurify**: must `ADD_TAGS: ['foreignobject', 'use']` with `html: true` — Mermaid uses `foreignObject` for text, `use`/`xlink:href` for arrows
-- **SVG vs Mermaid sanitization**: SVGs FORBID `foreignObject`/`use`; Mermaid REQUIRES them — different DOMPurify configs
-- **Anchor links**: `decodeURIComponent` before slugifying — browsers URL-encode accented chars in href
-- **Slugify charset**: Unicode `\p{L}\p{N}` not `\w` — preserves accented characters
-- **HSV color picker**: custom canvas-style (not `input[type=color]`) — native picker is OS-dependent and unstyled; HSV math is inline in FolderTree
-- **Draggable floating panels**: `mousedown`→document `mousemove`/`mouseup` (not HTML drag API) — drag API fires `dragend` on leave, breaking repositioning
+## 2. Simplicity First
 
-## Jupyter & Notebook Gotchas
-- **ipykernel required**: `jupyter_client` alone gives `NoSuchKernel python3` — ipykernel registers the kernel spec
-- **useEffect deps**: `[filePath]` only — including `kernelStatus` causes shutdown on every status change; use `useRef` instead
-- **Dirty tracking infinite loop**: needs `lastSerializedRef` + `lastContentRef` double guard — content prop changes after save must compare against own last write
+**Minimum code that solves the problem. Nothing speculative.**
 
-## AI, MCP & Streaming Gotchas
-- **Scheduler MCP**: removed from `aiSettings.mcpServers` during unattended execution — prevents recursive task creation
-- **MCP names**: must not contain `__` — conflicts with SDK tool naming `mcp__name__tool`
-- **CWD hooks**: return `'deny'` not `'ask'` — bypass mode auto-approves `'ask'` decisions
-- **Auto-title**: no `outputFormat: json_schema` — causes SDK internal tool_use cycle exhausting `maxTurns: 1`; model resolved as `ai_titleModel` → `aiSettings.model` → `HAIKU_MODEL`
-- **Stream isolation**: `streamBuffers` dict keyed by conversationId — a conversation is streaming iff its ID is a key (no separate flag)
-- **SDK session retry**: if `resume` fails (corrupted/deleted session), `streamAndSave` catches, clears `sdk_session_id`, and retries with full history — transparent to user
-- **SDK session invalidation**: regenerate, edit, compact, clear all set `sdk_session_id = NULL` — SDK's internal history no longer matches SQLite
-- **PI session persistence**: `pi_session_file` column on conversations stores the JSONL path PI wrote to (`~/.pi/agent/sessions/...`). `streamingPI.ts` resolves per-turn: `SessionManager.open(filepath)` when column set + file exists, else `SessionManager.create(cwd)` + persist `getSessionFile()` back to DB. Corrupted/missing file → clear column, fall back to create (mirrors Claude's retry). `/clear` (via `conversations:update`) and `/compact` both null the column; old session files stay on disk for audit
-- **Compact summary injection**: `buildMessageHistory` prepends `compact_summary` as `[Previous conversation summary]` with role `assistant`
-- **Hook system messages**: `hook_response` output is JSON-parsed for `systemMessage` field — sent as `system_message` stream chunk with `hookName`/`hookEvent` metadata; non-JSON output silently ignored
-- **UserPromptSubmit hooks**: SDK does not yield `hook_response` for this event — executed app-side via `hookRunner.ts`; system messages saved as `<hook-system-message>content</hook-system-message>` tags prepended to assistant content; extracted and rendered with accent-styled boxes + `MarkdownRenderer` (not plain text)
-- **CWD whitelist read restriction**: only enforced when whitelist is non-empty; covers Read, Glob, Grep, Bash read commands (cat, head, tail, less, find, ls, tree, file, stat, wc, diff, strings, xxd)
-- **PI native MCP**: `streamingPI.ts` spawns MCP clients via `mcpClient.ts` (wraps `@modelcontextprotocol/sdk`) per stream, converts their tools to PI `ToolDefinition`s via `mcpToPiTools.ts` using `mcp__<server>__<tool>` naming (parity with Claude SDK's `allowedTools` wildcards), and tears them down in `finally`. Spawn failures emit `system_message` chunks without aborting the stream. No external `pi-mcp-adapter` extension needed.
-- **PI permission gate**: `piPermissionGate.ts` wraps MCP tool `execute()` with `createCanUseTool()` — same approval path + same shared `pendingRequests` Map as the Claude SDK. `permissionMode === 'bypassPermissions'` skips the gate (returns input reference unchanged). Scheduler tool is NOT gated (trusted internal customTool).
-- **PI MCP per-turn cost**: `streamMessagePI` spawns and tears down all MCP servers on every prompt. The PI SDK has no cross-turn session object to hold persistent handles; the Claude SDK does this internally. Long-lived or slow-to-start MCP servers incur full startup cost per message on PI.
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
 
-## Web Server Auth Gotchas
-- **Password opt-in**: `server_passwordHash` null = current behavior (URL token). Non-null = HTML login gate + cookie; WS cookie-authed at upgrade, no `{type:'auth'}` needed.
-- **Session revocation**: changing/clearing password rotates `server_sessionSecret` → all HMAC cookies invalidated (stateless, no session table).
-- **HTTP fallback + password**: cookies travel clear-text when OpenSSL unavailable. Warn the user; still works.
-- **Rate limit normalization**: `::ffff:` IPv6-mapped stripped (same as `isAllowedRemote`) or an attacker doubles the quota.
-- **Cookie validation MUST precede scrypt verify**: rate limit check runs first, before the expensive scrypt call.
-- **Settings `set(key, '')`**: deletes the row. Required for `clearPassword` to roundtrip through the `SettingsPort` adapter.
-- **WS channel blocker narrowed**: only `server:start|stop|getStatus` blocked via WS now (was `startsWith('server:')`). Password channels reachable via shim.
-- **PHC format is custom for scrypt**: `$scrypt$N=...,r=...,p=...$<salt>$<hash>` — parsed per-record so param bumps don't break verification of old hashes.
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-## Quick Chat & TTS Gotchas
-- **Shortcut re-toggle**: voice sends stop-recording, text hides; only creates new window if hidden/destroyed
-- **Overlay stop-recording listener**: overlay must also listen (not just voice component) — voice unmounts its listener after transcription; without fallback overlay gets stuck
-- **TTS `speak()`**: call `stopInternal()` not `stop()` — `stop()` clears `currentMessageId` and sends spurious `speaking:false` before new playback starts
-- **Volume restore**: called from multiple paths — idempotent via `savedVolume === null` guard
-- **TTS summary model**: `tts_summaryModel` is global-only (TTSSettings.tsx); backend uses `aiSettings.ttsSummaryModel || HAIKU_MODEL` fallback if unset
+## 3. Surgical Changes
 
-## Wayland & D-Bus Gotchas
-- **`bus.name`**: null until D-Bus Hello handshake — must `await bus.once('connect')` first
-- **`getProxyObject()`**: fails on portal Request paths — Hyprland doesn't expose for introspection
-- **`preferred_trigger`**: do NOT include in `BindShortcuts` — Hyprland warns on unknown data types
-- **FIFO flags**: `O_RDWR` only, no `O_NONBLOCK` — `O_NONBLOCK` causes `EAGAIN`; `O_RDWR` prevents blocking and EOF
-- **FIFO double-fire**: Hyprland `echo > pipe` delivers two lines per keypress — debounce per shortcut-id (150ms)
-- **Re-registration**: keeps FIFO alive, only updates hyprctl binds — no teardown/rebuild needed
+**Touch only what you must. Clean up only your own mess.**
 
-## Packaging & Updates Gotchas
-- **AppImage LD_LIBRARY_PATH**: strip `/tmp/.mount_*` paths — child processes load Electron's bundled `.so` otherwise
-- **`artifactName`**: required in `electron-builder.yml` linux — `productName` spaces cause filename mismatch between builder/updater/GitHub
-- **Publishing**: `--publish always` required — generates `latest-linux.yml`; manual AppImage uploads lack update metadata
-- **deb detection**: `!process.env.APPIMAGE` → redirect to GitHub releases (deb can't auto-update)
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
 
-## Web Server & Mobile Gotchas
-- **Binary args**: Uint8Array serialized as `{ __type: 'binary', data }` (base64) in shim — decoded server-side
-- **TTS plays on PC**: not remote device — expected behavior, not a bug
-- **`useMobileMode`**: flag-based (`__AGENT_WEB_MODE__`), not viewport — intentional for all remote access
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
 
-## Security Rules
-- **CWD hooks**: `'deny'` not `'ask'` — bypass auto-approves `'ask'`
-- **SVG sanitization**: forbid `script`, `foreignObject`, `use` — BUT Mermaid needs `foreignObject`/`use` (separate config)
-- **`openExternal`**: only `http:`/`https:` protocols allowed
-- **Main-thread I/O**: `fs.promises.*` only — no `readFileSync`/`statSync`
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+# LLM Wiki
+
+A pattern for building personal knowledge bases using LLMs.
+
+This is an idea file, it is designed to be copy pasted to your own LLM Agent (e.g. OpenAI Codex, Claude Code, OpenCode / Pi, or etc.). Its goal is to communicate the high level idea, but your agent will build out the specifics in collaboration with you.
+
+## The core idea
+
+Most people's experience with LLMs and documents looks like RAG: you upload a collection of files, the LLM retrieves relevant chunks at query time, and generates an answer. This works, but the LLM is rediscovering knowledge from scratch on every question. There's no accumulation. Ask a subtle question that requires synthesizing five documents, and the LLM has to find and piece together the relevant fragments every time. Nothing is built up. NotebookLM, ChatGPT file uploads, and most RAG systems work this way.
+
+The idea here is different. Instead of just retrieving from raw documents at query time, the LLM **incrementally builds and maintains a persistent wiki** — a structured, interlinked collection of markdown files that sits between you and the raw sources. When you add a new source, the LLM doesn't just index it for later retrieval. It reads it, extracts the key information, and integrates it into the existing wiki — updating entity pages, revising topic summaries, noting where new data contradicts old claims, strengthening or challenging the evolving synthesis. The knowledge is compiled once and then *kept current*, not re-derived on every query.
+
+This is the key difference: **the wiki is a persistent, compounding artifact.** The cross-references are already there. The contradictions have already been flagged. The synthesis already reflects everything you've read. The wiki keeps getting richer with every source you add and every question you ask.
+
+You never (or rarely) write the wiki yourself — the LLM writes and maintains all of it. You're in charge of sourcing, exploration, and asking the right questions. The LLM does all the grunt work — the summarizing, cross-referencing, filing, and bookkeeping that makes a knowledge base actually useful over time. In practice, I have the LLM agent open on one side and Obsidian open on the other. The LLM makes edits based on our conversation, and I browse the results in real time — following links, checking the graph view, reading the updated pages. Obsidian is the IDE; the LLM is the programmer; the wiki is the codebase.
+
+This can apply to a lot of different contexts. A few examples:
+
+- **Personal**: tracking your own goals, health, psychology, self-improvement — filing journal entries, articles, podcast notes, and building up a structured picture of yourself over time.
+- **Research**: going deep on a topic over weeks or months — reading papers, articles, reports, and incrementally building a comprehensive wiki with an evolving thesis.
+- **Reading a book**: filing each chapter as you go, building out pages for characters, themes, plot threads, and how they connect. By the end you have a rich companion wiki. Think of fan wikis like [Tolkien Gateway](https://tolkiengateway.net/wiki/Main_Page) — thousands of interlinked pages covering characters, places, events, languages, built by a community of volunteers over years. You could build something like that personally as you read, with the LLM doing all the cross-referencing and maintenance.
+- **Business/team**: an internal wiki maintained by LLMs, fed by Slack threads, meeting transcripts, project documents, customer calls. Possibly with humans in the loop reviewing updates. The wiki stays current because the LLM does the maintenance that no one on the team wants to do.
+- **Competitive analysis, due diligence, trip planning, course notes, hobby deep-dives** — anything where you're accumulating knowledge over time and want it organized rather than scattered.
+
+## Architecture
+
+There are three layers:
+
+**Raw sources** — your curated collection of source documents. Articles, papers, images, data files. These are immutable — the LLM reads from them but never modifies them. This is your source of truth.
+
+**The wiki** — a directory of LLM-generated markdown files. Summaries, entity pages, concept pages, comparisons, an overview, a synthesis. The LLM owns this layer entirely. It creates pages, updates them when new sources arrive, maintains cross-references, and keeps everything consistent. You read it; the LLM writes it.
+
+**The schema** — a document (e.g. CLAUDE.md for Claude Code or AGENTS.md for Codex) that tells the LLM how the wiki is structured, what the conventions are, and what workflows to follow when ingesting sources, answering questions, or maintaining the wiki. This is the key configuration file — it's what makes the LLM a disciplined wiki maintainer rather than a generic chatbot. You and the LLM co-evolve this over time as you figure out what works for your domain.
+
+## Operations
+
+**Ingest.** You drop a new source into the raw collection and tell the LLM to process it. An example flow: the LLM reads the source, discusses key takeaways with you, writes a summary page in the wiki, updates the index, updates relevant entity and concept pages across the wiki, and appends an entry to the log. A single source might touch 10-15 wiki pages. Personally I prefer to ingest sources one at a time and stay involved — I read the summaries, check the updates, and guide the LLM on what to emphasize. But you could also batch-ingest many sources at once with less supervision. It's up to you to develop the workflow that fits your style and document it in the schema for future sessions.
+
+**Query.** You ask questions against the wiki. The LLM searches for relevant pages, reads them, and synthesizes an answer with citations. Answers can take different forms depending on the question — a markdown page, a comparison table, a slide deck (Marp), a chart (matplotlib), a canvas. The important insight: **good answers can be filed back into the wiki as new pages.** A comparison you asked for, an analysis, a connection you discovered — these are valuable and shouldn't disappear into chat history. This way your explorations compound in the knowledge base just like ingested sources do.
+
+**Lint.** Periodically, ask the LLM to health-check the wiki. Look for: contradictions between pages, stale claims that newer sources have superseded, orphan pages with no inbound links, important concepts mentioned but lacking their own page, missing cross-references, data gaps that could be filled with a web search. The LLM is good at suggesting new questions to investigate and new sources to look for. This keeps the wiki healthy as it grows.
+
+## Indexing and logging
+
+Two special files help the LLM (and you) navigate the wiki as it grows. They serve different purposes:
+
+**index.md** is content-oriented. It's a catalog of everything in the wiki — each page listed with a link, a one-line summary, and optionally metadata like date or source count. Organized by category (entities, concepts, sources, etc.). The LLM updates it on every ingest. When answering a query, the LLM reads the index first to find relevant pages, then drills into them. This works surprisingly well at moderate scale (~100 sources, ~hundreds of pages) and avoids the need for embedding-based RAG infrastructure.
+
+**log.md** is chronological. It's an append-only record of what happened and when — ingests, queries, lint passes. A useful tip: if each entry starts with a consistent prefix (e.g. `## [2026-04-02] ingest | Article Title`), the log becomes parseable with simple unix tools — `grep "^## \[" log.md | tail -5` gives you the last 5 entries. The log gives you a timeline of the wiki's evolution and helps the LLM understand what's been done recently.
+
+## Optional: CLI tools
+
+At some point you may want to build small tools that help the LLM operate on the wiki more efficiently. A search engine over the wiki pages is the most obvious one — at small scale the index file is enough, but as the wiki grows you want proper search. [qmd](https://github.com/tobi/qmd) is a good option: it's a local search engine for markdown files with hybrid BM25/vector search and LLM re-ranking, all on-device. It has both a CLI (so the LLM can shell out to it) and an MCP server (so the LLM can use it as a native tool). You could also build something simpler yourself — the LLM can help you vibe-code a naive search script as the need arises.
+
+## Tips and tricks
+
+- **Obsidian Web Clipper** is a browser extension that converts web articles to markdown. Very useful for quickly getting sources into your raw collection.
+- **Download images locally.** In Obsidian Settings → Files and links, set "Attachment folder path" to a fixed directory (e.g. `raw/assets/`). Then in Settings → Hotkeys, search for "Download" to find "Download attachments for current file" and bind it to a hotkey (e.g. Ctrl+Shift+D). After clipping an article, hit the hotkey and all images get downloaded to local disk. This is optional but useful — it lets the LLM view and reference images directly instead of relying on URLs that may break. Note that LLMs can't natively read markdown with inline images in one pass — the workaround is to have the LLM read the text first, then view some or all of the referenced images separately to gain additional context. It's a bit clunky but works well enough.
+- **Obsidian's graph view** is the best way to see the shape of your wiki — what's connected to what, which pages are hubs, which are orphans.
+- **Marp** is a markdown-based slide deck format. Obsidian has a plugin for it. Useful for generating presentations directly from wiki content.
+- **Dataview** is an Obsidian plugin that runs queries over page frontmatter. If your LLM adds YAML frontmatter to wiki pages (tags, dates, source counts), Dataview can generate dynamic tables and lists.
+- The wiki is just a git repo of markdown files. You get version history, branching, and collaboration for free.
+
+## Why this works
+
+The tedious part of maintaining a knowledge base is not the reading or the thinking — it's the bookkeeping. Updating cross-references, keeping summaries current, noting when new data contradicts old claims, maintaining consistency across dozens of pages. Humans abandon wikis because the maintenance burden grows faster than the value. LLMs don't get bored, don't forget to update a cross-reference, and can touch 15 files in one pass. The wiki stays maintained because the cost of maintenance is near zero.
+
+The human's job is to curate sources, direct the analysis, ask good questions, and think about what it all means. The LLM's job is everything else.
+
+The idea is related in spirit to Vannevar Bush's Memex (1945) — a personal, curated knowledge store with associative trails between documents. Bush's vision was closer to this than to what the web became: private, actively curated, with the connections between documents as valuable as the documents themselves. The part he couldn't solve was who does the maintenance. The LLM handles that.
+
+
+## Note
+
+This document is intentionally abstract. It describes the idea, not a specific implementation. The exact directory structure, the schema conventions, the page formats, the tooling — all of that will depend on your domain, your preferences, and your LLM of choice. Everything mentioned above is optional and modular — pick what's useful, ignore what isn't. For example: your sources might be text-only, so you don't need image handling at all. Your wiki might be small enough that the index file is all you need, no search engine required. You might not care about slide decks and just want markdown pages. You might want a completely different set of output formats. The right way to use this is to share it with your LLM agent and work together to instantiate a version that fits your needs. The document's only job is to communicate the pattern. Your LLM can figure out the rest.
